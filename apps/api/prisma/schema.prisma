@@ -1,0 +1,455 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ────────────────────────────────────────────────────────────────────
+
+enum UserRole {
+  PLAYER
+  VENDOR
+  ADMIN
+}
+
+enum Province {
+  AB
+  BC
+  MB
+  NB
+  NL
+  NS
+  NT
+  NU
+  ON
+  PE
+  QC
+  SK
+  YT
+}
+
+enum VendorStatus {
+  PENDING
+  APPROVED
+  SUSPENDED
+  REJECTED
+}
+
+enum SportType {
+  SOCCER
+  BASKETBALL
+  TENNIS
+  BADMINTON
+  VOLLEYBALL
+  HOCKEY
+  SQUASH
+  PICKLEBALL
+  BASEBALL
+  CRICKET
+}
+
+enum SurfaceType {
+  TURF
+  HARDWOOD
+  CONCRETE
+  CLAY
+  ICE
+  GRASS
+  RUBBERIZED
+}
+
+enum SlotStatus {
+  AVAILABLE
+  BOOKED
+  BLOCKED
+  OPEN_GAME
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+  NO_SHOW
+}
+
+enum BookingPaymentStatus {
+  UNPAID
+  PAID
+  REFUNDED
+  PARTIAL
+}
+
+enum PaymentMethod {
+  CARD
+  APPLE_PAY
+  GOOGLE_PAY
+  INTERAC_ETRANSFER
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+  REFUNDED
+}
+
+enum OpenGameStatus {
+  OPEN
+  FULL
+  CANCELLED
+  COMPLETED
+}
+
+enum SkillLevel {
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
+  ANY
+}
+
+enum MessageType {
+  TEXT
+  IMAGE
+  SYSTEM
+}
+
+enum ConversationContext {
+  BOOKING
+  OPEN_GAME
+  SUPPORT
+}
+
+// ─── Auth ─────────────────────────────────────────────────────────────────────
+
+model User {
+  id              String   @id @default(cuid())
+  phone           String   @unique
+  email           String?  @unique
+  passwordHash    String?
+  firstName       String   @default("")
+  lastName        String   @default("")
+  avatarUrl       String?
+  role            UserRole @default(PLAYER)
+  province        Province @default(ON)
+  isPhoneVerified Boolean  @default(false)
+  isEmailVerified Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  vendor                 Vendor?
+  bookings               Booking[]
+  payments               Payment[]
+  reviews                Review[]
+  openGamesHosted        OpenGame[]                @relation("OpenGameHost")
+  openGameParticipations OpenGameParticipant[]
+  sentMessages           ChatMessage[]             @relation("MessageSender")
+  conversations          ConversationParticipant[]
+  refreshTokens          RefreshToken[]
+
+  @@index([phone])
+  @@index([email])
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// ─── Vendor ───────────────────────────────────────────────────────────────────
+
+model Vendor {
+  id                       String       @id @default(cuid())
+  userId                   String       @unique
+  businessName             String
+  businessNumber           String?
+  gstHstNumber             String?
+  province                 Province
+  status                   VendorStatus @default(PENDING)
+  stripeAccountId          String?      @unique
+  stripeOnboardingComplete Boolean      @default(false)
+  logoUrl                  String?
+  website                  String?
+  createdAt                DateTime     @default(now())
+  updatedAt                DateTime     @updatedAt
+
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  facilities Facility[]
+}
+
+// ─── Facility ─────────────────────────────────────────────────────────────────
+
+model Facility {
+  id          String      @id @default(cuid())
+  vendorId    String
+  name        String
+  description String
+  sport       SportType
+  surface     SurfaceType
+  capacity    Int
+  images      String[]
+  isActive    Boolean     @default(true)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  vendor         Vendor                @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  address        FacilityAddress?
+  amenities      FacilityAmenityLink[]
+  operatingHours OperatingHours[]
+  slots          Slot[]
+  bookings       Booking[]
+  reviews        Review[]
+  openGames      OpenGame[]
+
+  @@index([vendorId])
+  @@index([sport])
+  @@index([isActive])
+}
+
+model FacilityAddress {
+  id         String   @id @default(cuid())
+  facilityId String   @unique
+  street     String
+  city       String
+  province   Province
+  postalCode String
+  country    String   @default("CA")
+  lat        Float?
+  lng        Float?
+
+  facility Facility @relation(fields: [facilityId], references: [id], onDelete: Cascade)
+
+  @@index([city])
+  @@index([province])
+}
+
+model Amenity {
+  id       String  @id @default(cuid())
+  name     String  @unique
+  iconSlug String?
+
+  facilities FacilityAmenityLink[]
+}
+
+model FacilityAmenityLink {
+  facilityId String
+  amenityId  String
+
+  facility Facility @relation(fields: [facilityId], references: [id], onDelete: Cascade)
+  amenity  Amenity  @relation(fields: [amenityId], references: [id], onDelete: Cascade)
+
+  @@id([facilityId, amenityId])
+}
+
+model OperatingHours {
+  id         String  @id @default(cuid())
+  facilityId String
+  day        Int     // 0 = Sunday … 6 = Saturday
+  openTime   String  // "HH:mm"
+  closeTime  String  // "HH:mm"
+  isClosed   Boolean @default(false)
+
+  facility Facility @relation(fields: [facilityId], references: [id], onDelete: Cascade)
+
+  @@unique([facilityId, day])
+}
+
+// ─── Slots & Bookings ─────────────────────────────────────────────────────────
+
+model Slot {
+  id                String     @id @default(cuid())
+  facilityId        String
+  date              DateTime   @db.Date
+  startTime         String     // "HH:mm"
+  endTime           String     // "HH:mm"
+  durationMinutes   Int
+  priceCAD          Decimal    @db.Decimal(10, 2)
+  status            SlotStatus @default(AVAILABLE)
+  recurrenceGroupId String?
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+
+  facility Facility  @relation(fields: [facilityId], references: [id], onDelete: Cascade)
+  booking  Booking?
+  openGame OpenGame?
+
+  @@index([facilityId, date])
+  @@index([status])
+  @@index([recurrenceGroupId])
+}
+
+model Booking {
+  id            String               @id @default(cuid())
+  slotId        String               @unique
+  facilityId    String
+  userId        String
+  status        BookingStatus        @default(PENDING)
+  paymentStatus BookingPaymentStatus @default(UNPAID)
+  subtotalCAD   Decimal              @db.Decimal(10, 2)
+  taxCAD        Decimal              @db.Decimal(10, 2)
+  totalCAD      Decimal              @db.Decimal(10, 2)
+  taxProvince   Province
+  notes         String?
+  cancelledAt   DateTime?
+  cancelReason  String?
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+
+  slot          Slot           @relation(fields: [slotId], references: [id])
+  facility      Facility       @relation(fields: [facilityId], references: [id])
+  user          User           @relation(fields: [userId], references: [id])
+  payment       Payment?
+  review        Review?
+  conversations Conversation[]
+
+  @@index([userId])
+  @@index([facilityId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+// ─── Payments ─────────────────────────────────────────────────────────────────
+
+model Payment {
+  id                String        @id @default(cuid())
+  bookingId         String        @unique
+  userId            String
+  amountCAD         Decimal       @db.Decimal(10, 2)
+  taxCAD            Decimal       @db.Decimal(10, 2)
+  method            PaymentMethod
+  gatewayPaymentId  String        @unique
+  gatewayCustomerId String?
+  status            PaymentStatus @default(PENDING)
+  refundedAt        DateTime?
+  refundAmountCAD   Decimal?      @db.Decimal(10, 2)
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  booking Booking @relation(fields: [bookingId], references: [id])
+  user    User    @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([status])
+}
+
+// ─── Reviews ──────────────────────────────────────────────────────────────────
+
+model Review {
+  id              String    @id @default(cuid())
+  bookingId       String    @unique
+  facilityId      String
+  userId          String
+  rating          Int
+  comment         String?
+  isVerified      Boolean   @default(true)
+  vendorReply     String?
+  vendorRepliedAt DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  booking  Booking  @relation(fields: [bookingId], references: [id])
+  facility Facility @relation(fields: [facilityId], references: [id])
+  user     User     @relation(fields: [userId], references: [id])
+
+  @@index([facilityId])
+  @@index([userId])
+}
+
+// ─── Open Games ───────────────────────────────────────────────────────────────
+
+model OpenGame {
+  id                String         @id @default(cuid())
+  slotId            String         @unique
+  facilityId        String
+  hostUserId        String
+  sport             SportType
+  title             String
+  description       String?
+  status            OpenGameStatus @default(OPEN)
+  skillLevel        SkillLevel     @default(ANY)
+  maxPlayers        Int
+  currentPlayers    Int            @default(1)
+  pricePerPlayerCAD Decimal        @db.Decimal(10, 2)
+  isPublic          Boolean        @default(true)
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  slot          Slot                  @relation(fields: [slotId], references: [id])
+  facility      Facility              @relation(fields: [facilityId], references: [id])
+  host          User                  @relation("OpenGameHost", fields: [hostUserId], references: [id])
+  participants  OpenGameParticipant[]
+  conversations Conversation[]
+
+  @@index([facilityId])
+  @@index([hostUserId])
+  @@index([status, sport])
+}
+
+model OpenGameParticipant {
+  id            String   @id @default(cuid())
+  openGameId    String
+  userId        String
+  joinedAt      DateTime @default(now())
+  paymentStatus String   @default("unpaid")
+
+  openGame OpenGame @relation(fields: [openGameId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id])
+
+  @@unique([openGameId, userId])
+  @@index([userId])
+}
+
+// ─── Chat ─────────────────────────────────────────────────────────────────────
+
+model Conversation {
+  id         String              @id @default(cuid())
+  context    ConversationContext
+  bookingId  String?
+  openGameId String?
+  title      String?
+  createdAt  DateTime            @default(now())
+  updatedAt  DateTime            @updatedAt
+
+  booking      Booking?                  @relation(fields: [bookingId], references: [id])
+  openGame     OpenGame?                 @relation(fields: [openGameId], references: [id])
+  participants ConversationParticipant[]
+  messages     ChatMessage[]
+}
+
+model ConversationParticipant {
+  conversationId String
+  userId         String
+  joinedAt       DateTime @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id])
+
+  @@id([conversationId, userId])
+}
+
+model ChatMessage {
+  id             String      @id @default(cuid())
+  conversationId String
+  senderId       String
+  content        String
+  type           MessageType @default(TEXT)
+  isRead         Boolean     @default(false)
+  readAt         DateTime?
+  createdAt      DateTime    @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender       User         @relation("MessageSender", fields: [senderId], references: [id])
+
+  @@index([conversationId, createdAt])
+  @@index([senderId])
+}
