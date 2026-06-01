@@ -133,17 +133,19 @@ model User {
   firstName       String   @default("")
   lastName        String   @default("")
   avatarUrl       String?
-  role            UserRole @default(PLAYER)
-  province        Province @default(ON)
-  isPhoneVerified Boolean  @default(false)
-  isEmailVerified Boolean  @default(false)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  role               UserRole @default(PLAYER)
+  province           Province @default(ON)
+  isPhoneVerified    Boolean  @default(false)
+  isEmailVerified    Boolean  @default(false)
+  creditBalanceCAD   Decimal  @default(0) @db.Decimal(10, 2)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 
   vendor                 Vendor?
   bookings               Booking[]
   payments               Payment[]
   reviews                Review[]
+  domeCredits            DomeCredit[]
   openGamesHosted        OpenGame[]                @relation("OpenGameHost")
   openGameParticipations OpenGameParticipant[]
   sentMessages           ChatMessage[]             @relation("MessageSender")
@@ -206,6 +208,7 @@ model Facility {
   address        FacilityAddress?
   amenities      FacilityAmenityLink[]
   operatingHours OperatingHours[]
+  courts         Court[]
   slots          Slot[]
   bookings       Booking[]
   reviews        Review[]
@@ -264,11 +267,27 @@ model OperatingHours {
   @@unique([facilityId, day])
 }
 
+model Court {
+  id          String   @id @default(cuid())
+  facilityId  String
+  name        String
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  facility Facility @relation(fields: [facilityId], references: [id], onDelete: Cascade)
+  slots    Slot[]
+
+  @@index([facilityId])
+}
+
 // ─── Slots & Bookings ─────────────────────────────────────────────────────────
 
 model Slot {
   id                String     @id @default(cuid())
   facilityId        String
+  courtId           String?
   date              DateTime   @db.Date
   startTime         String     // "HH:mm"
   endTime           String     // "HH:mm"
@@ -280,10 +299,12 @@ model Slot {
   updatedAt         DateTime   @updatedAt
 
   facility Facility  @relation(fields: [facilityId], references: [id], onDelete: Cascade)
+  court    Court?    @relation(fields: [courtId], references: [id])
   booking  Booking?
   openGame OpenGame?
 
   @@index([facilityId, date])
+  @@index([courtId, date])
   @@index([status])
   @@index([recurrenceGroupId])
 }
@@ -300,16 +321,18 @@ model Booking {
   totalCAD      Decimal              @db.Decimal(10, 2)
   taxProvince   Province
   notes         String?
-  cancelledAt   DateTime?
-  cancelReason  String?
-  createdAt     DateTime             @default(now())
-  updatedAt     DateTime             @updatedAt
+  cancelledAt      DateTime?
+  cancelReason     String?
+  creditsIssuedCAD Decimal?             @db.Decimal(10, 2)
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
 
   slot          Slot           @relation(fields: [slotId], references: [id])
   facility      Facility       @relation(fields: [facilityId], references: [id])
   user          User           @relation(fields: [userId], references: [id])
   payment       Payment?
   review        Review?
+  domeCredits   DomeCredit[]
   conversations Conversation[]
 
   @@index([userId])
@@ -340,6 +363,22 @@ model Payment {
 
   @@index([userId])
   @@index([status])
+}
+
+model DomeCredit {
+  id        String    @id @default(cuid())
+  userId    String
+  bookingId String?
+  amountCAD Decimal   @db.Decimal(10, 2)
+  reason    String
+  expiresAt DateTime?
+  createdAt DateTime  @default(now())
+
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  booking Booking? @relation(fields: [bookingId], references: [id])
+
+  @@index([userId])
+  @@index([bookingId])
 }
 
 // ─── Reviews ──────────────────────────────────────────────────────────────────

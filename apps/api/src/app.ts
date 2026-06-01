@@ -16,6 +16,11 @@ export function createApp() {
     })
   );
   app.use(morgan(process.env["NODE_ENV"] === "production" ? "combined" : "dev"));
+
+  // Stripe webhook needs the raw body for signature verification.
+  // Register express.raw() BEFORE express.json() — body-parser skips re-parsing
+  // once req._body is set, so other routes are unaffected.
+  app.use("/api/v1/payments/webhook", express.raw({ type: "application/json" }));
   app.use(express.json());
 
   app.get("/health", (_req, res) => {

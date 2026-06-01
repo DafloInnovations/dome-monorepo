@@ -164,14 +164,20 @@ export async function listFacilities(params: ListFacilitiesParams) {
   if (province) addressFilter.province = coerceProvince(province);
   if (geoSearch) {
     const bb = boundingBox(lat!, lng!, radiusKm);
-    addressFilter.lat = { gte: bb.latMin, lte: bb.latMax };
-    addressFilter.lng = { gte: bb.lngMin, lte: bb.lngMax };
+    // Require lat/lng to be non-null and within the bounding box.
+    // Facilities without coordinates are excluded from geo results.
+    addressFilter.lat = { not: null, gte: bb.latMin, lte: bb.latMax };
+    addressFilter.lng = { not: null, gte: bb.lngMin, lte: bb.lngMax };
   }
 
   const where: Prisma.FacilityWhereInput = {
     isActive: true,
     ...(sport && { sport: coerceSport(sport) }),
-    ...(Object.keys(addressFilter).length > 0 && { address: addressFilter }),
+    // `is:` ensures we only match facilities that have an address record
+    // satisfying every condition in addressFilter (not facilities with no address).
+    ...(Object.keys(addressFilter).length > 0 && {
+      address: { is: addressFilter },
+    }),
     ...(date && {
       slots: { some: { date: parseDate(date), status: SlotStatus.AVAILABLE } },
     }),
@@ -338,8 +344,10 @@ export async function createFacility(userId: string, input: CreateFacilityInput)
           province: coerceProvince(address.province),
           postalCode: address.postalCode.replace(/\s/g, "").toUpperCase(),
           country: "CA",
-          lat: address.lat ?? null,
-          lng: address.lng ?? null,
+          // typeof guards ensure 0 (equator / prime meridian) is stored correctly
+          // and that undefined/null inputs result in a stored NULL.
+          lat: typeof address.lat === "number" ? address.lat : null,
+          lng: typeof address.lng === "number" ? address.lng : null,
         },
       },
       ...(operatingHours.length > 0 && {
@@ -396,18 +404,26 @@ export async function updateFacility(
               province: coerceProvince(address.province ?? "ON"),
               postalCode: (address.postalCode ?? "").replace(/\s/g, "").toUpperCase(),
               country: "CA",
-              lat: address.lat ?? null,
-              lng: address.lng ?? null,
+              lat: typeof address.lat === "number" ? address.lat : null,
+              lng: typeof address.lng === "number" ? address.lng : null,
             },
             update: {
-              ...(address.street && { street: address.street }),
-              ...(address.city && { city: address.city }),
-              ...(address.province && { province: coerceProvince(address.province) }),
-              ...(address.postalCode && {
+              // Use explicit checks so empty strings update, and 0 lat/lng update.
+              // `!== undefined` distinguishes "not provided" from "explicitly null" (clear).
+              ...(address.street !== undefined && { street: address.street }),
+              ...(address.city !== undefined && { city: address.city }),
+              ...(address.province !== undefined && {
+                province: coerceProvince(address.province),
+              }),
+              ...(address.postalCode !== undefined && {
                 postalCode: address.postalCode.replace(/\s/g, "").toUpperCase(),
               }),
-              ...(address.lat !== undefined && { lat: address.lat }),
-              ...(address.lng !== undefined && { lng: address.lng }),
+              ...(address.lat !== undefined && {
+                lat: typeof address.lat === "number" ? address.lat : null,
+              }),
+              ...(address.lng !== undefined && {
+                lng: typeof address.lng === "number" ? address.lng : null,
+              }),
             },
           },
         },

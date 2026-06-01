@@ -9,7 +9,7 @@ export type BookingStatus =
   | "completed"
   | "no-show";
 
-export type PaymentStatus = "unpaid" | "paid" | "refunded" | "partial";
+export type BookingPaymentStatus = "unpaid" | "paid" | "refunded" | "partial";
 
 export interface Booking {
   id: string;
@@ -17,7 +17,7 @@ export interface Booking {
   facilityId: string;
   userId: string;
   status: BookingStatus;
-  paymentStatus: PaymentStatus;
+  paymentStatus: BookingPaymentStatus;
   subtotalCAD: number;
   taxCAD: number;
   totalCAD: number;

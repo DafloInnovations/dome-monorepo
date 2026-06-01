@@ -2,41 +2,42 @@ import { Router } from "express";
 import { z } from "zod";
 import { authenticate } from "../middleware/auth";
 import { validate } from "../middleware/validate";
+import {
+  createPaymentIntent,
+  handleWebhook,
+} from "../services/payments.service";
 
 const router = Router();
 
-const createIntentSchema = z.object({
-  bookingId: z.string().uuid(),
+const intentSchema = z.object({
+  bookingId: z.string().min(1),
 });
 
-const confirmSchema = z.object({
-  paymentIntentId: z.string(),
-  bookingId: z.string().uuid(),
+// POST /api/v1/payments/intent — authenticated
+router.post("/intent", authenticate, validate(intentSchema), async (req, res, next) => {
+  try {
+    const { bookingId } = req.body as z.infer<typeof intentSchema>;
+    const data = await createPaymentIntent(req.user!.sub, bookingId);
+    res.json({ data });
+  } catch (err) {
+    next(err);
+  }
 });
 
-router.post("/intent", authenticate, validate(createIntentSchema), async (req, res) => {
-  // TODO: calculate total with tax, create Stripe PaymentIntent, return clientSecret
-  res.json({ data: { clientSecret: "pi_test_..._secret_...", paymentIntentId: "pi_test_...", amountCAD: 0, taxCAD: 0, totalCAD: 0 } });
-});
-
-router.post("/confirm", authenticate, validate(confirmSchema), async (req, res) => {
-  // TODO: verify Stripe payment succeeded, confirm booking, record Payment
-  res.json({ data: { status: "succeeded" } });
-});
-
-router.get("/:id", authenticate, async (req, res) => {
-  res.json({ data: { id: req.params["id"] } });
-});
-
-router.post("/:id/refund", authenticate, async (req, res) => {
-  // TODO: admin/vendor only, issue Stripe refund, update booking paymentStatus
-  res.json({ data: { id: req.params["id"], status: "refunded" } });
-});
-
-// Stripe webhook — no auth, verified by signature
-router.post("/webhook", async (req, res) => {
-  // TODO: verify stripe-signature header, handle payment_intent.succeeded etc.
-  res.json({ received: true });
+// POST /api/v1/payments/webhook — no auth, Stripe-signature verified inside service
+// express.raw() is applied in app.ts before express.json(), so req.body is a Buffer here
+router.post("/webhook", async (req, res, next) => {
+  try {
+    const sig = req.headers["stripe-signature"];
+    if (!sig || typeof sig !== "string") {
+      res.status(400).json({ message: "Missing stripe-signature header" });
+      return;
+    }
+    const result = await handleWebhook(req.body as Buffer, sig);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
 });
 
 export default router;

@@ -2,48 +2,79 @@ import { Router } from "express";
 import { z } from "zod";
 import { authenticate } from "../middleware/auth";
 import { validate } from "../middleware/validate";
+import {
+  cancelBooking,
+  confirmBooking,
+  createBooking,
+  myBookings,
+} from "../services/bookings.service";
 
 const router = Router();
 
-const createBookingSchema = z.object({
-  slotId: z.string().uuid(),
-  facilityId: z.string().uuid(),
+router.use(authenticate);
+
+const createSchema = z.object({
+  slotId: z.string().min(1),
+  facilityId: z.string().min(1),
   notes: z.string().max(500).optional(),
+});
+
+const confirmSchema = z.object({
+  paymentIntentId: z.string().min(1),
 });
 
 const cancelSchema = z.object({
   reason: z.string().max(200).optional(),
 });
 
-router.get("/", authenticate, async (req, res) => {
-  const { status, facilityId, from, to, page = "1", limit = "20" } = req.query as Record<string, string>;
-  // TODO: query database with filters
-  res.json({ data: [], total: 0, page: Number(page), limit: Number(limit), hasMore: false });
+// GET /api/v1/bookings/me — must be before /:id
+router.get("/me", async (req, res, next) => {
+  try {
+    const { page, limit } = req.query as Record<string, string | undefined>;
+    const result = await myBookings(
+      req.user!.sub,
+      page ? Number(page) : 1,
+      limit ? Number(limit) : 20
+    );
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
 });
 
-router.get("/:id", authenticate, async (req, res) => {
-  // TODO: fetch booking by id, check ownership
-  res.json({ data: { id: req.params["id"] } });
+// POST /api/v1/bookings
+router.post("/", validate(createSchema), async (req, res, next) => {
+  try {
+    const { slotId, facilityId, notes } = req.body as z.infer<typeof createSchema>;
+    const booking = await createBooking(req.user!.sub, slotId, facilityId, notes);
+    res.status(201).json({ data: booking });
+  } catch (err) {
+    next(err);
+  }
 });
 
-router.post("/", authenticate, validate(createBookingSchema), async (req, res) => {
-  // TODO: verify slot available, create booking, hold slot
-  res.status(201).json({ data: { ...req.body, status: "pending" } });
+// POST /api/v1/bookings/:id/confirm
+router.post("/:id/confirm", validate(confirmSchema), async (req, res, next) => {
+  try {
+    const id = Array.isArray(req.params["id"]) ? req.params["id"][0]! : req.params["id"]!;
+    const { paymentIntentId } = req.body as z.infer<typeof confirmSchema>;
+    const booking = await confirmBooking(req.user!.sub, id, paymentIntentId);
+    res.json({ data: booking });
+  } catch (err) {
+    next(err);
+  }
 });
 
-router.put("/:id/cancel", authenticate, validate(cancelSchema), async (req, res) => {
-  // TODO: cancel booking, release slot, trigger refund if needed
-  res.json({ data: { id: req.params["id"], status: "cancelled" } });
-});
-
-router.put("/:id/complete", authenticate, async (req, res) => {
-  // TODO: vendor-only, mark booking complete
-  res.json({ data: { id: req.params["id"], status: "completed" } });
-});
-
-router.put("/:id/no-show", authenticate, async (req, res) => {
-  // TODO: vendor-only, mark no-show
-  res.json({ data: { id: req.params["id"], status: "no-show" } });
+// PUT /api/v1/bookings/:id/cancel
+router.put("/:id/cancel", validate(cancelSchema), async (req, res, next) => {
+  try {
+    const id = Array.isArray(req.params["id"]) ? req.params["id"][0]! : req.params["id"]!;
+    const { reason } = req.body as z.infer<typeof cancelSchema>;
+    const result = await cancelBooking(req.user!.sub, id, reason);
+    res.json({ data: result });
+  } catch (err) {
+    next(err);
+  }
 });
 
 export default router;

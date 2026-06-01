@@ -1,6 +1,10 @@
-import type { CanadianProvince } from "@dome/types";
+// Province codes are duplicated here so @dome/utils has no build-time dependency
+// on @dome/types (which may not be built yet in some tool environments).
+export type Province =
+  | "AB" | "BC" | "MB" | "NB" | "NL" | "NS"
+  | "NT" | "NU" | "ON" | "PE" | "QC" | "SK" | "YT";
 
-const PROVINCIAL_TAX_RATES: Record<CanadianProvince, number> = {
+const PROVINCIAL_TAX_RATES: Record<Province, number> = {
   AB: 0.05,
   BC: 0.12,
   MB: 0.12,
@@ -16,19 +20,18 @@ const PROVINCIAL_TAX_RATES: Record<CanadianProvince, number> = {
   YT: 0.05,
 };
 
-export function getTaxRate(province: CanadianProvince): number {
-  return PROVINCIAL_TAX_RATES[province];
+export function getTaxRate(province: string): number {
+  return PROVINCIAL_TAX_RATES[province as Province] ?? 0.05;
 }
 
-export function calculateTax(amountCAD: number, province: CanadianProvince): number {
+export function calculateTax(amountCAD: number, province: string): number {
   return Math.round(amountCAD * getTaxRate(province) * 100) / 100;
 }
 
-export function calculateTotal(subtotalCAD: number, province: CanadianProvince): {
-  subtotalCAD: number;
-  taxCAD: number;
-  totalCAD: number;
-} {
+export function calculateTotal(
+  subtotalCAD: number,
+  province: string
+): { subtotalCAD: number; taxCAD: number; totalCAD: number } {
   const taxCAD = calculateTax(subtotalCAD, province);
   return {
     subtotalCAD,
