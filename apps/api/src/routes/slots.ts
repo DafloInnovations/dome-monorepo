@@ -47,8 +47,8 @@ export const facilitySlotRouter = Router({ mergeParams: true });
 
 facilitySlotRouter.get("/", async (req, res) => {
   const { date } = req.query as { date?: string };
-  // TODO: return all slots for facility on given date
-  res.json({ data: { facilityId: req.params["facilityId"], date, slots: [] } });
+  const params = req.params as Record<string, string>;
+  res.json({ data: { facilityId: params["facilityId"], date, slots: [] } });
 });
 
 export default router;
