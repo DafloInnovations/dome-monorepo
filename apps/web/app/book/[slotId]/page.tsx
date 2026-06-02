@@ -1,0 +1,218 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
+import { API_URL, apiFetch } from "../../../lib/api";
+import { getToken, isAuthenticated } from "../../../lib/auth";
+
+const TAX_RATE = 0.13; // Ontario HST
+
+function formatDisplayDate(dateStr: string): string {
+  if (!dateStr) return "";
+  const [y, m, d] = dateStr.split("-").map(Number);
+  return new Date(y!, m! - 1, d!).toLocaleDateString("en-CA", {
+    weekday: "long", month: "long", day: "numeric", year: "numeric",
+  });
+}
+
+interface BookingResult {
+  id: string;
+  totalCAD: number;
+  subtotalCAD: number;
+  taxCAD: number;
+}
+
+interface PaymentIntent {
+  clientSecret: string;
+  paymentIntentId: string;
+  totalCAD: number;
+}
+
+export default function BookingPage({ params }: { params: { slotId: string } }) {
+  const router     = useRouter();
+  const search     = useSearchParams();
+  const slotId     = params.slotId;
+
+  const facilityId   = search.get("facilityId") ?? "";
+  const facilityName = search.get("facilityName") ?? "Facility";
+  const startTime    = search.get("startTime") ?? "";
+  const endTime      = search.get("endTime") ?? "";
+  const priceCAD     = parseFloat(search.get("priceCAD") ?? "0");
+  const date         = search.get("date") ?? "";
+
+  const subtotal = priceCAD;
+  const tax      = Math.round(subtotal * TAX_RATE * 100) / 100;
+  const total    = Math.round((subtotal + tax) * 100) / 100;
+
+  const [playerCount, setPlayerCount] = useState(1);
+  const [step, setStep]               = useState<"summary" | "processing" | "error">("summary");
+  const [errorMsg, setErrorMsg]       = useState("");
+  const [isLoading, setIsLoading]     = useState(false);
+
+  const pendingBookingIdRef = useRef<string | null>(null);
+
+  // Guard: redirect to login if not authenticated
+  useEffect(() => {
+    if (!isAuthenticated()) {
+      router.replace(`/login?redirect=${encodeURIComponent(`/book/${slotId}${window.location.search}`)}`);
+    }
+  }, [slotId, router]);
+
+  // Release lock if user leaves before paying
+  useEffect(() => {
+    return () => {
+      const bid = pendingBookingIdRef.current;
+      const tok = getToken();
+      if (bid && tok) {
+        fetch(`${API_URL}/bookings/${bid}/lock`, {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${tok}` },
+        }).catch(() => {});
+      }
+    };
+  }, []);
+
+  async function handlePay() {
+    setIsLoading(true);
+    setErrorMsg("");
+    try {
+      // 1. Create booking (acquires Redis lock)
+      const booking = await apiFetch<{ data: BookingResult }>("/bookings", {
+        method: "POST",
+        body: JSON.stringify({ slotId, facilityId }),
+      });
+      pendingBookingIdRef.current = booking.data.id;
+
+      // 2. Create payment intent
+      const pi = await apiFetch<{ data: PaymentIntent }>("/payments/intent", {
+        method: "POST",
+        body: JSON.stringify({ bookingId: booking.data.id }),
+      });
+
+      // 3. In a real integration, present Stripe Elements / redirect to Stripe
+      //    For now, navigate to success confirmation directly (demo mode)
+      pendingBookingIdRef.current = null; // don't release on unmount
+      setStep("processing");
+
+      // Simulate a brief processing delay, then confirm
+      await new Promise((r) => setTimeout(r, 1200));
+
+      // Confirm booking
+      await apiFetch(`/bookings/${booking.data.id}/confirm`, {
+        method: "POST",
+        body: JSON.stringify({ paymentIntentId: pi.data.paymentIntentId }),
+      });
+
+      router.replace(
+        `/bookings/${booking.data.id}/confirmation?facilityName=${encodeURIComponent(facilityName)}&date=${date}&startTime=${startTime}&endTime=${endTime}&totalCAD=${pi.data.totalCAD}`
+      );
+    } catch (err) {
+      const status  = (err as { status?: number }).status;
+      const message = err instanceof Error ? err.message : "Something went wrong";
+      setStep("error");
+      setErrorMsg(
+        status === 409
+          ? "This slot was just taken by another player. Please go back and choose a different time."
+          : message
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  if (step === "processing") {
+    return (
+      <main className="min-h-[calc(100vh-64px)] flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+          <p className="text-white font-semibold">Confirming your booking…</p>
+          <p className="text-muted text-sm mt-1">Please don&apos;t close this page.</p>
+        </div>
+      </main>
+    );
+  }
+
+  return (
+    <main className="max-w-lg mx-auto px-4 py-12">
+      <div className="mb-6">
+        <Link href={`/facilities/${facilityId}`} className="text-sm text-muted hover:text-white transition-colors">
+          ← Back to facility
+        </Link>
+        <h1 className="text-2xl font-black text-white mt-3">Complete Booking</h1>
+      </div>
+
+      {/* Slot summary card */}
+      <div className="bg-surface border border-border rounded-dome p-5 mb-4">
+        <h2 className="text-sm font-semibold text-muted uppercase tracking-wide mb-4">Booking Summary</h2>
+        <Row label="Facility"  value={facilityName} />
+        {date      && <Row label="Date"  value={formatDisplayDate(date)} />}
+        {startTime && <Row label="Time"  value={`${startTime} – ${endTime}`} />}
+        <div className="border-t border-border mt-4 pt-4 space-y-2">
+          <Row label="Subtotal"  value={`C$${subtotal.toFixed(2)}`} />
+          <Row label="HST (13%)" value={`C$${tax.toFixed(2)}`} muted />
+          <Row label="Total"     value={`C$${total.toFixed(2)}`} highlight />
+        </div>
+      </div>
+
+      {/* Player count */}
+      <div className="bg-surface border border-border rounded-dome p-5 mb-4">
+        <h2 className="text-sm font-semibold text-muted uppercase tracking-wide mb-4">Players</h2>
+        <div className="flex items-center gap-6">
+          <button
+            onClick={() => setPlayerCount((p) => Math.max(1, p - 1))}
+            disabled={playerCount <= 1}
+            className="w-9 h-9 rounded-full bg-surface-2 border border-border text-white font-bold disabled:opacity-30 hover:border-primary/50 transition-colors"
+          >−</button>
+          <span className="text-2xl font-bold text-white w-8 text-center">{playerCount}</span>
+          <button
+            onClick={() => setPlayerCount((p) => Math.min(6, p + 1))}
+            disabled={playerCount >= 6}
+            className="w-9 h-9 rounded-full bg-surface-2 border border-border text-white font-bold disabled:opacity-30 hover:border-primary/50 transition-colors"
+          >+</button>
+          <span className="text-xs text-muted ml-2">max 6 players</span>
+        </div>
+      </div>
+
+      {/* Payment card */}
+      <div className="bg-surface border border-border rounded-dome p-5 mb-6">
+        <h2 className="text-sm font-semibold text-muted uppercase tracking-wide mb-4">Payment</h2>
+        <div className="bg-surface-2 border border-border rounded-dome p-4 text-center">
+          <p className="text-muted text-sm">🔒 Secure payment via Stripe</p>
+          <p className="text-xs text-muted mt-1">Card details collected at checkout</p>
+        </div>
+      </div>
+
+      {step === "error" && (
+        <div className="bg-red-900/30 border border-red-700 rounded-dome px-4 py-3 text-red-400 text-sm mb-4">
+          {errorMsg}
+        </div>
+      )}
+
+      <button
+        onClick={handlePay}
+        disabled={isLoading}
+        className="w-full bg-primary hover:bg-primary-hover disabled:opacity-50 text-white font-bold py-4 rounded-dome transition-colors text-base"
+      >
+        {isLoading ? "Processing…" : `Confirm & Pay C$${total.toFixed(2)}`}
+      </button>
+
+      <p className="text-center text-xs text-muted mt-4">
+        By booking you agree to our cancellation policy.
+      </p>
+    </main>
+  );
+}
+
+function Row({ label, value, muted, highlight }: {
+  label: string; value: string; muted?: boolean; highlight?: boolean;
+}) {
+  return (
+    <div className="flex justify-between items-center">
+      <span className="text-sm text-muted">{label}</span>
+      <span className={`text-sm font-semibold ${highlight ? "text-primary text-base" : muted ? "text-muted" : "text-white"}`}>
+        {value}
+      </span>
+    </div>
+  );
+}
