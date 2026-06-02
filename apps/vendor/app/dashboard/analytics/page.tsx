@@ -95,7 +95,7 @@ export default function AnalyticsPage() {
                   <YAxis tick={{ fill: CHART_STYLE.tick, fontSize: 10 }}
                     tickFormatter={(v: number) => `$${v}`} />
                   <Tooltip contentStyle={CHART_STYLE.tooltip} labelStyle={{ color: "#fff" }}
-                    formatter={(v: number) => [`C$${v.toFixed(2)}`, "Revenue"]} />
+                    formatter={(v) => [`C$${Number(v).toFixed(2)}`, "Revenue"]} />
                   <Line type="monotone" dataKey="amount" stroke="#E85068" strokeWidth={2} dot={false} />
                 </LineChart>
               </ResponsiveContainer>

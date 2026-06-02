@@ -1,34 +1,41 @@
 "use client";
 
-import { logout } from "../../lib/auth";
-import { getCurrentUser } from "../../lib/api";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { getToken, clearToken } from "../../lib/api";
 
 interface HeaderProps {
   title: string;
 }
 
 export default function Header({ title }: HeaderProps) {
-  const user = getCurrentUser();
-  const displayName = user?.businessName
-    ?? (user ? `${user.firstName} ${user.lastName}`.trim() : "Vendor");
+  const router = useRouter();
+  const [businessName, setBusinessName] = useState("Vendor Portal");
+
+  useEffect(() => {
+    const token = getToken();
+    if (token) {
+      try {
+        JSON.parse(atob(token.split(".")[1]!));
+        const name = localStorage.getItem("businessName");
+        if (name) setBusinessName(name);
+      } catch {}
+    }
+  }, []);
+
+  function handleLogout() {
+    clearToken();
+    router.push("/");
+  }
 
   return (
-    <header className="h-14 border-b border-border bg-black flex items-center justify-between px-6 shrink-0">
+    <header className="h-14 border-b border-[#222] bg-[#111] flex items-center justify-between px-6 shrink-0">
       <h1 className="text-base font-semibold text-white">{title}</h1>
-
       <div className="flex items-center gap-4">
-        <div className="text-right">
-          <p className="text-sm font-medium text-white leading-none">{displayName}</p>
-          {user?.phone && (
-            <p className="text-xs text-muted mt-0.5">{user.phone}</p>
-          )}
-        </div>
-        <div className="w-8 h-8 rounded-full bg-primary/20 border border-primary/40 flex items-center justify-center text-primary text-sm font-bold">
-          {displayName[0]?.toUpperCase() ?? "V"}
-        </div>
+        <span className="text-sm text-muted">{businessName}</span>
         <button
-          onClick={logout}
-          className="text-sm text-muted hover:text-white transition-colors"
+          onClick={handleLogout}
+          className="bg-primary hover:bg-primary-hover text-white text-xs font-semibold px-4 py-2 rounded-dome transition-colors"
         >
           Logout
         </button>
