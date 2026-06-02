@@ -106,9 +106,18 @@ enum OpenGameStatus {
 
 enum SkillLevel {
   BEGINNER
+  ROOKIE
   INTERMEDIATE
   ADVANCED
+  PRO
+  ELITE
   ANY
+}
+
+enum PlayerStatus {
+  PENDING
+  CONFIRMED
+  DECLINED
 }
 
 enum MessageType {
@@ -408,22 +417,28 @@ model Review {
 
 model OpenGame {
   id                String         @id @default(cuid())
-  slotId            String         @unique
+  slotId            String?        @unique
   facilityId        String
   hostUserId        String
   sport             SportType
-  title             String
+  title             String?
   description       String?
   status            OpenGameStatus @default(OPEN)
   skillLevel        SkillLevel     @default(ANY)
-  maxPlayers        Int
+  maxPlayers        Int            @default(2)
   currentPlayers    Int            @default(1)
-  pricePerPlayerCAD Decimal        @db.Decimal(10, 2)
+  // Connect feature fields (slotId-independent)
+  gameDate          DateTime?      @db.Date
+  startTime         String?
+  endTime           String?
+  playersNeeded     Int?
+  playersConfirmed  Int            @default(0)
+  pricePerPlayerCAD Decimal?       @db.Decimal(10, 2)
   isPublic          Boolean        @default(true)
   createdAt         DateTime       @default(now())
   updatedAt         DateTime       @updatedAt
 
-  slot          Slot                  @relation(fields: [slotId], references: [id])
+  slot          Slot?                 @relation(fields: [slotId], references: [id])
   facility      Facility              @relation(fields: [facilityId], references: [id])
   host          User                  @relation("OpenGameHost", fields: [hostUserId], references: [id])
   participants  OpenGameParticipant[]
@@ -432,14 +447,17 @@ model OpenGame {
   @@index([facilityId])
   @@index([hostUserId])
   @@index([status, sport])
+  @@index([gameDate])
 }
 
 model OpenGameParticipant {
-  id            String   @id @default(cuid())
+  id            String       @id @default(cuid())
   openGameId    String
   userId        String
-  joinedAt      DateTime @default(now())
-  paymentStatus String   @default("unpaid")
+  status        PlayerStatus @default(PENDING)
+  joinedAt      DateTime     @default(now())
+  confirmedAt   DateTime?
+  paymentStatus String       @default("unpaid")
 
   openGame OpenGame @relation(fields: [openGameId], references: [id], onDelete: Cascade)
   user     User     @relation(fields: [userId], references: [id])
