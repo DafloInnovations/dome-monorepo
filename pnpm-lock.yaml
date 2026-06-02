@@ -240,7 +240,7 @@ importers:
         specifier: workspace:*
         version: link:../../packages/utils
       next:
-        specifier: 14.2.35
+        specifier: ^14.2.35
         version: 14.2.35(@opentelemetry/api@1.9.1)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       react:
         specifier: ^18.3.1
@@ -256,13 +256,13 @@ importers:
         specifier: workspace:*
         version: link:../../packages/config
       '@types/node':
-        specifier: ^22.10.2
+        specifier: ^22.19.19
         version: 22.19.19
       '@types/react':
-        specifier: ^18.3.18
+        specifier: ^18.3.29
         version: 18.3.29
       '@types/react-dom':
-        specifier: ^18.3.5
+        specifier: ^18.3.7
         version: 18.3.7(@types/react@18.3.29)
       autoprefixer:
         specifier: ^10.4.20
@@ -274,7 +274,7 @@ importers:
         specifier: ^3.4.17
         version: 3.4.19(yaml@2.9.0)
       typescript:
-        specifier: ^5.7.2
+        specifier: ^5.9.3
         version: 5.9.3
 
   apps/web:
