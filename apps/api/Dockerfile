@@ -19,6 +19,9 @@ COPY apps/api/prisma ./apps/api/prisma/
 # Install ALL dependencies
 RUN pnpm install --frozen-lockfile
 
+# Generate Prisma client BEFORE building
+RUN cd apps/api && npx prisma generate
+
 # Build shared packages FIRST
 RUN pnpm --filter=@dome/types build
 RUN pnpm --filter=@dome/utils build
