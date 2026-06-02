@@ -37,16 +37,31 @@ export default function LoginPage() {
     setError("");
     setIsLoading(true);
     try {
-      const res = await api.auth.verifyOtp(phone, otp);
-      const { accessToken, user } = res.data;
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001/api/v1";
+      const response = await fetch(`${apiUrl}/auth/verify-otp`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone, code: otp }),
+      });
+      const data = await response.json() as { data?: { accessToken?: string; user?: { role?: string; firstName?: string; lastName?: string; phone?: string; id?: string; businessName?: string } }; message?: string };
 
-      if (user.role !== "VENDOR") {
+      console.log("API URL:", process.env.NEXT_PUBLIC_API_URL);
+      console.log("Verify response status:", response.status);
+      console.log("User role from API:", data.data?.user?.role);
+
+      if (!response.ok) {
+        throw new Error(data.message ?? `HTTP ${response.status}`);
+      }
+
+      const user = data.data?.user;
+
+      if (user?.role !== "VENDOR") {
         setError("This portal is for vendors only. Please contact support.");
         return;
       }
 
-      setToken(accessToken);
-      setStoredUser(user);
+      setToken(data.data!.accessToken!);
+      setStoredUser({ id: user.id ?? "", phone: user.phone ?? "", firstName: user.firstName ?? "", lastName: user.lastName ?? "", role: user.role ?? "", businessName: user.businessName });
       router.replace("/dashboard");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Invalid code");
