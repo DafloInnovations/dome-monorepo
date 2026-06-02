@@ -91,9 +91,9 @@ export default function AnalyticsPage() {
                 <LineChart data={data?.revenueByDay ?? []} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke={CHART_STYLE.grid} />
                   <XAxis dataKey="date" tick={{ fill: CHART_STYLE.tick, fontSize: 10 }}
-                    tickFormatter={(v: string) => v.slice(5)} interval={4} />
+                    tickFormatter={(v) => String(v).slice(5)} interval={4} />
                   <YAxis tick={{ fill: CHART_STYLE.tick, fontSize: 10 }}
-                    tickFormatter={(v: number) => `$${v}`} />
+                    tickFormatter={(v) => `$${v}`} />
                   <Tooltip contentStyle={CHART_STYLE.tooltip} labelStyle={{ color: "#fff" }}
                     formatter={(v) => [`C$${Number(v).toFixed(2)}`, "Revenue"]} />
                   <Line type="monotone" dataKey="amount" stroke="#E85068" strokeWidth={2} dot={false} />
@@ -113,10 +113,10 @@ export default function AnalyticsPage() {
                 <BarChart data={data?.bookingsByDay ?? []} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke={CHART_STYLE.grid} />
                   <XAxis dataKey="date" tick={{ fill: CHART_STYLE.tick, fontSize: 10 }}
-                    tickFormatter={(v: string) => v.slice(5)} interval={4} />
+                    tickFormatter={(v) => String(v).slice(5)} interval={4} />
                   <YAxis tick={{ fill: CHART_STYLE.tick, fontSize: 10 }} allowDecimals={false} />
                   <Tooltip contentStyle={CHART_STYLE.tooltip} labelStyle={{ color: "#fff" }}
-                    formatter={(v: number) => [v, "Bookings"]} />
+                    formatter={(v) => [Number(v), "Bookings"]} />
                   <Bar dataKey="count" fill="#E85068" radius={[3, 3, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
@@ -172,7 +172,7 @@ export default function AnalyticsPage() {
                 <BarChart data={data?.topSports ?? []} margin={{ top: 0, right: 8, bottom: 0, left: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke={CHART_STYLE.grid} />
                   <XAxis dataKey="sport" tick={{ fill: CHART_STYLE.tick, fontSize: 10 }}
-                    tickFormatter={(v: string) => SPORT_EMOJI[v] ?? v.slice(0, 3)} />
+                    tickFormatter={(v) => SPORT_EMOJI[String(v)] ?? String(v).slice(0, 3)} />
                   <YAxis tick={{ fill: CHART_STYLE.tick, fontSize: 10 }} allowDecimals={false} />
                   <Tooltip contentStyle={CHART_STYLE.tooltip} labelStyle={{ color: "#fff" }} />
                   <Bar dataKey="count" fill="#E85068" radius={[4, 4, 0, 0]}>
