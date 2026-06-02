@@ -28,7 +28,7 @@ export async function saveNotification(
 ): Promise<void> {
   try {
     await prisma.notification.create({
-      data: { userId, type, title, body, data: data ?? null, isRead: false },
+      data: { userId, type, title, body, ...(data !== undefined && { data }), isRead: false },
     });
   } catch (err) {
     console.error("[Notification] DB save failed:", (err as Error).message);
