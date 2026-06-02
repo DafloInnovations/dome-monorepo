@@ -339,13 +339,13 @@ export async function myBookings(userId: string, page = 1, limit = 20) {
     prisma.booking.findMany({
       where: { userId },
       include: {
-        slot: true,
+        slot: { include: { court: true } },
         facility: { include: { address: true } },
         payment: {
           select: { id: true, status: true, method: true, amountCAD: true },
         },
       },
-      orderBy: { createdAt: "desc" },
+      orderBy: { slot: { date: "desc" } },
       skip,
       take,
     }),
@@ -359,7 +359,11 @@ export async function myBookings(userId: string, page = 1, limit = 20) {
       taxCAD: Number(b.taxCAD),
       totalCAD: Number(b.totalCAD),
       creditsIssuedCAD: b.creditsIssuedCAD !== null ? Number(b.creditsIssuedCAD) : null,
-      slot: { ...b.slot, priceCAD: Number(b.slot.priceCAD) },
+      slot: {
+        ...b.slot,
+        priceCAD: Number(b.slot.priceCAD),
+        court: b.slot.court ?? null,
+      },
       payment: b.payment
         ? { ...b.payment, amountCAD: Number(b.payment.amountCAD) }
         : null,

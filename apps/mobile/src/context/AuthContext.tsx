@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
 import * as SecureStore from "expo-secure-store";
 
 const KEY_ACCESS = "dome_access_token";
@@ -83,7 +83,38 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
-  async function attemptRefresh(rt: string) {
+  // All three exported functions only use React setState dispatchers (guaranteed
+  // stable by React) and SecureStore (module-level stable), so useCallback([])
+  // is correct — no real deps, no stale-closure risk.
+
+  const clearSession = useCallback(async () => {
+    await Promise.all([
+      SecureStore.deleteItemAsync(KEY_ACCESS),
+      SecureStore.deleteItemAsync(KEY_REFRESH),
+    ]);
+    setAccessToken(null);
+    setRefreshToken(null);
+    setUser(null);
+  }, []);
+
+  const setSession = useCallback(async (at: string, rt: string, u: AuthUser) => {
+    await Promise.all([
+      SecureStore.setItemAsync(KEY_ACCESS, at),
+      SecureStore.setItemAsync(KEY_REFRESH, rt),
+    ]);
+    setAccessToken(at);
+    setRefreshToken(rt);
+    setUser(u);
+  }, []);
+
+  // When the server says the user record no longer exists, clear the session.
+  const handleApiError = useCallback(async (status: number, message?: string) => {
+    if (status === 404 && message?.toLowerCase().includes("user")) {
+      await clearSession();
+    }
+  }, [clearSession]);
+
+  const attemptRefresh = useCallback(async (rt: string) => {
     const res = await fetch(`${API_URL}/auth/refresh`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -103,36 +134,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setAccessToken(newAt);
     setRefreshToken(newRt);
     setUser({ id: String(payload["sub"]), phone: "", role: String(payload["role"]) });
-  }
-
-  async function setSession(at: string, rt: string, u: AuthUser) {
-    await Promise.all([
-      SecureStore.setItemAsync(KEY_ACCESS, at),
-      SecureStore.setItemAsync(KEY_REFRESH, rt),
-    ]);
-    setAccessToken(at);
-    setRefreshToken(rt);
-    setUser(u);
-  }
-
-  async function clearSession() {
-    await Promise.all([
-      SecureStore.deleteItemAsync(KEY_ACCESS),
-      SecureStore.deleteItemAsync(KEY_REFRESH),
-    ]);
-    setAccessToken(null);
-    setRefreshToken(null);
-    setUser(null);
-  }
-
-  // When the server says the user record no longer exists, clear the session
-  // immediately. The RootNav guard in _layout.tsx will redirect to /(auth)/phone
-  // automatically once `user` becomes null — no router import needed here.
-  async function handleApiError(status: number, message?: string) {
-    if (status === 404 && message?.toLowerCase().includes("user")) {
-      await clearSession();
-    }
-  }
+  }, []);
 
   return (
     <AuthContext.Provider

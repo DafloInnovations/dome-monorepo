@@ -1,3 +1,4 @@
+import { useCallback } from "react";
 import * as SecureStore from "expo-secure-store";
 import { useAuth, type AuthUser } from "../context/AuthContext";
 
@@ -29,7 +30,7 @@ const isTokenExpired = (token: string): boolean => {
 export function useAuthToken() {
   const { setSession, clearSession, handleApiError } = useAuth();
 
-  async function getValidToken(): Promise<string> {
+  const getValidToken = useCallback(async (): Promise<string> => {
     const accessToken = await SecureStore.getItemAsync(KEY_ACCESS);
     if (!accessToken) throw new Error("Not authenticated");
 
@@ -83,19 +84,19 @@ export function useAuthToken() {
 
     await setSession(newAt, newRt, user);
     return newAt;
-  }
+  }, [setSession, clearSession, handleApiError]);
 
   /**
    * Pass any authenticated API response here.
    * Automatically logs the user out on 404 "user not found".
    */
-  async function checkResponse(res: Response): Promise<void> {
+  const checkResponse = useCallback(async (res: Response): Promise<void> => {
     if (res.ok) return;
     try {
       const body = (await res.clone().json()) as { message?: string };
       await handleApiError(res.status, body.message);
     } catch {}
-  }
+  }, [handleApiError]);
 
   return { getValidToken, checkResponse };
 }

@@ -1,7 +1,9 @@
 import { Router } from "express";
 import { z } from "zod";
+import { BookingStatus } from "@prisma/client";
 import { authenticate } from "../middleware/auth";
 import { validate } from "../middleware/validate";
+import { prisma } from "../lib/prisma";
 
 const router = Router();
 
@@ -13,14 +15,133 @@ const updateUserSchema = z.object({
   province: z.string().length(2).optional(),
 });
 
-router.get("/me", authenticate, async (req, res) => {
-  // TODO: return authenticated user
-  res.json({ data: { id: req.user!.sub } });
+// ─── Tier config ──────────────────────────────────────────────────────────────
+
+const TIERS = [
+  { name: "Beginner", min: 0,    max: 99   },
+  { name: "Rookie",   min: 100,  max: 299  },
+  { name: "Amateur",  min: 300,  max: 699  },
+  { name: "Pro",      min: 700,  max: 1499 },
+  { name: "Elite",    min: 1500, max: Infinity },
+] as const;
+
+function computeTier(points: number) {
+  return TIERS.find((t) => points >= t.min && points <= t.max) ?? TIERS[0]!;
+}
+
+function computeStreak(sortedDates: string[]): number {
+  if (!sortedDates.length) return 0;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const set = new Set(sortedDates);
+  let streak = 0;
+  const cursor = new Date(today);
+  while (set.has(cursor.toISOString().split("T")[0]!)) {
+    streak++;
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  return streak;
+}
+
+// GET /api/v1/users/me/profile
+router.get("/me/profile", authenticate, async (req, res, next) => {
+  try {
+    const userId = req.user!.sub;
+
+    const [user, confirmedBookings] = await Promise.all([
+      prisma.user.findUnique({
+        where: { id: userId },
+        select: {
+          id: true,
+          phone: true,
+          firstName: true,
+          lastName: true,
+          avatarUrl: true,
+          role: true,
+          province: true,
+          creditBalanceCAD: true,
+          createdAt: true,
+        },
+      }),
+      prisma.booking.findMany({
+        where: { userId, status: BookingStatus.CONFIRMED },
+        include: {
+          slot: { select: { date: true, durationMinutes: true } },
+          facility: { select: { sport: true } },
+        },
+      }),
+    ]);
+
+    if (!user) {
+      res.status(404).json({ message: "User not found" });
+      return;
+    }
+
+    const totalGames = confirmedBookings.length;
+    const totalMinutes = confirmedBookings.reduce(
+      (sum, b) => sum + b.slot.durationMinutes,
+      0
+    );
+    const totalHours = Math.round((totalMinutes / 60) * 10) / 10;
+    const totalPoints = Math.round(Number(user.creditBalanceCAD));
+
+    const sportBreakdown: Record<string, number> = {};
+    const bookingDates: string[] = [];
+    for (const b of confirmedBookings) {
+      const sport = b.facility.sport.toLowerCase();
+      sportBreakdown[sport] = (sportBreakdown[sport] ?? 0) + 1;
+      bookingDates.push(b.slot.date.toISOString().split("T")[0]!);
+    }
+
+    const uniqueDates = [...new Set(bookingDates)].sort().reverse();
+    const currentStreak = computeStreak(uniqueDates);
+    const tier = computeTier(totalPoints);
+
+    res.json({
+      data: {
+        user: { ...user, creditBalanceCAD: Number(user.creditBalanceCAD) },
+        stats: {
+          totalGames,
+          totalHours,
+          totalPoints,
+          currentStreak,
+          tier,
+          sportBreakdown,
+        },
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
 });
 
-router.put("/me", authenticate, validate(updateUserSchema), async (req, res) => {
-  // TODO: update user profile
-  res.json({ data: { id: req.user!.sub, ...req.body } });
+// GET /api/v1/users/me
+router.get("/me", authenticate, async (req, res, next) => {
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: req.user!.sub },
+      select: {
+        id: true, phone: true, firstName: true, lastName: true,
+        avatarUrl: true, role: true, province: true,
+      },
+    });
+    if (!user) { res.status(404).json({ message: "User not found" }); return; }
+    res.json({ data: user });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.put("/me", authenticate, validate(updateUserSchema), async (req, res, next) => {
+  try {
+    const user = await prisma.user.update({
+      where: { id: req.user!.sub },
+      data: req.body as z.infer<typeof updateUserSchema>,
+    });
+    res.json({ data: user });
+  } catch (err) {
+    next(err);
+  }
 });
 
 router.delete("/me", authenticate, async (req, res) => {
