@@ -72,7 +72,7 @@ export async function sendOtp(rawPhone: string): Promise<void> {
 export async function verifyOtp(
   rawPhone: string,
   code: string
-): Promise<{ accessToken: string; refreshToken: string; user: User; isNewUser: boolean }> {
+): Promise<{ accessToken: string; refreshToken: string; user: User; isNewUser: boolean; vendorStatus: "APPROVED" | "PENDING" | "REJECTED" | "NONE" }> {
   const phone = normalizePhone(rawPhone);
   const otpKey = `otp:${phone}`;
 
@@ -132,7 +132,25 @@ export async function verifyOtp(
     },
   });
 
-  return { accessToken, refreshToken: rawRefreshToken, user, isNewUser };
+  const vendor = await prisma.vendor.findUnique({
+    where: { userId: user.id },
+    select: { status: true },
+  });
+
+  let vendorStatus: "APPROVED" | "PENDING" | "REJECTED" | "NONE";
+  if (!vendor) {
+    vendorStatus = "NONE";
+  } else if (vendor.status === "APPROVED") {
+    vendorStatus = "APPROVED";
+  } else if (vendor.status === "PENDING") {
+    vendorStatus = "PENDING";
+  } else if (vendor.status === "REJECTED") {
+    vendorStatus = "REJECTED";
+  } else {
+    vendorStatus = "NONE";
+  }
+
+  return { accessToken, refreshToken: rawRefreshToken, user, isNewUser, vendorStatus };
 }
 
 // ─── Refresh ──────────────────────────────────────────────────────────────────

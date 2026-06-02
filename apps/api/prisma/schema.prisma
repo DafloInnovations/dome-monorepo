@@ -224,12 +224,23 @@ model Vendor {
   businessName             String
   businessNumber           String?
   gstHstNumber             String?
-  province                 Province
+  province                 Province     @default(ON)
   status                   VendorStatus @default(PENDING)
   stripeAccountId          String?      @unique
   stripeOnboardingComplete Boolean      @default(false)
   logoUrl                  String?
   website                  String?
+  // Onboarding fields
+  businessEmail            String?
+  businessPhone            String?
+  description              String?
+  sports                   String[]
+  streetAddress            String?
+  city                     String?
+  postalCode               String?
+  rejectionReason          String?
+  submittedAt              DateTime?
+  approvedAt               DateTime?
   createdAt                DateTime     @default(now())
   updatedAt                DateTime     @updatedAt
 

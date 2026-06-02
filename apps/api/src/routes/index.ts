@@ -12,6 +12,7 @@ import usersRouter from "./users";
 import notificationsRouter from "./notifications";
 import vendorRouter from "./vendor";
 import vendorsRouter from "./vendors";
+import adminRouter from "./admin";
 
 export const router = Router();
 
@@ -28,3 +29,4 @@ router.use("/connect", connectRouter);
 router.use("/chat", chatRouter);
 router.use("/notifications", notificationsRouter);
 router.use("/vendor", vendorRouter);
+router.use("/admin", adminRouter);

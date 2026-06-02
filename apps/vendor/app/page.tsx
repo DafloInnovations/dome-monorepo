@@ -15,7 +15,7 @@ export default function LoginPage() {
 
   // Redirect if already authenticated
   useEffect(() => {
-    if (requireVendorAuth()) router.replace("/dashboard");
+    if (isAuthenticated()) router.replace("/dashboard");
   }, [router]);
 
   async function handleSendOtp(e: React.FormEvent) {
@@ -43,26 +43,44 @@ export default function LoginPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ phone, code: otp }),
       });
-      const data = await response.json() as { data?: { accessToken?: string; user?: { role?: string; firstName?: string; lastName?: string; phone?: string; id?: string; businessName?: string } }; message?: string };
-
-      console.log("API URL:", process.env.NEXT_PUBLIC_API_URL);
-      console.log("Verify response status:", response.status);
-      console.log("User role from API:", data.data?.user?.role);
+      const data = await response.json() as {
+        data?: {
+          accessToken?: string;
+          vendorStatus?: "APPROVED" | "PENDING" | "REJECTED" | "NONE";
+          user?: { role?: string; firstName?: string; lastName?: string; phone?: string; id?: string; businessName?: string };
+        };
+        message?: string;
+      };
 
       if (!response.ok) {
         throw new Error(data.message ?? `HTTP ${response.status}`);
       }
 
       const user = data.data?.user;
+      const vendorStatus = data.data?.vendorStatus ?? "NONE";
 
-      if (user?.role !== "VENDOR") {
-        setError("This portal is for vendors only. Please contact support.");
-        return;
-      }
-
+      // Save token + user regardless of vendor status
       setToken(data.data!.accessToken!);
-      setStoredUser({ id: user.id ?? "", phone: user.phone ?? "", firstName: user.firstName ?? "", lastName: user.lastName ?? "", role: user.role ?? "", businessName: user.businessName });
-      router.replace("/dashboard");
+      setStoredUser({
+        id:           user?.id ?? "",
+        phone:        user?.phone ?? "",
+        firstName:    user?.firstName ?? "",
+        lastName:     user?.lastName ?? "",
+        role:         user?.role ?? "PLAYER",
+        businessName: user?.businessName,
+      });
+
+      // Route based on vendor application status
+      if (vendorStatus === "APPROVED") {
+        router.replace("/dashboard");
+      } else if (vendorStatus === "PENDING") {
+        router.replace("/pending");
+      } else if (vendorStatus === "REJECTED") {
+        router.replace("/rejected");
+      } else {
+        // NONE — new user or player, go to onboarding
+        router.replace("/onboarding");
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Invalid code");
     } finally {

@@ -9,11 +9,157 @@ import { prisma } from "../lib/prisma";
 
 const router = Router();
 
+// ─── Pre-auth routes (authenticate only, no VENDOR role required) ─────────────
+
+const applySchema = z.object({
+  businessName:  z.string().min(2).max(100),
+  businessEmail: z.string().email(),
+  businessPhone: z.string().min(10),
+  website:       z.string().url().optional().or(z.literal("")),
+  streetAddress: z.string().min(3),
+  city:          z.string().min(2),
+  province:      z.string().length(2),
+  postalCode:    z.string().min(6).max(7),
+  sports:        z.array(z.string()).min(1),
+  description:   z.string().min(20).max(2000),
+  agreedToTerms: z.literal(true),
+});
+
+// POST /api/v1/vendor/apply — any authenticated user can apply
+router.post("/apply", authenticate, validate(applySchema), async (req, res, next) => {
+  try {
+    const userId = req.user!.sub as string;
+    const body = req.body as z.infer<typeof applySchema>;
+
+    // Check if vendor record already exists
+    const existing = await prisma.vendor.findUnique({ where: { userId } });
+    if (existing && existing.status === "APPROVED") {
+      res.status(409).json({ message: "Your account is already approved." });
+      return;
+    }
+    if (existing && existing.status === "PENDING") {
+      res.status(409).json({ message: "Application already submitted and under review." });
+      return;
+    }
+
+    const provinceEnum = body.province.toUpperCase() as "ON" | "BC" | "AB" | "QC" | "MB" | "SK" | "NS" | "NB" | "NL" | "PE" | "NT" | "NU" | "YT";
+
+    if (existing) {
+      // Re-application after rejection
+      await prisma.vendor.update({
+        where: { userId },
+        data: {
+          businessName: body.businessName,
+          businessEmail: body.businessEmail,
+          businessPhone: body.businessPhone,
+          website: body.website || null,
+          streetAddress: body.streetAddress,
+          city: body.city,
+          province: provinceEnum,
+          postalCode: body.postalCode,
+          sports: body.sports,
+          description: body.description,
+          status: "PENDING",
+          rejectionReason: null,
+          submittedAt: new Date(),
+        },
+      });
+    } else {
+      // New application
+      await prisma.$transaction([
+        prisma.vendor.create({
+          data: {
+            userId,
+            businessName: body.businessName,
+            businessEmail: body.businessEmail,
+            businessPhone: body.businessPhone,
+            website: body.website || null,
+            streetAddress: body.streetAddress,
+            city: body.city,
+            province: provinceEnum,
+            postalCode: body.postalCode,
+            sports: body.sports,
+            description: body.description,
+            status: "PENDING",
+            submittedAt: new Date(),
+          },
+        }),
+        prisma.user.update({
+          where: { id: userId },
+          data: { role: "VENDOR" },
+        }),
+      ]);
+    }
+
+    res.status(201).json({ data: { status: "PENDING", message: "Application submitted successfully. We'll notify you within 24–48 hours." } });
+  } catch (err) { next(err); }
+});
+
+// GET /api/v1/vendor/application-status — any authenticated user
+router.get("/application-status", authenticate, async (req, res, next) => {
+  try {
+    const userId = req.user!.sub as string;
+    const vendor = await prisma.vendor.findUnique({
+      where: { userId },
+      select: { status: true, rejectionReason: true, submittedAt: true, approvedAt: true, businessName: true },
+    });
+    if (!vendor) {
+      res.json({ data: { status: "NONE" } });
+      return;
+    }
+    res.json({ data: vendor });
+  } catch (err) { next(err); }
+});
+
+// ─── All routes below require VENDOR role ────────────────────────────────────
+
 router.use(authenticate, requireRole("VENDOR"));
 
 function param(p: string | string[]): string {
   return Array.isArray(p) ? p[0]! : p;
 }
+
+// ─── GET/PUT vendor profile ───────────────────────────────────────────────────
+
+router.get("/profile", async (req, res, next) => {
+  try {
+    const vendor = await prisma.vendor.findUnique({
+      where: { userId: req.user!.sub as string },
+    });
+    if (!vendor) { res.status(404).json({ message: "Vendor not found" }); return; }
+    res.json({ data: vendor });
+  } catch (err) { next(err); }
+});
+
+const updateProfileSchema = z.object({
+  businessName:  z.string().min(2).max(100).optional(),
+  businessEmail: z.string().email().optional().or(z.literal("")),
+  businessPhone: z.string().min(10).optional().or(z.literal("")),
+  website:       z.string().url().optional().or(z.literal("")),
+  description:   z.string().max(2000).optional(),
+});
+
+router.put("/profile", validate(updateProfileSchema), async (req, res, next) => {
+  try {
+    const vendor = await prisma.vendor.findUnique({
+      where: { userId: req.user!.sub as string },
+    });
+    if (!vendor) { res.status(404).json({ message: "Vendor not found" }); return; }
+
+    const body = req.body as z.infer<typeof updateProfileSchema>;
+    const updated = await prisma.vendor.update({
+      where: { id: vendor.id },
+      data: {
+        ...(body.businessName  && { businessName:  body.businessName }),
+        ...(body.businessEmail !== undefined && { businessEmail: body.businessEmail || null }),
+        ...(body.businessPhone !== undefined && { businessPhone: body.businessPhone || null }),
+        ...(body.website       !== undefined && { website:       body.website || null }),
+        ...(body.description   !== undefined && { description:   body.description }),
+      },
+    });
+    res.json({ data: updated });
+  } catch (err) { next(err); }
+});
 
 // ─── GET vendor's facilities ──────────────────────────────────────────────────
 
