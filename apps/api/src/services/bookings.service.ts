@@ -19,6 +19,13 @@ function appError(msg: string, status = 500, code?: string) {
   return Object.assign(new Error(msg), { status, code });
 }
 
+function formatTtl(ttl: number): string {
+  if (ttl <= 0) return "soon";
+  if (ttl < 60) return `${ttl} second${ttl !== 1 ? "s" : ""}`;
+  const minutes = Math.ceil(ttl / 60);
+  return `${minutes} minute${minutes !== 1 ? "s" : ""}`;
+}
+
 // ─── Create booking + acquire 5-min Redis slot lock ──────────────────────────
 
 export async function createBooking(
@@ -27,27 +34,59 @@ export async function createBooking(
   facilityId: string,
   notes?: string
 ) {
-  const slot = await prisma.slot.findFirst({
-    where: { id: slotId, facilityId, status: SlotStatus.AVAILABLE },
-    include: { facility: { select: { name: true, address: true } } },
-  });
-  if (!slot) throw appError("Slot not found or no longer available", 404);
+  // ── Check slot existence and per-status availability ────────────────────────
+  const slot = await prisma.slot.findUnique({ where: { id: slotId } });
+  if (!slot) throw appError("Slot not found", 404);
+  if (slot.facilityId !== facilityId) throw appError("Slot not found", 404);
 
-  // SET slot:{id}:lock userId EX 300 NX
   const lockKey = `slot:${slotId}:lock`;
-  const acquired = await redis.set(lockKey, userId, "EX", SLOT_LOCK_TTL, "NX");
 
-  if (acquired !== "OK") {
-    const holder = await redis.get(lockKey);
-    if (holder !== userId) {
+  if (slot.status === SlotStatus.HELD) {
+    const ttl = await redis.ttl(lockKey);
+    throw appError(
+      `This slot is temporarily held. Try again in ${formatTtl(ttl)}.`,
+      409,
+      "SLOT_HELD"
+    );
+  }
+  if (slot.status === SlotStatus.BOOKED) {
+    throw appError("This slot has already been booked.", 409, "SLOT_BOOKED");
+  }
+  if (slot.status !== SlotStatus.AVAILABLE) {
+    throw appError(`Slot is ${slot.status.toLowerCase()}`, 409, "SLOT_UNAVAILABLE");
+  }
+
+  // ── Check Redis lock before attempting to acquire it ─────────────────────────
+  // Pre-checking lets us return a meaningful message (with TTL) rather than
+  // silently racing on SET NX and returning a generic error after the fact.
+  const existingLock = await redis.get(lockKey);
+  if (existingLock) {
+    const ttl = await redis.ttl(lockKey);
+    const timeMsg = formatTtl(ttl);
+    if (existingLock !== userId) {
       throw appError(
-        "This slot is temporarily held by another user. Please try a different time.",
+        `This slot is temporarily held by another player. Try again in ${timeMsg}.`,
         409,
         "SLOT_LOCKED"
       );
     }
-    // Same user re-hitting endpoint — refresh the lock TTL
-    await redis.expire(lockKey, SLOT_LOCK_TTL);
+    throw appError(
+      `You already have this slot held. Complete your payment or wait ${timeMsg}.`,
+      409,
+      "SLOT_ALREADY_HELD"
+    );
+  }
+
+  // ── Acquire Redis lock (5-min hold) ─────────────────────────────────────────
+  const acquired = await redis.set(lockKey, userId, "EX", SLOT_LOCK_TTL, "NX");
+  if (acquired !== "OK") {
+    // Another request slipped in between our GET and SET.
+    const raceTtl = await redis.ttl(lockKey);
+    throw appError(
+      `This slot is temporarily held by another player. Try again in ${formatTtl(raceTtl)}.`,
+      409,
+      "SLOT_LOCKED"
+    );
   }
 
   const user = await prisma.user.findUnique({
@@ -60,32 +99,79 @@ export async function createBooking(
   const taxCAD = calculateTax(subtotalCAD, user.province as Province);
   const totalCAD = Math.round((subtotalCAD + taxCAD) * 100) / 100;
 
-  const booking = await prisma.booking.create({
-    data: {
-      slotId,
-      facilityId,
-      userId,
-      status: BookingStatus.PENDING,
-      paymentStatus: BookingPaymentStatus.UNPAID,
-      subtotalCAD,
-      taxCAD,
-      totalCAD,
-      taxProvince: user.province,
-      notes,
-    },
-    include: {
-      slot: true,
-      facility: { include: { address: true } },
-    },
-  });
+  try {
+    const booking = await prisma.booking.create({
+      data: {
+        slotId,
+        facilityId,
+        userId,
+        status: BookingStatus.PENDING,
+        paymentStatus: BookingPaymentStatus.UNPAID,
+        subtotalCAD,
+        taxCAD,
+        totalCAD,
+        taxProvince: user.province,
+        notes,
+      },
+      include: {
+        slot: true,
+        facility: { include: { address: true } },
+      },
+    });
 
-  return {
-    ...booking,
-    subtotalCAD: Number(booking.subtotalCAD),
-    taxCAD: Number(booking.taxCAD),
-    totalCAD: Number(booking.totalCAD),
-    lockExpiresInSeconds: SLOT_LOCK_TTL,
-  };
+    return {
+      ...booking,
+      subtotalCAD: Number(booking.subtotalCAD),
+      taxCAD: Number(booking.taxCAD),
+      totalCAD: Number(booking.totalCAD),
+      lockExpiresInSeconds: SLOT_LOCK_TTL,
+    };
+  } catch (err) {
+    // Two concurrent requests can both pass the status check above if they
+    // arrive before either has written. The unique constraint on slotId is
+    // the final guard — surface it as 409, not 500.
+    if (
+      (err as { code?: string }).code === "P2002" &&
+      String((err as { meta?: { target?: unknown } }).meta?.target).includes("slotId")
+    ) {
+      await redis.del(lockKey);
+      throw appError("This slot has already been booked", 409, "SLOT_CONFLICT");
+    }
+    throw err;
+  }
+}
+
+// ─── Release lock (user abandoned booking before paying) ─────────────────────
+
+export async function releaseLock(userId: string, bookingId: string) {
+  const booking = await prisma.booking.findFirst({
+    where: { id: bookingId, userId },
+  });
+  if (!booking) throw appError("Booking not found", 404);
+
+  // Idempotent: already cancelled or confirmed — nothing to do
+  if (booking.status !== BookingStatus.PENDING) {
+    return { released: false, reason: booking.status };
+  }
+
+  await prisma.$transaction([
+    prisma.booking.update({
+      where: { id: bookingId },
+      data: {
+        status: BookingStatus.CANCELLED,
+        cancelReason: "Lock released by user",
+        cancelledAt: new Date(),
+      },
+    }),
+    prisma.slot.update({
+      where: { id: booking.slotId },
+      data: { status: SlotStatus.AVAILABLE },
+    }),
+  ]);
+
+  await redis.del(`slot:${booking.slotId}:lock`);
+
+  return { released: true };
 }
 
 // ─── Confirm booking after client-side Stripe success ────────────────────────

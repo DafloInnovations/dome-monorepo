@@ -15,12 +15,15 @@ export interface AuthUser {
 interface AuthState {
   user: AuthUser | null;
   accessToken: string | null;
+  refreshToken: string | null;
   isLoading: boolean;
 }
 
 interface AuthActions {
   setSession: (at: string, rt: string, user: AuthUser) => Promise<void>;
   clearSession: () => Promise<void>;
+  /** Call after any API response. Logs out automatically on 404 "user not found". */
+  handleApiError: (status: number, message?: string) => Promise<void>;
 }
 
 const AuthContext = createContext<(AuthState & AuthActions) | null>(null);
@@ -39,6 +42,7 @@ const API_URL =
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [accessToken, setAccessToken] = useState<string | null>(null);
+  const [refreshToken, setRefreshToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
@@ -61,6 +65,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         if (isValid) {
           setAccessToken(at);
+          setRefreshToken(rt);
           setUser({
             id: String(payload["sub"]),
             phone: "",
@@ -96,6 +101,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const payload = parseJwt(newAt);
     if (!payload) throw new Error("bad token");
     setAccessToken(newAt);
+    setRefreshToken(newRt);
     setUser({ id: String(payload["sub"]), phone: "", role: String(payload["role"]) });
   }
 
@@ -105,6 +111,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       SecureStore.setItemAsync(KEY_REFRESH, rt),
     ]);
     setAccessToken(at);
+    setRefreshToken(rt);
     setUser(u);
   }
 
@@ -114,12 +121,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       SecureStore.deleteItemAsync(KEY_REFRESH),
     ]);
     setAccessToken(null);
+    setRefreshToken(null);
     setUser(null);
+  }
+
+  // When the server says the user record no longer exists, clear the session
+  // immediately. The RootNav guard in _layout.tsx will redirect to /(auth)/phone
+  // automatically once `user` becomes null — no router import needed here.
+  async function handleApiError(status: number, message?: string) {
+    if (status === 404 && message?.toLowerCase().includes("user")) {
+      await clearSession();
+    }
   }
 
   return (
     <AuthContext.Provider
-      value={{ user, accessToken, isLoading, setSession, clearSession }}
+      value={{ user, accessToken, refreshToken, isLoading, setSession, clearSession, handleApiError }}
     >
       {children}
     </AuthContext.Provider>

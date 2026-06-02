@@ -1,0 +1,67 @@
+import { useCallback, useEffect, useState } from "react";
+
+const API_URL = process.env["EXPO_PUBLIC_API_URL"] ?? "http://localhost:3001/api/v1";
+
+export interface Facility {
+  id: string;
+  name: string;
+  description: string;
+  sport: string;
+  surface: string;
+  capacity: number;
+  images: string[];
+  isActive: boolean;
+  address: {
+    street: string;
+    city: string;
+    province: string;
+    postalCode: string;
+    lat: number | null;
+    lng: number | null;
+  } | null;
+  averageRating: number | null;
+  totalReviews: number;
+  distanceKm?: number;
+}
+
+interface UseFacilitiesOpts {
+  lat?: number;
+  lng?: number;
+  radius?: number;
+  sport?: string;
+}
+
+export function useFacilities(opts: UseFacilitiesOpts = {}) {
+  const { lat, lng, radius = 10, sport } = opts;
+  const [facilities, setFacilities] = useState<Facility[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchFacilities = useCallback(async () => {
+    if (!lat || !lng) return;
+    setIsLoading(true);
+    setError(null);
+    try {
+      const params = new URLSearchParams({
+        lat: String(lat),
+        lng: String(lng),
+        radius: String(radius),
+        ...(sport ? { sport } : {}),
+      });
+      const res = await fetch(`${API_URL}/facilities?${params}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = (await res.json()) as { data: Facility[] };
+      setFacilities(json.data ?? []);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load facilities");
+    } finally {
+      setIsLoading(false);
+    }
+  }, [lat, lng, radius, sport]);
+
+  useEffect(() => {
+    fetchFacilities();
+  }, [fetchFacilities]);
+
+  return { facilities, isLoading, error, refetch: fetchFacilities };
+}

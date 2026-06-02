@@ -2,6 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { authenticate, requireRole } from "../middleware/auth";
 import { validate } from "../middleware/validate";
+import { redis } from "../lib/redis";
 
 const router = Router();
 
@@ -11,6 +12,31 @@ const slotSchema = z.object({
   startTime: z.string().regex(/^\d{2}:\d{2}$/),
   endTime: z.string().regex(/^\d{2}:\d{2}$/),
   priceCAD: z.number().positive(),
+});
+
+function formatTtl(ttl: number): string {
+  if (ttl <= 0) return "soon";
+  if (ttl < 60) return `${ttl} second${ttl !== 1 ? "s" : ""}`;
+  const minutes = Math.ceil(ttl / 60);
+  return `${minutes} minute${minutes !== 1 ? "s" : ""}`;
+}
+
+// GET /api/v1/slots/:id/lock-status — public, no auth needed
+router.get("/:id/lock-status", async (req, res, next) => {
+  try {
+    const slotId = req.params["id"]!;
+    const ttl = await redis.ttl(`slot:${slotId}:lock`);
+    const isLocked = ttl > 0;
+    res.json({
+      data: {
+        isLocked,
+        ttl: Math.max(0, ttl),
+        availableIn: isLocked ? formatTtl(ttl) : null,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
 });
 
 router.get("/:id", async (req, res) => {

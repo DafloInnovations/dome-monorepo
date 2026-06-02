@@ -7,6 +7,7 @@ import {
   confirmBooking,
   createBooking,
   myBookings,
+  releaseLock,
 } from "../services/bookings.service";
 
 const router = Router();
@@ -60,6 +61,17 @@ router.post("/:id/confirm", validate(confirmSchema), async (req, res, next) => {
     const { paymentIntentId } = req.body as z.infer<typeof confirmSchema>;
     const booking = await confirmBooking(req.user!.sub, id, paymentIntentId);
     res.json({ data: booking });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// DELETE /api/v1/bookings/:id/lock — user abandoned booking before paying
+router.delete("/:id/lock", async (req, res, next) => {
+  try {
+    const id = Array.isArray(req.params["id"]) ? req.params["id"][0]! : req.params["id"]!;
+    const result = await releaseLock(req.user!.sub, id);
+    res.json({ data: result });
   } catch (err) {
     next(err);
   }

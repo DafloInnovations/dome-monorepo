@@ -9,12 +9,13 @@ export default function TabLayout() {
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: "#22c55e",
-        tabBarInactiveTintColor: "#9ca3af",
-        tabBarStyle: { borderTopColor: "#f3f4f6" },
-        headerStyle: { backgroundColor: "#fff" },
-        headerTitleStyle: { fontWeight: "700" },
-        headerTintColor: "#111827",
+        tabBarActiveTintColor: "#E85068",
+        tabBarInactiveTintColor: "#6B6B6B",
+        tabBarStyle: { backgroundColor: "#1C1C1E", borderTopColor: "#2C2C2E" },
+        tabBarLabelStyle: { fontWeight: "600" },
+        headerStyle: { backgroundColor: "#1C1C1E" },
+        headerTitleStyle: { fontWeight: "700", color: "#FFFFFF" },
+        headerTintColor: "#FFFFFF",
       }}
     >
       <Tabs.Screen name="index" options={{ title: "Discover" }} />

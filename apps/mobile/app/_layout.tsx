@@ -2,7 +2,10 @@ import React, { useEffect } from "react";
 import { ActivityIndicator, View } from "react-native";
 import { Stack, useRouter, useSegments } from "expo-router";
 import { StatusBar } from "expo-status-bar";
+import { StripeProvider } from "@stripe/stripe-react-native";
 import { AuthProvider, useAuth } from "../src/context/AuthContext";
+
+const STRIPE_KEY = process.env["EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY"] ?? "";
 
 function RootNav() {
   const { user, isLoading } = useAuth();
@@ -21,29 +24,57 @@ function RootNav() {
 
   if (isLoading) {
     return (
-      <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-        <ActivityIndicator size="large" color="#22c55e" />
+      <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "#000" }}>
+        <ActivityIndicator size="large" color="#E85068" />
       </View>
     );
   }
 
   return (
     <>
-      <StatusBar style="auto" />
+      <StatusBar style="light" />
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="(auth)" />
         <Stack.Screen name="(tabs)" />
         <Stack.Screen
-          name="facility/[id]"
-          options={{ headerShown: true, title: "Facility", headerBackTitle: "Back" }}
+          name="facility/[facilityId]"
+          options={{
+            headerShown: true,
+            title: "Facility",
+            headerBackTitle: "Back",
+            headerStyle: { backgroundColor: "#1C1C1E" },
+            headerTintColor: "#FFFFFF",
+            headerTitleStyle: { fontWeight: "700" },
+          }}
         />
         <Stack.Screen
-          name="booking/[id]"
-          options={{ headerShown: true, title: "Booking", headerBackTitle: "Back" }}
+          name="booking/[slotId]"
+          options={{
+            headerShown: true,
+            title: "Confirm Booking",
+            headerBackTitle: "Back",
+            headerStyle: { backgroundColor: "#1C1C1E" },
+            headerTintColor: "#FFFFFF",
+            headerTitleStyle: { fontWeight: "700" },
+          }}
+        />
+        <Stack.Screen
+          name="booking/success"
+          options={{
+            headerShown: false,
+            gestureEnabled: false,
+          }}
         />
         <Stack.Screen
           name="open-game/[id]"
-          options={{ headerShown: true, title: "Open Game", headerBackTitle: "Back" }}
+          options={{
+            headerShown: true,
+            title: "Open Game",
+            headerBackTitle: "Back",
+            headerStyle: { backgroundColor: "#1C1C1E" },
+            headerTintColor: "#FFFFFF",
+            headerTitleStyle: { fontWeight: "700" },
+          }}
         />
       </Stack>
     </>
@@ -52,8 +83,10 @@ function RootNav() {
 
 export default function RootLayout() {
   return (
-    <AuthProvider>
-      <RootNav />
-    </AuthProvider>
+    <StripeProvider publishableKey={STRIPE_KEY}>
+      <AuthProvider>
+        <RootNav />
+      </AuthProvider>
+    </StripeProvider>
   );
 }

@@ -55,7 +55,7 @@ export async function createPaymentIntent(userId: string, bookingId: string) {
   const pi = await stripe.paymentIntents.create({
     amount: amountCents,
     currency: "cad",
-    automatic_payment_methods: { enabled: true },
+    automatic_payment_methods: { enabled: true, allow_redirects: "never" },
     description: `Dome booking — ${booking.facility.name}`,
     metadata: {
       bookingId: booking.id,
