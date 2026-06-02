@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
-import { BookingStatus } from "@prisma/client";
+import { BookingStatus, Province } from "@prisma/client";
 import { authenticate } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { prisma } from "../lib/prisma";
@@ -134,9 +134,13 @@ router.get("/me", authenticate, async (req, res, next) => {
 
 router.put("/me", authenticate, validate(updateUserSchema), async (req, res, next) => {
   try {
+    const { province, ...rest } = req.body as z.infer<typeof updateUserSchema>;
     const user = await prisma.user.update({
-      where: { id: req.user!.sub },
-      data: req.body as z.infer<typeof updateUserSchema>,
+      where: { id: req.user!.sub as string },
+      data: {
+        ...rest,
+        ...(province !== undefined && { province: province as Province }),
+      },
     });
     res.json({ data: user });
   } catch (err) {

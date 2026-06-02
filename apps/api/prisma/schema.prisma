@@ -63,6 +63,7 @@ enum SurfaceType {
 
 enum SlotStatus {
   AVAILABLE
+  HELD
   BOOKED
   BLOCKED
   OPEN_GAME
