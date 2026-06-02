@@ -4,6 +4,7 @@ import { authenticate } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import {
   cancelBooking,
+  cancelPreview,
   confirmBooking,
   createBooking,
   myBookings,
@@ -72,6 +73,17 @@ router.delete("/:id/lock", async (req, res, next) => {
     const id = Array.isArray(req.params["id"]) ? req.params["id"][0]! : req.params["id"]!;
     const result = await releaseLock(req.user!.sub, id);
     res.json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/v1/bookings/:id/cancel-preview
+router.get("/:id/cancel-preview", async (req, res, next) => {
+  try {
+    const id = Array.isArray(req.params["id"]) ? req.params["id"][0]! : req.params["id"]!;
+    const preview = await cancelPreview(req.user!.sub as string, id);
+    res.json({ data: preview });
   } catch (err) {
     next(err);
   }

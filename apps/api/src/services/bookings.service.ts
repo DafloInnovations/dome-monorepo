@@ -342,10 +342,73 @@ export async function cancelBooking(
   await prisma.$transaction(ops);
   await redis.del(`slot:${booking.slotId}:lock`);
 
+  // Push + DB notification
+  const actor = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { deviceToken: true },
+  });
+  const cancelTitle = "Booking Cancelled";
+  const cancelBody =
+    refundType === "full"
+      ? `Full refund of C$${totalCAD.toFixed(2)} initiated to your card.`
+      : refundType === "credits"
+      ? `C$${totalCAD.toFixed(2)} Dome Credits added to your wallet.`
+      : "Your booking has been cancelled.";
+  const cancelData = { type: "booking_cancelled", bookingId };
+  await saveNotification(userId, "BOOKING_CANCELLED", cancelTitle, cancelBody, cancelData);
+  if (actor?.deviceToken) {
+    await sendPushNotification(actor.deviceToken, cancelTitle, cancelBody, cancelData);
+  }
+
   return {
     refundType,
     creditsIssuedCAD: refundType === "credits" ? totalCAD : null,
     refundedCAD: refundType === "full" ? totalCAD : null,
+  };
+}
+
+// ─── Cancel preview (no mutations) ───────────────────────────────────────────
+
+export async function cancelPreview(userId: string, bookingId: string) {
+  const booking = await prisma.booking.findFirst({
+    where: {
+      id: bookingId,
+      userId,
+      status: { in: [BookingStatus.PENDING, BookingStatus.CONFIRMED] },
+    },
+    include: { slot: true, payment: true },
+  });
+  if (!booking) throw appError("Booking not found", 404);
+
+  const [y, m, d] = booking.slot.date.toISOString().split("T")[0]!.split("-").map(Number);
+  const [sh, sm] = booking.slot.startTime.split(":").map(Number);
+  const slotStartMs = Date.UTC(y!, m! - 1, d!, sh!, sm!);
+  const hoursUntilSlot = (slotStartMs - Date.now()) / 3_600_000;
+
+  const totalCAD = Number(booking.totalCAD);
+  const hasPaid =
+    booking.payment !== null && booking.paymentStatus === BookingPaymentStatus.PAID;
+
+  let refundType: "STRIPE_REFUND" | "DOME_CREDITS" | "NO_REFUND";
+  let message: string;
+
+  if (!hasPaid || totalCAD === 0) {
+    refundType = "NO_REFUND";
+    message = "No payment on file. Your booking will be cancelled at no cost.";
+  } else if (hoursUntilSlot >= FULL_REFUND_CUTOFF_HOURS) {
+    refundType = "STRIPE_REFUND";
+    message = `You'll receive a full refund of C$${totalCAD.toFixed(2)} to your card.`;
+  } else {
+    refundType = "DOME_CREDITS";
+    message = `C$${totalCAD.toFixed(2)} in Dome Credits will be added to your wallet (valid 12 months).`;
+  }
+
+  return {
+    hoursUntilSlot: Math.max(0, hoursUntilSlot),
+    withinFreeWindow: hoursUntilSlot >= FULL_REFUND_CUTOFF_HOURS,
+    refundType,
+    refundAmount: totalCAD,
+    message,
   };
 }
 

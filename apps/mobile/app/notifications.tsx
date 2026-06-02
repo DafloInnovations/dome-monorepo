@@ -9,7 +9,7 @@ import {
   View,
 } from "react-native";
 import { useRouter } from "expo-router";
-import { useNotifications, type AppNotification } from "../../src/hooks/useNotifications";
+import { useNotifications, type AppNotification } from "../src/hooks/useNotifications";
 
 const C = {
   bg: "#000000",
@@ -75,7 +75,6 @@ function NotificationCard({
   onPress: (n: AppNotification) => void;
 }) {
   const icon = TYPE_ICON[notif.type] ?? "🔔";
-
   return (
     <Pressable
       style={[styles.card, notif.isRead ? styles.cardRead : styles.cardUnread]}
@@ -86,7 +85,7 @@ function NotificationCard({
         <Text style={[styles.cardTitle, !notif.isRead && styles.cardTitleUnread]} numberOfLines={1}>
           {notif.title}
         </Text>
-        <Text style={styles.cardBody2} numberOfLines={2}>{notif.body}</Text>
+        <Text style={styles.cardBodyText} numberOfLines={2}>{notif.body}</Text>
         <Text style={styles.cardTime}>{formatTimeAgo(notif.createdAt)}</Text>
       </View>
       {!notif.isRead && <View style={styles.unreadDot} />}
@@ -107,8 +106,10 @@ export default function NotificationsScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Header */}
       <View style={styles.header}>
+        <Pressable onPress={() => router.back()} style={styles.backBtn}>
+          <Text style={styles.backBtnText}>← Back</Text>
+        </Pressable>
         <Text style={styles.title}>NOTIFICATIONS</Text>
         {unreadCount > 0 && (
           <Pressable onPress={markAllRead} style={styles.markAllBtn}>
@@ -136,11 +137,7 @@ export default function NotificationsScreen() {
           contentContainerStyle={styles.list}
           showsVerticalScrollIndicator={false}
           refreshControl={
-            <RefreshControl
-              refreshing={isLoading}
-              onRefresh={fetchNotifications}
-              tintColor={C.primary}
-            />
+            <RefreshControl refreshing={isLoading} onRefresh={fetchNotifications} tintColor={C.primary} />
           }
           ItemSeparatorComponent={() => <View style={styles.separator} />}
           ListEmptyComponent={
@@ -161,12 +158,14 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
+    gap: 10,
     paddingHorizontal: 16,
     paddingTop: Platform.OS === "ios" ? 60 : 20,
     paddingBottom: 12,
   },
-  title: { color: C.text, fontSize: 22, fontWeight: "900", letterSpacing: 1 },
+  backBtn: { marginRight: 4 },
+  backBtnText: { color: C.primary, fontSize: 15, fontWeight: "600" },
+  title: { flex: 1, color: C.text, fontSize: 20, fontWeight: "900", letterSpacing: 1 },
   markAllBtn: {
     backgroundColor: C.surface,
     borderRadius: 99,
@@ -191,7 +190,7 @@ const styles = StyleSheet.create({
   cardBody: { flex: 1 },
   cardTitle: { color: C.muted, fontSize: 14, fontWeight: "600", marginBottom: 3 },
   cardTitleUnread: { color: C.text, fontWeight: "700" },
-  cardBody2: { color: C.muted, fontSize: 13, lineHeight: 18, marginBottom: 4 },
+  cardBodyText: { color: C.muted, fontSize: 13, lineHeight: 18, marginBottom: 4 },
   cardTime: { color: C.muted, fontSize: 11 },
   unreadDot: {
     width: 8,

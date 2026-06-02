@@ -171,6 +171,10 @@ export default function ProfileScreen() {
             value={String(stats?.currentStreak ?? 0)}
             sub="days"
           />
+          <StatCard
+            label="💳 Credits"
+            value={`C$${Number(profile?.user.creditBalanceCAD ?? 0).toFixed(2)}`}
+          />
         </View>
       )}
 

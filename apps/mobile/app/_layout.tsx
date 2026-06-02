@@ -81,10 +81,12 @@ function RootNav() {
             headerTitleStyle: { fontWeight: "700" },
           }}
         />
+        <Stack.Screen name="booking/cancel/[bookingId]" options={{ headerShown: false }} />
         <Stack.Screen name="connect/post-game" options={{ headerShown: false }} />
         <Stack.Screen name="connect/game/[gameId]" options={{ headerShown: false }} />
         <Stack.Screen name="chat/[threadId]" options={{ headerShown: false }} />
         <Stack.Screen name="chat/index" options={{ headerShown: false }} />
+        <Stack.Screen name="notifications" options={{ headerShown: false }} />
       </Stack>
     </>
   );

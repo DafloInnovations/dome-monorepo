@@ -1,11 +1,9 @@
 import { Redirect, Tabs } from "expo-router";
 import { useAuth } from "../../src/context/AuthContext";
-import { useNotificationsContext } from "../../src/context/NotificationsContext";
 import { useThreads } from "../../src/hooks/useChat";
 
 export default function TabLayout() {
   const { user } = useAuth();
-  const { unreadCount: notifCount } = useNotificationsContext();
   const { threads } = useThreads();
 
   if (!user) return <Redirect href="/(auth)/phone" />;
@@ -35,10 +33,6 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen name="profile" options={{ title: "Profile" }} />
-
-      {/* Hidden — accessible via push but not shown in tab bar */}
-      <Tabs.Screen name="notifications" options={{ href: null }} />
-      <Tabs.Screen name="open-games" options={{ href: null }} />
     </Tabs>
   );
 }

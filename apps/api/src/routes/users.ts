@@ -144,6 +144,25 @@ router.put("/me", authenticate, validate(updateUserSchema), async (req, res, nex
   }
 });
 
+// GET /api/v1/users/me/credits — credit balance + transaction history
+router.get("/me/credits", authenticate, async (req, res, next) => {
+  try {
+    const userId = req.user!.sub as string;
+    const credits = await prisma.domeCredit.findMany({
+      where: { userId },
+      orderBy: { createdAt: "desc" },
+    });
+    const now = new Date();
+    const balance = credits
+      .filter((c) => !c.expiresAt || c.expiresAt > now)
+      .reduce((sum, c) => sum + Number(c.amountCAD), 0);
+    res.json({
+      balance: Math.round(balance * 100) / 100,
+      credits: credits.map((c) => ({ ...c, amountCAD: Number(c.amountCAD) })),
+    });
+  } catch (err) { next(err); }
+});
+
 // POST /api/v1/users/me/device-token — register FCM token for push notifications
 router.post("/me/device-token", authenticate, async (req, res, next) => {
   try {

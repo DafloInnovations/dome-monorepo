@@ -262,7 +262,7 @@ export default function DiscoverScreen() {
         {/* Bell with unread badge */}
         <Pressable
           style={styles.bellBtn}
-          onPress={() => router.push("/(tabs)/notifications")}
+          onPress={() => router.push("/notifications")}
           hitSlop={8}
         >
           <Text style={styles.bellIcon}>🔔</Text>

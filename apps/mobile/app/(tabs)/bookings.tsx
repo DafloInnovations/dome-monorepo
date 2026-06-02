@@ -51,7 +51,7 @@ function todayLocalStr(): string {
   return `${y}-${m}-${day}`;
 }
 
-function BookingCard({ booking }: { booking: MyBooking }) {
+function BookingCard({ booking, onCancel }: { booking: MyBooking; onCancel?: () => void }) {
   const sportKey = booking.facility.sport.toLowerCase();
   const emoji = SPORT_EMOJI[sportKey] ?? "🏟";
   const statusColor = STATUS_COLOR[booking.status] ?? C.muted;
@@ -84,6 +84,12 @@ function BookingCard({ booking }: { booking: MyBooking }) {
         </Text>
         <Text style={styles.price}>C${booking.totalCAD.toFixed(2)}</Text>
       </View>
+
+      {onCancel && (
+        <Pressable style={styles.cancelBtn} onPress={onCancel}>
+          <Text style={styles.cancelBtnText}>Cancel Booking</Text>
+        </Pressable>
+      )}
     </View>
   );
 }
@@ -167,7 +173,29 @@ export default function BookingsScreen() {
         <FlatList
           data={displayed}
           keyExtractor={(item) => item.id}
-          renderItem={({ item }) => <BookingCard booking={item} />}
+          renderItem={({ item }) => (
+            <BookingCard
+              booking={item}
+              onCancel={
+                activeTab === "upcoming" &&
+                (item.status === "CONFIRMED" || item.status === "PENDING")
+                  ? () =>
+                      router.push({
+                        pathname: "/booking/cancel/[bookingId]",
+                        params: {
+                          bookingId: item.id,
+                          facilityName: item.facility.name,
+                          sport: item.facility.sport,
+                          slotDate: item.slot.date.split("T")[0],
+                          startTime: item.slot.startTime,
+                          endTime: item.slot.endTime,
+                          totalCAD: String(item.totalCAD),
+                        },
+                      })
+                  : undefined
+              }
+            />
+          )}
           contentContainerStyle={styles.list}
           showsVerticalScrollIndicator={false}
           refreshControl={
@@ -254,6 +282,16 @@ const styles = StyleSheet.create({
   },
   dateTime: { color: C.muted, fontSize: 13 },
   price: { color: C.text, fontSize: 14, fontWeight: "700" },
+  cancelBtn: {
+    marginTop: 10,
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: C.surface,
+    borderWidth: 1,
+    borderColor: C.border,
+    alignItems: "center",
+  },
+  cancelBtnText: { color: C.muted, fontSize: 13, fontWeight: "600" },
   center: { flex: 1, alignItems: "center", justifyContent: "center", paddingTop: 60 },
   errorText: { color: "#ff6b6b", fontSize: 15, marginBottom: 14, textAlign: "center" },
   retryBtn: {
