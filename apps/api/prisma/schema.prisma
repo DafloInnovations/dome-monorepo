@@ -133,6 +133,29 @@ enum PlayerStatus {
   DECLINED
 }
 
+enum BookingUnitType {
+  COURT       // Badminton, Tennis, Squash, Pickleball
+  LANE        // Bowling, Swimming
+  TEE_TIME    // Golf
+  SESSION     // Rock climbing, fitness classes
+  PASS        // Gym day pass, open swim
+  TABLE       // Table tennis, Pool/Snooker
+}
+
+enum BookingModel {
+  SLOT_BASED  // Fixed time slots (most sports)
+  TEE_TIME    // Golf — specific tee times
+  SESSION     // Classes, climbing — session-based
+  OPEN_PLAY   // Drop-in, day passes
+}
+
+enum GroupBookingStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  PARTIAL_CANCELLED
+}
+
 enum MessageType {
   TEXT
   IMAGE
@@ -166,6 +189,7 @@ model User {
 
   vendor                 Vendor?
   bookings               Booking[]
+  bookingGroups          BookingGroup[]
   payments               Payment[]
   reviews                Review[]
   domeCredits            DomeCredit[]
@@ -228,6 +252,8 @@ model Facility {
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
 
+  bookingModel  BookingModel @default(SLOT_BASED)
+
   vendor         Vendor                @relation(fields: [vendorId], references: [id], onDelete: Cascade)
   address        FacilityAddress?
   amenities      FacilityAmenityLink[]
@@ -235,6 +261,7 @@ model Facility {
   courts         Court[]
   slots          Slot[]
   bookings       Booking[]
+  bookingGroups  BookingGroup[]
   reviews        Review[]
   openGames      OpenGame[]
 
@@ -292,13 +319,16 @@ model OperatingHours {
 }
 
 model Court {
-  id          String   @id @default(cuid())
+  id          String          @id @default(cuid())
   facilityId  String
   name        String
   description String?
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  isActive    Boolean         @default(true)
+  unitType    BookingUnitType @default(COURT)
+  unitLabel   String          @default("Court")
+  maxPlayers  Int?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
 
   facility Facility @relation(fields: [facilityId], references: [id], onDelete: Cascade)
   slots    Slot[]
@@ -319,12 +349,16 @@ model Slot {
   priceCAD          Decimal    @db.Decimal(10, 2)
   status            SlotStatus @default(AVAILABLE)
   recurrenceGroupId String?
+  // Session / pass fields
+  capacity          Int?       // non-null → SESSION slot; multiple bookings allowed up to this limit
+  spotsBooked       Int        @default(0)
+  isOpenPlay        Boolean    @default(false) // day-pass style, no specific time
   createdAt         DateTime   @default(now())
   updatedAt         DateTime   @updatedAt
 
   facility Facility  @relation(fields: [facilityId], references: [id], onDelete: Cascade)
   court    Court?    @relation(fields: [courtId], references: [id])
-  booking  Booking?
+  bookings Booking[]
   openGame OpenGame?
 
   @@index([facilityId, date])
@@ -334,17 +368,18 @@ model Slot {
 }
 
 model Booking {
-  id            String               @id @default(cuid())
-  slotId        String               @unique
-  facilityId    String
-  userId        String
-  status        BookingStatus        @default(PENDING)
-  paymentStatus BookingPaymentStatus @default(UNPAID)
-  subtotalCAD   Decimal              @db.Decimal(10, 2)
-  taxCAD        Decimal              @db.Decimal(10, 2)
-  totalCAD      Decimal              @db.Decimal(10, 2)
-  taxProvince   Province
-  notes         String?
+  id             String               @id @default(cuid())
+  slotId         String
+  facilityId     String
+  userId         String
+  bookingGroupId String?
+  status         BookingStatus        @default(PENDING)
+  paymentStatus  BookingPaymentStatus @default(UNPAID)
+  subtotalCAD    Decimal              @db.Decimal(10, 2)
+  taxCAD         Decimal              @db.Decimal(10, 2)
+  totalCAD       Decimal              @db.Decimal(10, 2)
+  taxProvince    Province
+  notes          String?
   cancelledAt      DateTime?
   cancelReason     String?
   creditsIssuedCAD Decimal?             @db.Decimal(10, 2)
@@ -354,22 +389,53 @@ model Booking {
   slot          Slot           @relation(fields: [slotId], references: [id])
   facility      Facility       @relation(fields: [facilityId], references: [id])
   user          User           @relation(fields: [userId], references: [id])
+  bookingGroup  BookingGroup?  @relation(fields: [bookingGroupId], references: [id])
   payment       Payment?
   review        Review?
   domeCredits   DomeCredit[]
   conversations Conversation[]
 
+  // One user can only hold one booking per slot (blocks double-booking for SESSION slots too)
+  @@unique([slotId, userId])
+  @@index([userId])
+  @@index([facilityId])
+  @@index([bookingGroupId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+// ─── Group Booking ────────────────────────────────────────────────────────────
+
+model BookingGroup {
+  id              String             @id @default(cuid())
+  userId          String
+  facilityId      String
+  totalCAD        Decimal            @db.Decimal(10, 2)
+  subtotalCAD     Decimal            @db.Decimal(10, 2)
+  taxCAD          Decimal            @db.Decimal(10, 2)
+  status          GroupBookingStatus @default(PENDING)
+  paymentStatus   PaymentStatus      @default(PENDING)
+  paymentIntentId String?
+  notes           String?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  user     User      @relation(fields: [userId], references: [id])
+  facility Facility  @relation(fields: [facilityId], references: [id])
+  bookings Booking[]
+  payments Payment[]
+
   @@index([userId])
   @@index([facilityId])
   @@index([status])
-  @@index([createdAt])
 }
 
 // ─── Payments ─────────────────────────────────────────────────────────────────
 
 model Payment {
   id                String        @id @default(cuid())
-  bookingId         String        @unique
+  bookingId         String?       @unique  // null for group payments
+  bookingGroupId    String?       @unique  // null for individual payments
   userId            String
   amountCAD         Decimal       @db.Decimal(10, 2)
   taxCAD            Decimal       @db.Decimal(10, 2)
@@ -382,8 +448,9 @@ model Payment {
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
 
-  booking Booking @relation(fields: [bookingId], references: [id])
-  user    User    @relation(fields: [userId], references: [id])
+  booking      Booking?      @relation(fields: [bookingId], references: [id])
+  bookingGroup BookingGroup? @relation(fields: [bookingGroupId], references: [id])
+  user         User          @relation(fields: [userId], references: [id])
 
   @@index([userId])
   @@index([status])

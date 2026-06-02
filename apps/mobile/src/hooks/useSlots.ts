@@ -8,7 +8,10 @@ export interface Slot {
   endTime: string;
   durationMinutes: number;
   priceCAD: number;
-  status: "AVAILABLE" | "BOOKED" | "HELD";
+  status: "AVAILABLE" | "BOOKED" | "HELD" | "BLOCKED" | "OPEN_GAME";
+  capacity: number | null;
+  spotsBooked: number;
+  isOpenPlay: boolean;
 }
 
 export function useSlots(facilityId: string, date: string) {

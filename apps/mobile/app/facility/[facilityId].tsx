@@ -80,6 +80,8 @@ export default function FacilityDetailScreen() {
   const [facilityError, setFacilityError] = useState<string | null>(null);
   const [selectedDay, setSelectedDay] = useState(0);
   const [selectedSlot, setSelectedSlot] = useState<Slot | null>(null);
+  const [multiSelectMode, setMultiSelectMode] = useState(false);
+  const [selectedSlots, setSelectedSlots] = useState<Slot[]>([]);
 
   const date = formatLocalDate(days[selectedDay]!);
   const {
@@ -89,15 +91,28 @@ export default function FacilityDetailScreen() {
     refetch: refetchSlots,
   } = useSlots(facilityId ?? "", date);
 
-  // Refetch slots whenever this screen comes back into focus (e.g. user presses
-  // Back from the booking screen — the slot they started booking will be HELD).
   useFocusEffect(
     useCallback(() => {
       refetchSlots();
-      // Clear any selected slot so the CTA doesn't linger for a now-held slot.
       setSelectedSlot(null);
+      setSelectedSlots([]);
     }, [refetchSlots])
   );
+
+  function toggleMultiSelect() {
+    setMultiSelectMode((v) => !v);
+    setSelectedSlots([]);
+    setSelectedSlot(null);
+  }
+
+  function handleMultiSelect(slot: Slot) {
+    setSelectedSlots((prev) => {
+      const exists = prev.find((s) => s.id === slot.id);
+      return exists ? prev.filter((s) => s.id !== slot.id) : [...prev, slot];
+    });
+  }
+
+  const multiTotal = selectedSlots.reduce((s, sl) => s + Number(sl.priceCAD), 0);
 
   useEffect(() => {
     if (!facilityId) return;
@@ -214,14 +229,29 @@ export default function FacilityDetailScreen() {
         ))}
       </ScrollView>
 
-      {/* Slot grid */}
-      <Text style={styles.sectionTitle}>Available Slots</Text>
+      {/* Slot grid header + multi-select toggle */}
+      <View style={styles.sectionRow}>
+        <Text style={styles.sectionTitle}>Available Slots</Text>
+        <Pressable onPress={toggleMultiSelect} style={[styles.toggleBtn, multiSelectMode && styles.toggleBtnActive]}>
+          <Text style={[styles.toggleBtnText, multiSelectMode && styles.toggleBtnTextActive]}>
+            {multiSelectMode ? "Cancel" : "Multi-Court"}
+          </Text>
+        </Pressable>
+      </View>
+
       {slotsLoading ? (
         <View style={styles.centered}>
           <ActivityIndicator color={C.primary} />
         </View>
       ) : slotsError ? (
         <Text style={styles.inlineError}>{slotsError}</Text>
+      ) : multiSelectMode ? (
+        <SlotGrid
+          multiSelect
+          slots={slots}
+          selectedSlotIds={selectedSlots.map((s) => s.id)}
+          onMultiSelect={handleMultiSelect}
+        />
       ) : (
         <SlotGrid
           slots={slots}
@@ -230,16 +260,12 @@ export default function FacilityDetailScreen() {
         />
       )}
 
-      {/* Book CTA — only show when the selected slot is still AVAILABLE */}
-      {selectedSlot?.status === "AVAILABLE" ? (
+      {/* Single-slot CTA */}
+      {!multiSelectMode && selectedSlot?.status === "AVAILABLE" ? (
         <View style={styles.cta}>
           <View style={styles.ctaInfo}>
-            <Text style={styles.ctaSlot}>
-              {selectedSlot.startTime} – {selectedSlot.endTime}
-            </Text>
-            <Text style={styles.ctaPrice}>
-              C${selectedSlot.priceCAD?.toFixed(2) ?? "0.00"}
-            </Text>
+            <Text style={styles.ctaSlot}>{selectedSlot.startTime} – {selectedSlot.endTime}</Text>
+            <Text style={styles.ctaPrice}>C${Number(selectedSlot.priceCAD).toFixed(2)}</Text>
           </View>
           <Pressable
             style={styles.bookBtn}
@@ -259,6 +285,39 @@ export default function FacilityDetailScreen() {
             }
           >
             <Text style={styles.bookBtnText}>Book This Slot</Text>
+          </Pressable>
+        </View>
+      ) : null}
+
+      {/* Multi-court group CTA */}
+      {multiSelectMode && selectedSlots.length > 0 ? (
+        <View style={styles.cta}>
+          <View style={styles.ctaInfo}>
+            <Text style={styles.ctaSlot}>{selectedSlots.length} court{selectedSlots.length !== 1 ? "s" : ""} selected</Text>
+            <Text style={styles.ctaPrice}>C${multiTotal.toFixed(2)}</Text>
+          </View>
+          <Text style={styles.ctaSubtext}>
+            {selectedSlots.map((s) => `${s.startTime}–${s.endTime}`).join(" · ")}
+          </Text>
+          <Pressable
+            style={styles.bookBtn}
+            onPress={() =>
+              router.push({
+                pathname: "/booking/group",
+                params: {
+                  slotIds: selectedSlots.map((s) => s.id).join(","),
+                  facilityId: facilityId ?? "",
+                  facilityName: facility.name,
+                  date,
+                  totalCAD: String(multiTotal),
+                  slotSummary: selectedSlots.map((s) => `${s.startTime}–${s.endTime}`).join(", "),
+                },
+              })
+            }
+          >
+            <Text style={styles.bookBtnText}>
+              Book {selectedSlots.length} Courts — C${multiTotal.toFixed(2)}
+            </Text>
           </Pressable>
         </View>
       ) : null}
@@ -283,14 +342,29 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
   },
   metaChipText: { color: C.muted, fontSize: 12, fontWeight: "600" },
-  sectionTitle: {
-    color: C.text,
-    fontSize: 17,
-    fontWeight: "700",
+  sectionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     paddingHorizontal: 16,
     paddingTop: 24,
     paddingBottom: 12,
   },
+  sectionTitle: {
+    color: C.text,
+    fontSize: 17,
+    fontWeight: "700",
+  },
+  toggleBtn: {
+    borderWidth: 1,
+    borderColor: C.muted,
+    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+  },
+  toggleBtnActive: { borderColor: C.primary, backgroundColor: "#E8506822" },
+  toggleBtnText: { color: C.muted, fontSize: 12, fontWeight: "600" },
+  toggleBtnTextActive: { color: C.primary },
   dateStrip: { flexGrow: 0 },
   dateStripContent: { paddingHorizontal: 16, gap: 10, paddingBottom: 4 },
   dateChip: {
@@ -326,4 +400,5 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   bookBtnText: { color: C.text, fontSize: 16, fontWeight: "700" },
+  ctaSubtext: { color: C.muted, fontSize: 12, marginBottom: 10 },
 });

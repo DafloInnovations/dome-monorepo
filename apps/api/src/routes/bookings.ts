@@ -4,9 +4,13 @@ import { authenticate } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import {
   cancelBooking,
+  cancelGroupBooking,
   cancelPreview,
   confirmBooking,
+  confirmGroupBooking,
   createBooking,
+  createGroupBooking,
+  getGroupBooking,
   myBookings,
   releaseLock,
 } from "../services/bookings.service";
@@ -99,6 +103,61 @@ router.put("/:id/cancel", validate(cancelSchema), async (req, res, next) => {
   } catch (err) {
     next(err);
   }
+});
+
+// ─── Group booking routes ─────────────────────────────────────────────────────
+
+const groupCreateSchema = z.object({
+  slotIds: z.array(z.string().min(1)).min(2).max(10),
+  facilityId: z.string().min(1),
+  notes: z.string().max(500).optional(),
+});
+
+const groupConfirmSchema = z.object({
+  paymentIntentId: z.string().min(1),
+});
+
+const groupCancelSchema = z.object({
+  reason: z.string().max(200).optional(),
+});
+
+function param(p: string | string[]): string {
+  return Array.isArray(p) ? p[0]! : p;
+}
+
+// GET /api/v1/bookings/group/:groupId — must be before POST /group
+router.get("/group/:groupId", async (req, res, next) => {
+  try {
+    const result = await getGroupBooking(req.user!.sub, param(req.params["groupId"]!));
+    res.json({ data: result });
+  } catch (err) { next(err); }
+});
+
+// POST /api/v1/bookings/group
+router.post("/group", validate(groupCreateSchema), async (req, res, next) => {
+  try {
+    const { slotIds, facilityId, notes } = req.body as z.infer<typeof groupCreateSchema>;
+    const result = await createGroupBooking(req.user!.sub, slotIds, facilityId, notes);
+    res.status(201).json({ data: result });
+  } catch (err) { next(err); }
+});
+
+// POST /api/v1/bookings/group/:groupId/confirm
+router.post("/group/:groupId/confirm", validate(groupConfirmSchema), async (req, res, next) => {
+  try {
+    const { paymentIntentId } = req.body as z.infer<typeof groupConfirmSchema>;
+    const result = await confirmGroupBooking(req.user!.sub, param(req.params["groupId"]!), paymentIntentId);
+    res.json({ data: result });
+  } catch (err) { next(err); }
+});
+
+// PUT /api/v1/bookings/group/:groupId/cancel
+router.put("/group/:groupId/cancel", validate(groupCancelSchema), async (req, res, next) => {
+  try {
+    const { reason } = req.body as z.infer<typeof groupCancelSchema>;
+    const result = await cancelGroupBooking(req.user!.sub, param(req.params["groupId"]!), reason);
+    res.json({ data: result });
+  } catch (err) { next(err); }
 });
 
 export default router;

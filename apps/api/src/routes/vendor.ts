@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
-import { BookingStatus, SlotStatus } from "@prisma/client";
+import { BookingStatus, BookingUnitType, Prisma, SlotStatus } from "@prisma/client";
 import { authenticate, requireRole } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { createFacility, updateFacility } from "../services/facilities.service";
@@ -54,7 +54,7 @@ router.get("/bookings", async (req, res, next) => {
     const take = Math.min(Number(limit), 100);
     const skip = (Math.max(Number(page), 1) - 1) * take;
 
-    const where: Parameters<typeof prisma.booking.findMany>[0]["where"] = {
+    const where: Prisma.BookingWhereInput = {
       facilityId: { in: facilityIds },
       ...(status && { status: status as BookingStatus }),
       ...(from && { slot: { date: { gte: new Date(from) } } }),
@@ -304,6 +304,9 @@ const updateFacilitySchema = createFacilitySchema.partial().extend({
 const createCourtSchema = z.object({
   name: z.string().min(1).max(80),
   description: z.string().max(500).optional(),
+  unitType: z.nativeEnum(BookingUnitType).optional(),
+  unitLabel: z.string().min(1).max(40).optional(),
+  maxPlayers: z.number().int().positive().optional(),
 });
 
 const bulkSlotsSchema = z.object({

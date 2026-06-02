@@ -1,4 +1,4 @@
-import { SlotStatus } from "@prisma/client";
+import { BookingUnitType, SlotStatus } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 
 function appError(msg: string, status = 500, code?: string) {
@@ -28,6 +28,9 @@ function getDatesInRange(start: string, end: string, weekdays?: number[]): strin
 export interface CreateCourtInput {
   name: string;
   description?: string;
+  unitType?: BookingUnitType;
+  unitLabel?: string;
+  maxPlayers?: number;
 }
 
 export interface BulkCreateSlotsInput {
@@ -50,7 +53,16 @@ export async function createCourt(userId: string, facilityId: string, input: Cre
   if (!facility) throw appError("Facility not found", 404);
 
   return prisma.court.create({
-    data: { facilityId, name: input.name, description: input.description },
+    data: {
+      facilityId,
+      name: input.name,
+      description: input.description,
+      unitType: input.unitType ?? BookingUnitType.COURT,
+      unitLabel: input.unitLabel ?? input.unitType
+        ? (input.unitType!.charAt(0) + input.unitType!.slice(1).toLowerCase().replace("_", " "))
+        : "Court",
+      maxPlayers: input.maxPlayers,
+    },
   });
 }
 
