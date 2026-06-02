@@ -1,3 +1,4 @@
+/// <reference lib="dom" />
 import type { ApiError, ApiResponse } from "@dome/types";
 
 export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
