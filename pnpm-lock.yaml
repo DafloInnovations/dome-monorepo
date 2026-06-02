@@ -29,19 +29,6 @@ importers:
       '@dome/utils':
         specifier: workspace:*
         version: link:../../packages/utils
-      next:
-        specifier: 14.2.35
-        version: 14.2.35(@opentelemetry/api@1.9.1)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      react:
-        specifier: ^18.3.1
-        version: 18.3.1
-      react-dom:
-        specifier: ^18.3.1
-        version: 18.3.1(react@18.3.1)
-    devDependencies:
-      '@dome/config':
-        specifier: workspace:*
-        version: link:../../packages/config
       '@types/node':
         specifier: ^22.10.2
         version: 22.19.19
@@ -54,15 +41,28 @@ importers:
       autoprefixer:
         specifier: ^10.4.20
         version: 10.5.0(postcss@8.5.15)
+      next:
+        specifier: 14.2.35
+        version: 14.2.35(@opentelemetry/api@1.9.1)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       postcss:
         specifier: ^8.5.1
         version: 8.5.15
+      react:
+        specifier: ^18.3.1
+        version: 18.3.1
+      react-dom:
+        specifier: ^18.3.1
+        version: 18.3.1(react@18.3.1)
       tailwindcss:
         specifier: ^3.4.17
         version: 3.4.19(yaml@2.9.0)
       typescript:
         specifier: ^5.7.2
         version: 5.9.3
+    devDependencies:
+      '@dome/config':
+        specifier: workspace:*
+        version: link:../../packages/config
 
   apps/api:
     dependencies:
@@ -248,9 +248,15 @@ importers:
       '@types/react-dom':
         specifier: ^18.3.7
         version: 18.3.7(@types/react@18.3.29)
+      autoprefixer:
+        specifier: ^10.4.20
+        version: 10.5.0(postcss@8.5.15)
       next:
         specifier: ^14.2.35
         version: 14.2.35(@opentelemetry/api@1.9.1)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      postcss:
+        specifier: ^8.5.1
+        version: 8.5.15
       react:
         specifier: ^18.3.1
         version: 18.3.1
@@ -260,6 +266,9 @@ importers:
       recharts:
         specifier: ^3.8.1
         version: 3.8.1(@types/react@18.3.29)(react-dom@18.3.1(react@18.3.1))(react-is@19.2.6)(react@18.3.1)(redux@5.0.1)
+      tailwindcss:
+        specifier: ^3.4.17
+        version: 3.4.19(yaml@2.9.0)
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
@@ -267,15 +276,6 @@ importers:
       '@dome/config':
         specifier: workspace:*
         version: link:../../packages/config
-      autoprefixer:
-        specifier: ^10.4.20
-        version: 10.5.0(postcss@8.5.15)
-      postcss:
-        specifier: ^8.5.1
-        version: 8.5.15
-      tailwindcss:
-        specifier: ^3.4.17
-        version: 3.4.19(yaml@2.9.0)
 
   apps/web:
     dependencies:
@@ -288,19 +288,6 @@ importers:
       '@dome/utils':
         specifier: workspace:*
         version: link:../../packages/utils
-      next:
-        specifier: 14.2.35
-        version: 14.2.35(@opentelemetry/api@1.9.1)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      react:
-        specifier: ^18.3.1
-        version: 18.3.1
-      react-dom:
-        specifier: ^18.3.1
-        version: 18.3.1(react@18.3.1)
-    devDependencies:
-      '@dome/config':
-        specifier: workspace:*
-        version: link:../../packages/config
       '@types/node':
         specifier: ^22.10.2
         version: 22.19.19
@@ -313,15 +300,28 @@ importers:
       autoprefixer:
         specifier: ^10.4.20
         version: 10.5.0(postcss@8.5.15)
+      next:
+        specifier: 14.2.35
+        version: 14.2.35(@opentelemetry/api@1.9.1)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       postcss:
         specifier: ^8.5.1
         version: 8.5.15
+      react:
+        specifier: ^18.3.1
+        version: 18.3.1
+      react-dom:
+        specifier: ^18.3.1
+        version: 18.3.1(react@18.3.1)
       tailwindcss:
         specifier: ^3.4.17
         version: 3.4.19(yaml@2.9.0)
       typescript:
         specifier: ^5.7.2
         version: 5.9.3
+    devDependencies:
+      '@dome/config':
+        specifier: workspace:*
+        version: link:../../packages/config
 
   packages/api-client:
     dependencies:
