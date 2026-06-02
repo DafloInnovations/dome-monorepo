@@ -9,6 +9,7 @@ import paymentsRouter from "./payments";
 import reviewsRouter from "./reviews";
 import slotsRouter from "./slots";
 import usersRouter from "./users";
+import notificationsRouter from "./notifications";
 import vendorRouter from "./vendor";
 import vendorsRouter from "./vendors";
 
@@ -25,4 +26,5 @@ router.use("/reviews", reviewsRouter);
 router.use("/open-games", openGamesRouter);
 router.use("/connect", connectRouter);
 router.use("/chat", chatRouter);
+router.use("/notifications", notificationsRouter);
 router.use("/vendor", vendorRouter);

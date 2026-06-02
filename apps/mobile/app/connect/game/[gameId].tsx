@@ -11,6 +11,7 @@ import {
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useConnectActions, useGameDetail, type GameParticipant } from "../../../src/hooks/useConnect";
 import { useAuth } from "../../../src/context/AuthContext";
+import { useOpenThread } from "../../../src/hooks/useChat";
 
 const C = {
   bg: "#000000",
@@ -117,6 +118,7 @@ export default function GameDetailScreen() {
   const { user } = useAuth();
   const { game, isLoading, error, refetch } = useGameDetail(gameId!);
   const { joinGame, isLoading: isJoining } = useConnectActions();
+  const { openThread, isLoading: isOpeningThread } = useOpenThread();
 
   if (isLoading) {
     return (
@@ -293,9 +295,40 @@ export default function GameDetailScreen() {
           </Pressable>
         )}
 
-        <Pressable style={styles.messageBtn}>
-          <Text style={styles.messageBtnText}>Message Host</Text>
-        </Pressable>
+        {!isHost && (
+          <Pressable
+            style={[styles.messageBtn, isOpeningThread && styles.messageBtnDisabled]}
+            disabled={isOpeningThread}
+            onPress={async () => {
+              if (!user) { router.push("/(auth)/phone"); return; }
+              try {
+                const thread = await openThread(game.host.id, gameId!);
+                const otherUserName = [game.host.firstName, game.host.lastName].filter(Boolean).join(" ") || "Host";
+                router.push({
+                  pathname: "/chat/[threadId]",
+                  params: {
+                    threadId: thread.id,
+                    otherUserName,
+                    gameId: gameId!,
+                    gameSport: game.sport,
+                    gameFacility: game.facility.name,
+                    gameDate: game.gameDate ?? "",
+                    gameStartTime: game.startTime ?? "",
+                    gameEndTime: game.endTime ?? "",
+                  },
+                });
+              } catch (e) {
+                Alert.alert("Error", e instanceof Error ? e.message : "Could not open chat.");
+              }
+            }}
+          >
+            {isOpeningThread ? (
+              <ActivityIndicator color={C.text} size="small" />
+            ) : (
+              <Text style={styles.messageBtnText}>Message Host</Text>
+            )}
+          </Pressable>
+        )}
       </View>
     </ScrollView>
   );
@@ -426,6 +459,7 @@ const styles = StyleSheet.create({
     borderRadius: 14, paddingVertical: 14, alignItems: "center",
     backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
   },
+  messageBtnDisabled: { opacity: 0.5 },
   messageBtnText: { color: C.text, fontSize: 15, fontWeight: "600" },
 
   errorText: { color: "#ff6b6b", fontSize: 15, marginBottom: 14, textAlign: "center" },

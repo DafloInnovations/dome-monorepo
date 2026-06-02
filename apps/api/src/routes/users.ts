@@ -144,6 +144,22 @@ router.put("/me", authenticate, validate(updateUserSchema), async (req, res, nex
   }
 });
 
+// POST /api/v1/users/me/device-token — register FCM token for push notifications
+router.post("/me/device-token", authenticate, async (req, res, next) => {
+  try {
+    const { token } = req.body as { token?: unknown };
+    if (!token || typeof token !== "string") {
+      res.status(400).json({ message: "token is required" });
+      return;
+    }
+    await prisma.user.update({
+      where: { id: req.user!.sub as string },
+      data: { deviceToken: token },
+    });
+    res.status(204).end();
+  } catch (err) { next(err); }
+});
+
 router.delete("/me", authenticate, async (req, res) => {
   // TODO: anonymize / delete account (PIPEDA compliance)
   res.status(204).end();

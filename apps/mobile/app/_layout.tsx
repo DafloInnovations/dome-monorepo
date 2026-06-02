@@ -4,6 +4,9 @@ import { Stack, useRouter, useSegments } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { StripeProvider } from "@stripe/stripe-react-native";
 import { AuthProvider, useAuth } from "../src/context/AuthContext";
+import { SocketProvider } from "../src/context/SocketContext";
+import { NotificationsProvider } from "../src/context/NotificationsContext";
+import { usePushNotifications } from "../src/hooks/usePushNotifications";
 
 const STRIPE_KEY = process.env["EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY"] ?? "";
 
@@ -11,6 +14,8 @@ function RootNav() {
   const { user, isLoading } = useAuth();
   const segments = useSegments();
   const router = useRouter();
+
+  usePushNotifications();
 
   useEffect(() => {
     if (isLoading) return;
@@ -76,6 +81,10 @@ function RootNav() {
             headerTitleStyle: { fontWeight: "700" },
           }}
         />
+        <Stack.Screen name="connect/post-game" options={{ headerShown: false }} />
+        <Stack.Screen name="connect/game/[gameId]" options={{ headerShown: false }} />
+        <Stack.Screen name="chat/[threadId]" options={{ headerShown: false }} />
+        <Stack.Screen name="chat/index" options={{ headerShown: false }} />
       </Stack>
     </>
   );
@@ -85,7 +94,11 @@ export default function RootLayout() {
   return (
     <StripeProvider publishableKey={STRIPE_KEY}>
       <AuthProvider>
-        <RootNav />
+        <SocketProvider>
+          <NotificationsProvider>
+            <RootNav />
+          </NotificationsProvider>
+        </SocketProvider>
       </AuthProvider>
     </StripeProvider>
   );

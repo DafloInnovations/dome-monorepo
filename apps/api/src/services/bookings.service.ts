@@ -11,6 +11,7 @@ import { calculateTax } from "@dome/utils";
 import { prisma } from "../lib/prisma";
 import { redis } from "../lib/redis";
 import { stripe } from "../lib/stripe";
+import { sendPushNotification, saveNotification } from "../lib/firebase";
 
 const SLOT_LOCK_TTL = 300;          // 5 minutes
 const FULL_REFUND_CUTOFF_HOURS = 24; // ≥ 24h before slot → full Stripe refund
@@ -233,6 +234,25 @@ export async function confirmBooking(
   ]);
 
   await redis.del(`slot:${booking.slotId}:lock`);
+
+  // Push: booking confirmed
+  const userForToken = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { deviceToken: true },
+  });
+  if (confirmed) {
+    const sport = confirmed.facility.sport.charAt(0) + confirmed.facility.sport.slice(1).toLowerCase();
+    const slotDate = confirmed.slot.date instanceof Date
+      ? confirmed.slot.date.toLocaleDateString("en-CA", { month: "short", day: "numeric" })
+      : String(confirmed.slot.date).split("T")[0];
+    const bTitle = "Booking Confirmed ✅";
+    const bBody = `${sport} at ${confirmed.facility.name} on ${slotDate} at ${confirmed.slot.startTime}`;
+    const bData = { type: "booking_confirmed", bookingId };
+    await saveNotification(userId, "BOOKING_CONFIRMED", bTitle, bBody, bData);
+    if (userForToken?.deviceToken) {
+      await sendPushNotification(userForToken.deviceToken, bTitle, bBody, bData);
+    }
+  }
 
   return confirmed;
 }

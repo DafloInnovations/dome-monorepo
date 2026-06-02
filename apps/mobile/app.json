@@ -38,8 +38,14 @@
           "enableGooglePay": true
         }
       ],
-      "expo-font",
-      "expo-secure-store"
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/icon.png",
+          "color": "#E85068",
+          "sounds": []
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

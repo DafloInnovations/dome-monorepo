@@ -8,6 +8,7 @@ import {
 import { prisma } from "../lib/prisma";
 import { redis } from "../lib/redis";
 import { stripe } from "../lib/stripe";
+import { sendPushNotification, saveNotification } from "../lib/firebase";
 
 // Derive Stripe types directly from the instance — avoids the `export =` namespace issue in v22.
 type StripeWebhookEvent = ReturnType<typeof stripe.webhooks.constructEvent>;
@@ -123,6 +124,32 @@ export async function handleWebhook(rawBody: Buffer, signature: string) {
       ]);
 
       await redis.del(`slot:${slotId}:lock`);
+
+      // Push: booking confirmed via webhook
+      const [userForToken, bookingWithDetails] = await Promise.all([
+        prisma.user.findUnique({ where: { id: userId }, select: { deviceToken: true } }),
+        prisma.booking.findUnique({
+          where: { id: bookingId },
+          include: {
+            slot: { select: { date: true, startTime: true } },
+            facility: { select: { name: true, sport: true } },
+          },
+        }),
+      ]);
+      if (bookingWithDetails) {
+        const sport = bookingWithDetails.facility.sport.charAt(0) +
+          bookingWithDetails.facility.sport.slice(1).toLowerCase();
+        const slotDate = bookingWithDetails.slot.date instanceof Date
+          ? bookingWithDetails.slot.date.toLocaleDateString("en-CA", { month: "short", day: "numeric" })
+          : String(bookingWithDetails.slot.date).split("T")[0];
+        const wTitle = "Booking Confirmed ✅";
+        const wBody = `${sport} at ${bookingWithDetails.facility.name} on ${slotDate} at ${bookingWithDetails.slot.startTime}`;
+        const wData = { type: "booking_confirmed", bookingId };
+        await saveNotification(userId, "BOOKING_CONFIRMED", wTitle, wBody, wData);
+        if (userForToken?.deviceToken) {
+          await sendPushNotification(userForToken.deviceToken, wTitle, wBody, wData);
+        }
+      }
       break;
     }
 

@@ -2,51 +2,76 @@ import { Router } from "express";
 import { z } from "zod";
 import { authenticate } from "../middleware/auth";
 import { validate } from "../middleware/validate";
+import {
+  getOrCreateThread,
+  getThreads,
+  getMessages,
+  sendMessage,
+} from "../services/chat.service";
 
 const router = Router();
 
-const createConversationSchema = z.object({
-  context: z.enum(["booking","open-game","support"]),
-  participantIds: z.array(z.string().uuid()).min(1),
-  bookingId: z.string().uuid().optional(),
-  openGameId: z.string().uuid().optional(),
-  title: z.string().max(100).optional(),
+function param(p: string | string[]): string {
+  return Array.isArray(p) ? p[0]! : p;
+}
+
+const createThreadSchema = z.object({
+  participantId: z.string().min(1),
+  gameId: z.string().optional(),
 });
 
 const sendMessageSchema = z.object({
   content: z.string().min(1).max(2000),
-  type: z.enum(["text","image"]).optional().default("text"),
 });
 
-router.get("/conversations", authenticate, async (req, res) => {
-  // TODO: fetch conversations for authenticated user, include unread count
-  res.json({ data: [], total: 0, page: 1, limit: 20, hasMore: false });
+// POST /api/v1/chat/threads — get or create thread
+router.post("/threads", authenticate, validate(createThreadSchema), async (req, res, next) => {
+  try {
+    const thread = await getOrCreateThread(
+      req.user!.sub as string,
+      req.body as z.infer<typeof createThreadSchema>
+    );
+    res.status(201).json({ data: thread });
+  } catch (err) { next(err); }
 });
 
-router.get("/conversations/:id", authenticate, async (req, res) => {
-  // TODO: fetch single conversation, verify participant membership
-  res.json({ data: { id: req.params["id"] } });
+// GET /api/v1/chat/threads — list threads for current user
+router.get("/threads", authenticate, async (req, res, next) => {
+  try {
+    const threads = await getThreads(req.user!.sub as string);
+    res.json({ data: threads });
+  } catch (err) { next(err); }
 });
 
-router.post("/conversations", authenticate, validate(createConversationSchema), async (req, res) => {
-  // TODO: create or find existing conversation, add requesting user to participants
-  res.status(201).json({ data: req.body });
+// GET /api/v1/chat/threads/:threadId/messages — paginated messages
+router.get("/threads/:threadId/messages", authenticate, async (req, res, next) => {
+  try {
+    const { page = "1", limit = "40" } = req.query as Record<string, string>;
+    const result = await getMessages(
+      req.user!.sub as string,
+      param(req.params["threadId"]!),
+      Number(page),
+      Number(limit)
+    );
+    res.json(result);
+  } catch (err) { next(err); }
 });
 
-router.get("/conversations/:id/messages", authenticate, async (req, res) => {
-  const { cursor, limit = "30" } = req.query as Record<string, string>;
-  // TODO: cursor-paginated messages, oldest first
-  res.json({ data: { messages: [], nextCursor: undefined } });
-});
-
-router.post("/conversations/:id/messages", authenticate, validate(sendMessageSchema), async (req, res) => {
-  // TODO: create message, push via websocket/SSE to other participants
-  res.status(201).json({ data: { ...req.body, conversationId: req.params["id"], senderId: req.user!.sub } });
-});
-
-router.put("/conversations/:id/read", authenticate, async (req, res) => {
-  // TODO: mark all messages in conversation as read for this user
-  res.status(204).end();
-});
+// POST /api/v1/chat/threads/:threadId/messages — REST send fallback
+router.post(
+  "/threads/:threadId/messages",
+  authenticate,
+  validate(sendMessageSchema),
+  async (req, res, next) => {
+    try {
+      const message = await sendMessage(
+        req.user!.sub as string,
+        param(req.params["threadId"]!),
+        (req.body as z.infer<typeof sendMessageSchema>).content
+      );
+      res.status(201).json({ data: message });
+    } catch (err) { next(err); }
+  }
+);
 
 export default router;

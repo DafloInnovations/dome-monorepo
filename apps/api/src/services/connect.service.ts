@@ -6,6 +6,7 @@ import {
   type Prisma,
 } from "@prisma/client";
 import { prisma } from "../lib/prisma";
+import { sendPushNotification, saveNotification } from "../lib/firebase";
 
 const EARTH_KM = 6371;
 function toRad(d: number) { return (d * Math.PI) / 180; }
@@ -204,6 +205,22 @@ export async function joinGame(userId: string, gameId: string) {
     include: { user: { select: { id: true, firstName: true, lastName: true } } },
   });
 
+  // Notify the host
+  const host = await prisma.user.findUnique({
+    where: { id: game.hostUserId },
+    select: { deviceToken: true },
+  });
+  const playerName = [participant.user.firstName, participant.user.lastName]
+    .filter(Boolean).join(" ") || "A player";
+  const sport = game.sport.charAt(0) + game.sport.slice(1).toLowerCase();
+  const joinTitle = "New Join Request 🏸";
+  const joinBody = `${playerName} wants to join your ${sport} game`;
+  const joinData = { type: "join_request", gameId: game.id };
+  await saveNotification(game.hostUserId, "JOIN_REQUEST", joinTitle, joinBody, joinData);
+  if (host?.deviceToken) {
+    await sendPushNotification(host.deviceToken, joinTitle, joinBody, joinData);
+  }
+
   return participant;
 }
 
@@ -223,7 +240,7 @@ export async function confirmPlayer(hostId: string, gameId: string, targetUserId
   const playersConfirmed = (game.playersConfirmed ?? 0) + 1;
   const isFull = game.playersNeeded != null && playersConfirmed >= game.playersNeeded;
 
-  await prisma.$transaction([
+  const [, updatedGame] = await prisma.$transaction([
     prisma.openGameParticipant.update({
       where: { openGameId_userId: { openGameId: gameId, userId: targetUserId } },
       data: { status: PlayerStatus.CONFIRMED, confirmedAt: new Date() },
@@ -234,8 +251,24 @@ export async function confirmPlayer(hostId: string, gameId: string, targetUserId
         playersConfirmed,
         ...(isFull && { status: OpenGameStatus.FULL }),
       },
+      include: { facility: { select: { name: true } } },
     }),
   ]);
+
+  // Notify the confirmed player
+  const player = await prisma.user.findUnique({
+    where: { id: targetUserId },
+    select: { deviceToken: true },
+  });
+  const confSport = updatedGame.sport.charAt(0) + updatedGame.sport.slice(1).toLowerCase();
+  const confFacility = (updatedGame as any).facility?.name ?? "the facility";
+  const confTitle = "You're In! 🎉";
+  const confBody = `You've been confirmed for ${confSport} at ${confFacility}`;
+  const confData = { type: "player_confirmed", gameId };
+  await saveNotification(targetUserId, "PLAYER_CONFIRMED", confTitle, confBody, confData);
+  if (player?.deviceToken) {
+    await sendPushNotification(player.deviceToken, confTitle, confBody, confData);
+  }
 
   return { confirmed: true, gameFull: isFull };
 }
@@ -247,10 +280,33 @@ export async function declinePlayer(hostId: string, gameId: string, targetUserId
   if (!game) throw appError("Game not found", 404);
   if (game.hostUserId !== hostId) throw appError("Only the host can decline players", 403);
 
-  await prisma.openGameParticipant.update({
-    where: { openGameId_userId: { openGameId: gameId, userId: targetUserId } },
-    data: { status: PlayerStatus.DECLINED },
+  const [gameWithFacility] = await prisma.$transaction([
+    prisma.openGame.findUnique({
+      where: { id: gameId },
+      include: { facility: { select: { name: true } } },
+    }) as any,
+    prisma.openGameParticipant.update({
+      where: { openGameId_userId: { openGameId: gameId, userId: targetUserId } },
+      data: { status: PlayerStatus.DECLINED },
+    }),
+  ]);
+
+  // Notify the declined player
+  const player = await prisma.user.findUnique({
+    where: { id: targetUserId },
+    select: { deviceToken: true },
   });
+  if (gameWithFacility) {
+    const declSport = gameWithFacility.sport.charAt(0) + gameWithFacility.sport.slice(1).toLowerCase();
+    const declFacility = gameWithFacility.facility?.name ?? "the facility";
+    const declTitle = "Request Declined";
+    const declBody = `Your request for ${declSport} at ${declFacility} was declined`;
+    const declData = { type: "player_declined", gameId };
+    await saveNotification(targetUserId, "PLAYER_DECLINED", declTitle, declBody, declData);
+    if (player?.deviceToken) {
+      await sendPushNotification(player.deviceToken, declTitle, declBody, declData);
+    }
+  }
 
   return { declined: true };
 }

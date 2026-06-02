@@ -13,8 +13,10 @@ import {
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Location from "expo-location";
+import { useRouter } from "expo-router";
 import FacilityCard from "../../src/components/FacilityCard";
 import { useFacilities } from "../../src/hooks/useFacilities";
+import { useNotificationsContext } from "../../src/context/NotificationsContext";
 
 // ─── City data ────────────────────────────────────────────────────────────────
 
@@ -199,6 +201,8 @@ function EmptyState({
 // ─── Main screen ──────────────────────────────────────────────────────────────
 
 export default function DiscoverScreen() {
+  const router = useRouter();
+  const { unreadCount } = useNotificationsContext();
   const [selectedCity, setSelectedCity] = useState<City>(TORONTO);
   const [pickerVisible, setPickerVisible] = useState(false);
   const [search, setSearch] = useState("");
@@ -243,20 +247,34 @@ export default function DiscoverScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Location header — tap to open picker */}
-      <Pressable
-        style={styles.header}
-        onPress={() => setPickerVisible(true)}
-        hitSlop={8}
-      >
-        <Text style={styles.headerLabel}>Near</Text>
-        <View style={styles.headerRow}>
-          <Text style={styles.headerCity}>
-            {selectedCity.name}, {selectedCity.province}
-          </Text>
-          <Text style={styles.headerArrow}>▾</Text>
-        </View>
-      </Pressable>
+      {/* Location header — city picker left, bell right */}
+      <View style={styles.header}>
+        <Pressable onPress={() => setPickerVisible(true)} hitSlop={8} style={styles.headerCity_wrap}>
+          <Text style={styles.headerLabel}>Near</Text>
+          <View style={styles.headerRow}>
+            <Text style={styles.headerCity}>
+              {selectedCity.name}, {selectedCity.province}
+            </Text>
+            <Text style={styles.headerArrow}>▾</Text>
+          </View>
+        </Pressable>
+
+        {/* Bell with unread badge */}
+        <Pressable
+          style={styles.bellBtn}
+          onPress={() => router.push("/(tabs)/notifications")}
+          hitSlop={8}
+        >
+          <Text style={styles.bellIcon}>🔔</Text>
+          {unreadCount > 0 && (
+            <View style={styles.bellBadge}>
+              <Text style={styles.bellBadgeText}>
+                {unreadCount > 99 ? "99+" : unreadCount}
+              </Text>
+            </View>
+          )}
+        </Pressable>
+      </View>
 
       {/* Facility search */}
       <TextInput
@@ -333,10 +351,14 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: C.bg },
   // Header
   header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     paddingHorizontal: 16,
     paddingTop: Platform.OS === "ios" ? 60 : 20,
     paddingBottom: 14,
   },
+  headerCity_wrap: { flex: 1 },
   headerLabel: {
     color: C.muted,
     fontSize: 11,
@@ -347,6 +369,21 @@ const styles = StyleSheet.create({
   headerRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 2 },
   headerCity: { color: C.text, fontSize: 22, fontWeight: "700" },
   headerArrow: { color: C.primary, fontSize: 16, fontWeight: "700", marginTop: 2 },
+  bellBtn: { position: "relative", padding: 4 },
+  bellIcon: { fontSize: 22 },
+  bellBadge: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    backgroundColor: "#E85068",
+    borderRadius: 99,
+    minWidth: 16,
+    height: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 3,
+  },
+  bellBadgeText: { color: "#FFFFFF", fontSize: 9, fontWeight: "800" },
   // Search
   searchInput: {
     backgroundColor: C.surface,
