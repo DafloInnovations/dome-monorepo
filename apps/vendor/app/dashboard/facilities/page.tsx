@@ -43,15 +43,15 @@ export default function FacilitiesPage() {
 
   return (
     <>
-      <Header title="Facilities" />
+      <Header title="Sports" />
       <main className="flex-1 p-6">
         <div className="flex items-center justify-between mb-6">
-          <p className="text-sm text-muted">{facilities.length} facility/ies</p>
+          <p className="text-sm text-muted">{facilities.length} sport{facilities.length !== 1 ? "s" : ""}</p>
           <Link
             href="/dashboard/facilities/new"
             className="bg-primary hover:bg-primary-hover text-white text-sm font-semibold px-4 py-2 rounded-dome transition-colors"
           >
-            + Add Facility
+            + Add Sport
           </Link>
         </div>
 
@@ -68,8 +68,8 @@ export default function FacilitiesPage() {
         ) : facilities.length === 0 ? (
           <div className="text-center py-20 text-muted">
             <p className="text-5xl mb-4">🏟</p>
-            <p className="font-semibold text-white text-lg">No facilities yet</p>
-            <p className="text-sm mt-1">Add your first facility to get started.</p>
+            <p className="font-semibold text-white text-lg">No sports yet</p>
+            <p className="text-sm mt-1">Add your first sport to get started.</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

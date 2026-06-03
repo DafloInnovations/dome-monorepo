@@ -7,8 +7,6 @@ import SportPill from "../../components/ui/SportPill";
 import { API_URL, type Facility } from "../../lib/api";
 import { SPORTS, CITIES } from "../../lib/cities";
 
-const PRICE_MAX = 200;
-
 function buildQuery(params: Record<string, string | number | undefined>): string {
   const qs = Object.entries(params)
     .filter(([, v]) => v !== undefined && v !== "" && v !== 0)
@@ -29,7 +27,7 @@ export default function FacilitiesPage() {
   // Filter state — seeded from URL
   const [sport, setSport]       = useState(searchParams.get("sport") ?? "");
   const [city, setCity]         = useState(searchParams.get("city") ?? "");
-  const [maxPrice, setMaxPrice] = useState(PRICE_MAX);
+  const [query, setQuery]       = useState(searchParams.get("q") ?? "");
 
   const cityObj = CITIES.find((c) => c.name.toLowerCase() === city.toLowerCase());
 
@@ -57,15 +55,31 @@ export default function FacilitiesPage() {
     const p = new URLSearchParams();
     if (sport) p.set("sport", sport);
     if (city)  p.set("city", city);
+    if (query) p.set("q", query);
     router.replace(`/facilities${p.toString() ? `?${p}` : ""}`, { scroll: false });
-  }, [sport, city, router]);
+  }, [sport, city, query, router]);
 
   const sportLabel = SPORTS.find((s) => s.slug === sport)?.label ?? "";
   const titleStr   = [sportLabel, city].filter(Boolean).join(" in ");
 
-  const filtered = maxPrice < PRICE_MAX
-    ? facilities
-    : facilities;
+  const normalizedQuery = query.trim().toLowerCase();
+  const filtered = facilities.filter((facility) => {
+    if (!normalizedQuery) return true;
+    const haystack = [
+      facility.name,
+      facility.description,
+      facility.sport,
+      facility.surface,
+      facility.address?.street,
+      facility.address?.city,
+      facility.address?.province,
+      facility.address?.postalCode,
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+    return haystack.includes(normalizedQuery);
+  });
 
   return (
     <main className="max-w-6xl mx-auto px-4 py-8">
@@ -83,6 +97,20 @@ export default function FacilitiesPage() {
       <div className="flex gap-6">
         {/* ── Sidebar filters (desktop) ─────────────────────────────── */}
         <aside className="hidden lg:block w-56 shrink-0 space-y-6">
+          <div>
+            <p className="text-xs font-semibold text-muted uppercase tracking-wide mb-3">Search</p>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted text-sm">⌕</span>
+              <input
+                type="search"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Name, sport, city"
+                className="w-full bg-surface border border-border rounded-dome pl-9 pr-3 py-2 text-sm text-white placeholder:text-muted focus:outline-none focus:border-primary"
+              />
+            </div>
+          </div>
+
           <div>
             <p className="text-xs font-semibold text-muted uppercase tracking-wide mb-3">City</p>
             <select
@@ -122,23 +150,23 @@ export default function FacilitiesPage() {
             </div>
           </div>
 
-          <div>
-            <p className="text-xs font-semibold text-muted uppercase tracking-wide mb-3">
-              Max Price: {maxPrice < PRICE_MAX ? `C$${maxPrice}/hr` : "Any"}
-            </p>
-            <input
-              type="range" min={10} max={PRICE_MAX} step={5}
-              value={maxPrice} onChange={(e) => setMaxPrice(Number(e.target.value))}
-              className="w-full accent-primary"
-            />
-            <div className="flex justify-between text-xs text-muted mt-1">
-              <span>C$10</span><span>C$200+</span>
-            </div>
-          </div>
         </aside>
 
         {/* ── Main content ──────────────────────────────────────────── */}
         <div className="flex-1 min-w-0">
+          <div className="lg:hidden mb-4">
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted text-sm">⌕</span>
+              <input
+                type="search"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search by name, sport, or city"
+                className="w-full bg-surface border border-border rounded-dome pl-9 pr-3 py-2.5 text-sm text-white placeholder:text-muted focus:outline-none focus:border-primary"
+              />
+            </div>
+          </div>
+
           {/* Mobile filter bar */}
           <div className="lg:hidden flex items-center gap-2 mb-4 overflow-x-auto pb-2">
             <button
@@ -169,14 +197,6 @@ export default function FacilitiesPage() {
                   ))}
                 </select>
               </div>
-              <div>
-                <p className="text-xs font-semibold text-muted uppercase tracking-wide mb-2">
-                  Max Price: {maxPrice < PRICE_MAX ? `C$${maxPrice}/hr` : "Any"}
-                </p>
-                <input type="range" min={10} max={PRICE_MAX} step={5}
-                  value={maxPrice} onChange={(e) => setMaxPrice(Number(e.target.value))}
-                  className="w-full accent-primary" />
-              </div>
               <button onClick={() => setFiltersOpen(false)}
                 className="w-full bg-primary text-white text-sm font-bold py-2 rounded-dome">
                 Apply
@@ -199,8 +219,8 @@ export default function FacilitiesPage() {
                 No facilities found{city ? ` in ${city}` : ""}
               </p>
               <p className="text-muted text-sm mb-6">
-                Try a different city or sport, or{" "}
-                <button onClick={() => { setSport(""); setCity(""); }} className="text-primary hover:underline">
+                Try a different city, sport, or search term, or{" "}
+                <button onClick={() => { setSport(""); setCity(""); setQuery(""); }} className="text-primary hover:underline">
                   clear all filters
                 </button>.
               </p>

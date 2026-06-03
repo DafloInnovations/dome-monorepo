@@ -68,7 +68,7 @@ export default function DashboardPage() {
           </h2>
           <div className="flex flex-wrap gap-3">
             {[
-              { href: "/dashboard/facilities/new", label: "+ Add Facility", icon: "🏟" },
+              { href: "/dashboard/facilities/new", label: "+ Add Sport", icon: "🏟" },
               { href: "/dashboard/facilities",     label: "Generate Slots", icon: "⚡" },
               { href: "/dashboard/analytics",      label: "View Analytics", icon: "📊" },
             ].map(({ href, label, icon }) => (

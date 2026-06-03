@@ -87,6 +87,7 @@ const facilityListInclude = {
 const facilityDetailInclude = {
   address: true,
   amenities: { include: { amenity: true } },
+  courts: { orderBy: { createdAt: "asc" as const } },
   operatingHours: { orderBy: { day: "asc" as const } },
   vendor: {
     select: {
@@ -115,7 +116,6 @@ export interface ListFacilitiesParams {
 }
 
 export interface CreateFacilityInput {
-  name: string;
   description: string;
   sport: string;
   surface: string;
@@ -331,7 +331,7 @@ export async function createFacility(userId: string, input: CreateFacilityInput)
   const facility = await prisma.facility.create({
     data: {
       vendorId: vendor.id,
-      name: rest.name,
+      name: vendor.businessName,
       description: rest.description,
       sport: coerceSport(rest.sport),
       surface: coerceSurface(rest.surface),
@@ -388,7 +388,6 @@ export async function updateFacility(
   const updated = await prisma.facility.update({
     where: { id: facilityId },
     data: {
-      ...(rest.name && { name: rest.name }),
       ...(rest.description && { description: rest.description }),
       ...(rest.sport && { sport: coerceSport(rest.sport) }),
       ...(rest.surface && { surface: coerceSurface(rest.surface) }),

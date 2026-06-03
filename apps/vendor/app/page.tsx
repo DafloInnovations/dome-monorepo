@@ -97,6 +97,8 @@ export default function LoginPage() {
           <p className="text-muted text-sm mt-1">Vendor Portal</p>
         </div>
 
+        <p className="text-sm font-semibold text-muted mb-3 text-center">Already a vendor? Sign in</p>
+
         <div className="bg-surface rounded-dome border border-border p-8">
           {step === "phone" ? (
             <>
@@ -174,8 +176,26 @@ export default function LoginPage() {
           )}
         </div>
 
+        {/* Divider */}
+        <div className="flex items-center gap-3 mt-6">
+          <div className="flex-1 h-px bg-border" />
+          <span className="text-xs text-muted">or</span>
+          <div className="flex-1 h-px bg-border" />
+        </div>
+
+        {/* Become a Vendor CTA */}
+        <div className="mt-6 text-center">
+          <p className="text-sm text-muted mb-3">Want to list your sports business on Dome?</p>
+          <a
+            href="/onboarding"
+            className="inline-block border border-primary text-primary font-bold px-8 py-3 rounded-dome text-sm hover:bg-primary hover:text-white transition-colors"
+          >
+            Become a Vendor →
+          </a>
+        </div>
+
         <p className="text-center text-xs text-muted mt-6">
-          Dome Vendor Portal · For facility managers only
+          Dome Vendor Portal · For sports managers only
         </p>
       </div>
     </div>

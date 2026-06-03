@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Header from "../../../../components/layout/Header";
 import { apiFetch } from "../../../../lib/api";
@@ -9,6 +9,8 @@ const SPORTS = ["soccer","basketball","tennis","badminton","volleyball","hockey"
 const SURFACES = ["turf","hardwood","concrete","clay","ice","grass","rubberized"] as const;
 const PROVINCES = ["AB","BC","MB","NB","NL","NS","NT","NU","ON","PE","QC","SK","YT"] as const;
 const DAYS = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"] as const;
+const MAX_PHOTOS = 5;
+const MAX_PHOTO_BYTES = 2 * 1024 * 1024;
 
 interface HoursRow {
   day: number;
@@ -40,13 +42,19 @@ const inputCls =
   "w-full bg-black border border-border rounded-dome px-3 py-2.5 text-sm text-white placeholder:text-muted focus:outline-none focus:border-primary transition-colors";
 const selectCls = inputCls + " cursor-pointer";
 
+interface VendorProfile {
+  businessName: string;
+}
+
 export default function NewFacilityPage() {
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [photoError, setPhotoError] = useState("");
+  const [facilityName, setFacilityName] = useState("");
+  const [photos, setPhotos] = useState<string[]>([]);
 
   const [form, setForm] = useState({
-    name: "",
     description: "",
     sport: "soccer" as (typeof SPORTS)[number],
     surface: "turf" as (typeof SURFACES)[number],
@@ -55,6 +63,12 @@ export default function NewFacilityPage() {
     cancellationHours: 24,
   });
   const [hours, setHours] = useState<HoursRow[]>(defaultHours());
+
+  useEffect(() => {
+    apiFetch<{ data: VendorProfile }>("/vendor/profile")
+      .then((r) => setFacilityName(r.data.businessName))
+      .catch((err) => setError(err instanceof Error ? err.message : "Failed to load vendor profile"));
+  }, []);
 
   function setAddr<K extends keyof typeof form.address>(k: K, v: (typeof form.address)[K]) {
     setForm((f) => ({ ...f, address: { ...f.address, [k]: v } }));
@@ -68,6 +82,50 @@ export default function NewFacilityPage() {
     setHours((h) => h.map((r) => r.day === day ? { ...r, [field]: val } : r));
   }
 
+  function readPhoto(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = () => reject(new Error("Failed to read photo"));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function handlePhotoUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = "";
+    setPhotoError("");
+    if (files.length === 0) return;
+
+    const remaining = MAX_PHOTOS - photos.length;
+    if (remaining <= 0) {
+      setPhotoError(`You can upload up to ${MAX_PHOTOS} photos.`);
+      return;
+    }
+
+    const accepted = files.slice(0, remaining);
+    const invalid = accepted.find((file) => !file.type.startsWith("image/") || file.size > MAX_PHOTO_BYTES);
+    if (invalid) {
+      setPhotoError("Photos must be image files under 2 MB each.");
+      return;
+    }
+    if (files.length > remaining) {
+      setPhotoError(`Only ${remaining} more photo${remaining === 1 ? "" : "s"} can be added.`);
+    }
+
+    try {
+      const nextPhotos = await Promise.all(accepted.map(readPhoto));
+      setPhotos((current) => [...current, ...nextPhotos].slice(0, MAX_PHOTOS));
+    } catch (err) {
+      setPhotoError(err instanceof Error ? err.message : "Failed to upload photos");
+    }
+  }
+
+  function removePhoto(index: number) {
+    setPhotoError("");
+    setPhotos((current) => current.filter((_, i) => i !== index));
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
@@ -76,18 +134,18 @@ export default function NewFacilityPage() {
       await apiFetch("/vendor/facilities", {
         method: "POST",
         body: JSON.stringify({
-          name: form.name,
           description: form.description,
           sport: form.sport,
           surface: form.surface,
           capacity: form.capacity,
+          images: photos,
           address: form.address,
           operatingHours: hours,
         }),
       });
       router.push("/dashboard/facilities");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create facility");
+      setError(err instanceof Error ? err.message : "Failed to create sport");
     } finally {
       setIsSubmitting(false);
     }
@@ -95,7 +153,7 @@ export default function NewFacilityPage() {
 
   return (
     <>
-      <Header title="Add Facility" />
+      <Header title="Add Sports" />
       <main className="flex-1 p-6 overflow-auto">
         <form onSubmit={handleSubmit} className="max-w-2xl space-y-8">
 
@@ -104,15 +162,15 @@ export default function NewFacilityPage() {
             <h2 className="text-sm font-semibold text-muted uppercase tracking-wide">Basic Info</h2>
 
             <Field label="Facility Name">
-              <input type="text" required minLength={2} maxLength={100} value={form.name}
-                onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                placeholder="e.g. Scarborough Soccer Centre" className={inputCls} />
+              <div className="w-full bg-black border border-border rounded-dome px-3 py-2.5 text-sm text-white">
+                {facilityName || "Loading facility name..."}
+              </div>
             </Field>
 
             <Field label="Description">
               <textarea required minLength={10} maxLength={2000} value={form.description}
                 onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-                placeholder="Describe your facility…" rows={3}
+                placeholder="Describe your sports offering…" rows={3}
                 className={inputCls + " resize-none"} />
             </Field>
 
@@ -138,6 +196,44 @@ export default function NewFacilityPage() {
               <input type="number" required min={1} value={form.capacity}
                 onChange={(e) => setForm((f) => ({ ...f, capacity: Number(e.target.value) }))}
                 className={inputCls} style={{ maxWidth: 120 }} />
+            </Field>
+
+            <Field label={`Sports Photos (${photos.length}/${MAX_PHOTOS})`}>
+              <div className="space-y-3">
+                <label className={`inline-flex items-center justify-center bg-surface-2 border border-border rounded-dome px-4 py-2.5 text-sm font-semibold text-white transition-colors ${
+                  photos.length >= MAX_PHOTOS ? "opacity-50 cursor-not-allowed" : "hover:border-primary cursor-pointer"
+                }`}>
+                  Upload Photos
+                  <input
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    disabled={photos.length >= MAX_PHOTOS}
+                    onChange={handlePhotoUpload}
+                    className="sr-only"
+                  />
+                </label>
+                <p className="text-xs text-muted">Add up to 5 photos. Each photo must be under 2 MB.</p>
+                {photoError && <p className="text-xs text-red-400">{photoError}</p>}
+                {photos.length > 0 && (
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                    {photos.map((photo, index) => (
+                      <div key={photo.slice(0, 40) + index} className="relative aspect-square overflow-hidden rounded-dome border border-border bg-black">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={photo} alt={`Sports photo ${index + 1}`} className="h-full w-full object-cover" />
+                        <button
+                          type="button"
+                          onClick={() => removePhoto(index)}
+                          className="absolute right-1.5 top-1.5 h-7 w-7 rounded-full bg-black/80 border border-border text-white text-sm hover:border-primary transition-colors"
+                          aria-label={`Remove photo ${index + 1}`}
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </Field>
           </section>
 
@@ -228,7 +324,7 @@ export default function NewFacilityPage() {
           <div className="flex gap-3">
             <button type="submit" disabled={isSubmitting}
               className="bg-primary hover:bg-primary-hover disabled:opacity-50 text-white font-bold px-6 py-3 rounded-dome transition-colors">
-              {isSubmitting ? "Creating…" : "Create Facility"}
+              {isSubmitting ? "Creating…" : "Create Sports"}
             </button>
             <button type="button" onClick={() => router.back()}
               className="px-6 py-3 text-sm text-muted hover:text-white bg-surface-2 border border-border rounded-dome transition-colors">

@@ -63,6 +63,13 @@ export async function apiFetch<T>(
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({})) as { message?: string };
+    if (res.status === 401 && !path.startsWith("/auth/")) {
+      clearToken();
+      if (typeof window !== "undefined" && window.location.pathname !== "/") {
+        window.location.href = "/";
+      }
+      throw new ApiError("Session expired. Please sign in again.", res.status);
+    }
     throw new ApiError(body.message ?? `HTTP ${res.status}`, res.status);
   }
 

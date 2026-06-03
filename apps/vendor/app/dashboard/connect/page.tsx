@@ -84,7 +84,7 @@ export default function ConnectGamesPage() {
             <p className="text-5xl mb-4">🤝</p>
             <p className="font-semibold text-white text-lg">No Open Games yet</p>
             <p className="text-sm mt-1">
-              Open Games are created by players at your facilities. They will appear here once created.
+              Open Games are created by players and will appear here once posted.
             </p>
           </div>
         ) : (
@@ -122,7 +122,7 @@ export default function ConnectGamesPage() {
                 },
               },
               {
-                key: "facility", header: "Facility",
+                key: "facility", header: "Sports",
                 render: (r) => { const g = r as unknown as OpenGame; return g.facility.name; },
               },
               {

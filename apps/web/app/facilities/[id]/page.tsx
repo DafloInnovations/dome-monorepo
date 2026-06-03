@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import StarRating from "../../../components/ui/StarRating";
-import SlotPicker from "../../../components/ui/SlotPicker";
 import SlotBookingCta from "./SlotBookingCta";
-import { API_URL, serverFetch, type Facility, type Review } from "../../../lib/api";
+import FacilityImageCarousel from "./FacilityImageCarousel";
+import BackButton from "./BackButton";
+import { serverFetch, type Facility, type Review } from "../../../lib/api";
 import { getSportEmoji } from "../../../lib/cities";
 
 interface PageProps { params: { id: string } }
@@ -49,6 +50,14 @@ export default async function FacilityDetailPage({ params }: PageProps) {
   const address = facility.address
     ? `${facility.address.street}, ${facility.address.city}, ${facility.address.province} ${facility.address.postalCode}`
     : null;
+  const lat = facility.address?.lat ?? null;
+  const lng = facility.address?.lng ?? null;
+  const hasCoordinates = lat != null && lng != null;
+  const mapsQuery = hasCoordinates ? `${lat},${lng}` : address ?? city ?? facility.name;
+  const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(mapsQuery)}`;
+  const mapSrc = hasCoordinates
+    ? `https://www.openstreetmap.org/export/embed.html?bbox=${lng - 0.01}%2C${lat - 0.01}%2C${lng + 0.01}%2C${lat + 0.01}&layer=mapnik&marker=${lat}%2C${lng}`
+    : null;
 
   const jsonLd = {
     "@context": "https://schema.org",
@@ -78,23 +87,15 @@ export default async function FacilityDetailPage({ params }: PageProps) {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* ── Left: details ─────────────────────────────────────── */}
           <div className="lg:col-span-2 space-y-6">
+            <BackButton />
 
             {/* Hero image */}
-            <div className="relative h-64 md:h-80 bg-surface-2 rounded-dome overflow-hidden">
-              {facility.images?.[0] ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={facility.images[0]} alt={facility.name} className="w-full h-full object-cover" />
-              ) : (
-                <div className="w-full h-full flex items-center justify-center">
-                  <span className="text-9xl opacity-20">{emoji}</span>
-                </div>
-              )}
-              <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent" />
-              <div className="absolute bottom-0 left-0 p-6">
-                <h1 className="text-3xl font-black text-white mb-1">{facility.name}</h1>
-                {address && <p className="text-sm text-white/70">📍 {address}</p>}
-              </div>
-            </div>
+            <FacilityImageCarousel
+              images={facility.images ?? []}
+              facilityName={facility.name}
+              address={address}
+              fallbackEmoji={emoji}
+            />
 
             {/* Rating + meta */}
             <div className="bg-surface border border-border rounded-dome p-5">
@@ -175,15 +176,46 @@ export default async function FacilityDetailPage({ params }: PageProps) {
               </div>
             )}
 
-            {/* Map placeholder */}
+            {/* Location */}
             <div className="bg-surface border border-border rounded-dome p-5">
-              <h2 className="text-sm font-semibold text-muted uppercase tracking-wide mb-3">Location</h2>
-              <div className="h-48 bg-surface-2 rounded-dome flex items-center justify-center">
-                <div className="text-center">
-                  <p className="text-4xl mb-2">📍</p>
-                  <p className="text-sm text-muted">{address ?? city}</p>
+              <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-4">
+                <div>
+                  <h2 className="text-sm font-semibold text-muted uppercase tracking-wide mb-2">Location</h2>
+                  <p className="text-base font-semibold text-white">{facility.name}</p>
+                  {address && <p className="text-sm text-muted mt-1">{address}</p>}
                 </div>
+                <a
+                  href={mapsUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center justify-center rounded-dome bg-surface-2 border border-border px-4 py-2 text-sm font-semibold text-white hover:border-primary/50 transition-colors"
+                >
+                  Open in Maps
+                </a>
               </div>
+
+              {mapSrc ? (
+                <iframe
+                  title={`${facility.name} map`}
+                  src={mapSrc}
+                  className="h-64 w-full rounded-dome border border-border bg-surface-2"
+                  loading="lazy"
+                />
+              ) : (
+                <div className="rounded-dome border border-border bg-surface-2 p-5">
+                  <div className="flex items-start gap-3">
+                    <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-black border border-border text-xl">
+                      📍
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold text-white">Map preview unavailable</p>
+                      <p className="text-sm text-muted mt-1">
+                        Add latitude and longitude for this facility to show an embedded map here.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 

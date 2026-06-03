@@ -7,8 +7,7 @@ import { AuthProvider, useAuth } from "../src/context/AuthContext";
 import { SocketProvider } from "../src/context/SocketContext";
 import { NotificationsProvider } from "../src/context/NotificationsContext";
 import { usePushNotifications } from "../src/hooks/usePushNotifications";
-
-const STRIPE_KEY = process.env["EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY"] ?? "";
+import { STRIPE_PUBLISHABLE_KEY } from "../src/config/stripe";
 
 function RootNav() {
   const { user, isLoading } = useAuth();
@@ -94,7 +93,7 @@ function RootNav() {
 
 export default function RootLayout() {
   return (
-    <StripeProvider publishableKey={STRIPE_KEY}>
+    <StripeProvider publishableKey={STRIPE_PUBLISHABLE_KEY}>
       <AuthProvider>
         <SocketProvider>
           <NotificationsProvider>

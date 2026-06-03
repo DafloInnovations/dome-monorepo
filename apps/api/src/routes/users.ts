@@ -105,7 +105,11 @@ router.get("/me/profile", authenticate, async (req, res, next) => {
           totalHours,
           totalPoints,
           currentStreak,
-          tier,
+          tier: tier.name.toUpperCase(),
+          tierProgress: {
+            min: tier.min,
+            max: Number.isFinite(tier.max) ? tier.max : null,
+          },
           sportBreakdown,
         },
       },

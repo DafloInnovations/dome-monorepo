@@ -21,7 +21,7 @@ export function createApp() {
   // Register express.raw() BEFORE express.json() — body-parser skips re-parsing
   // once req._body is set, so other routes are unaffected.
   app.use("/api/v1/payments/webhook", express.raw({ type: "application/json" }));
-  app.use(express.json());
+  app.use(express.json({ limit: "20mb" }));
 
   app.get("/health", (_req, res) => {
     res.json({ status: "ok", env: process.env["NODE_ENV"], ts: new Date().toISOString() });

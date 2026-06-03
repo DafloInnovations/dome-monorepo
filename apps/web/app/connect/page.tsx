@@ -36,6 +36,30 @@ export default function ConnectPage() {
         <p className="text-muted">Join open games near you. Split the court cost with other players.</p>
       </div>
 
+      <section className="bg-surface border border-border rounded-[28px] px-5 py-4 mb-8">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+          <p className="text-xl md:text-2xl font-black text-white">
+            To create a game, download the Dome app
+          </p>
+          <div className="flex flex-col sm:flex-row gap-3">
+            <span className="inline-flex items-center gap-3 bg-black border border-border rounded-[12px] px-4 py-2.5 text-white min-w-44">
+              <span className="text-2xl">▶</span>
+              <span className="leading-tight">
+                <span className="block text-[10px] uppercase tracking-wide text-muted">Get it on</span>
+                <span className="block text-sm font-bold">Google Play</span>
+              </span>
+            </span>
+            <span className="inline-flex items-center gap-3 bg-black border border-border rounded-[12px] px-4 py-2.5 text-white min-w-44">
+              <span className="text-2xl"></span>
+              <span className="leading-tight">
+                <span className="block text-[10px] uppercase tracking-wide text-muted">Download on the</span>
+                <span className="block text-sm font-bold">App Store</span>
+              </span>
+            </span>
+          </div>
+        </div>
+      </section>
+
       {/* Sport filter */}
       <div className="flex flex-wrap gap-2 mb-8">
         <SportPill sport="All" emoji="🏟️" active={!sportFilter} onClick={() => setSportFilter("")} />

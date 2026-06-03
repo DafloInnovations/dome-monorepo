@@ -11,6 +11,7 @@ import {
 import { useLocalSearchParams, useNavigation, useRouter } from "expo-router";
 import { useStripe } from "@stripe/stripe-react-native";
 import { useGroupBooking } from "../../src/hooks/useGroupBooking";
+import { isStripeConfigured } from "../../src/config/stripe";
 
 const API_URL = process.env["EXPO_PUBLIC_API_URL"] ?? "http://localhost:3001/api/v1";
 
@@ -76,6 +77,13 @@ export default function GroupBookingScreen() {
 
   async function handleConfirmAndPay() {
     if (!slotIds.length || !facilityId) return;
+    if (!isStripeConfigured()) {
+      Alert.alert(
+        "Payment Setup Missing",
+        "Stripe is not configured for this app build. Add EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY and restart Expo."
+      );
+      return;
+    }
     try {
       const { result, token } = await createGroupBooking({ slotIds, facilityId });
       pendingGroupIdRef.current = result.groupId;

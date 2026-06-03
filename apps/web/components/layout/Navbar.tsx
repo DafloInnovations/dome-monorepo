@@ -6,9 +6,23 @@ import { useEffect, useState } from "react";
 import { getStoredUser, clearToken, type StoredUser } from "../../lib/auth";
 
 const NAV = [
+  { href: "/", label: "Home" },
   { href: "/facilities", label: "Facilities" },
   { href: "/connect",    label: "Connect" },
 ];
+
+function getInitials(user: StoredUser) {
+  const initials = [user.firstName, user.lastName]
+    .filter(Boolean)
+    .map((name) => name.trim()[0])
+    .filter(Boolean)
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+
+  if (initials) return initials;
+  return user.phone?.replace(/\D/g, "").slice(-2) || "U";
+}
 
 export default function Navbar() {
   const pathname = usePathname();
@@ -43,7 +57,9 @@ export default function Navbar() {
               key={href}
               href={href}
               className={`text-sm font-medium transition-colors ${
-                pathname.startsWith(href) ? "text-white" : "text-muted hover:text-white"
+                pathname === href || (href !== "/" && pathname.startsWith(href))
+                  ? "text-white"
+                  : "text-muted hover:text-white"
               }`}
             >
               {label}
@@ -65,7 +81,7 @@ export default function Navbar() {
                 className="flex items-center gap-2 px-3 py-1.5 rounded-dome bg-surface border border-border text-sm text-white hover:border-primary/50 transition-colors"
               >
                 <span className="w-6 h-6 rounded-full bg-primary/20 border border-primary/40 flex items-center justify-center text-primary text-xs font-bold">
-                  {user.firstName?.[0]?.toUpperCase() ?? "?"}
+                  {getInitials(user)}
                 </span>
                 <span className="hidden sm:block">{user.firstName}</span>
                 <span className="text-muted text-xs">▾</span>

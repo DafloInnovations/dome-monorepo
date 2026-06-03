@@ -16,9 +16,15 @@ export default function SlotBookingCta({ facilityId, facilityName }: Props) {
 
   function handleBook() {
     if (!selected) return;
-    router.push(
-      `/book/${selected.id}?facilityId=${facilityId}&facilityName=${encodeURIComponent(facilityName)}&startTime=${selected.startTime}&endTime=${selected.endTime}&priceCAD=${selected.priceCAD}&date=${selected.date.split("T")[0]}`
-    );
+    const params = new URLSearchParams({
+      facilityId,
+      facilityName,
+      startTime: selected.startTime,
+      endTime: selected.endTime,
+      priceCAD: String(selected.priceCAD),
+      date: selected.date?.split("T")[0] ?? "",
+    });
+    router.push(`/book/${selected.id}?${params.toString()}`);
   }
 
   return (

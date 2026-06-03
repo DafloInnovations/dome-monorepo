@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
-import { BookingStatus, BookingUnitType, Prisma, SlotStatus } from "@prisma/client";
+import { BookingStatus, BookingUnitType, OpenGameStatus, Prisma, SlotStatus } from "@prisma/client";
 import { authenticate, requireRole } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { createFacility, updateFacility } from "../services/facilities.service";
@@ -426,8 +426,14 @@ const operatingHoursSchema = z
   )
   .optional();
 
+const facilityImageSchema = z.string().refine(
+  (value) =>
+    /^https?:\/\//i.test(value) ||
+    /^data:image\/(png|jpe?g|webp);base64,/i.test(value),
+  "Image must be a URL or uploaded image"
+);
+
 const createFacilitySchema = z.object({
-  name: z.string().min(2).max(100),
   description: z.string().min(10).max(2000),
   sport: z.enum([
     "soccer", "basketball", "tennis", "badminton", "volleyball",
@@ -435,7 +441,7 @@ const createFacilitySchema = z.object({
   ]),
   surface: z.enum(["turf", "hardwood", "concrete", "clay", "ice", "grass", "rubberized"]),
   capacity: z.number().int().positive(),
-  images: z.array(z.string().url()).optional().default([]),
+  images: z.array(facilityImageSchema).max(5).optional().default([]),
   address: addressSchema,
   operatingHours: operatingHoursSchema,
 });
@@ -553,7 +559,7 @@ router.put("/bookings/:id/cancel", async (req, res, next) => {
 // ─── Bulk block slots ─────────────────────────────────────────────────────────
 
 const blockSlotsSchema = z.object({
-  courtId: z.string().uuid(),
+  courtId: z.string().min(1),
   startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   reason: z.string().max(200).optional(),
@@ -602,18 +608,28 @@ router.get("/connect/games", async (req, res, next) => {
     const facilityIds = (
       await prisma.facility.findMany({ where: { vendorId: vendor.id }, select: { id: true } })
     ).map((f) => f.id);
+    const facilityIdSet = new Set(facilityIds);
 
     const games = await prisma.openGame.findMany({
-      where: { facilityId: { in: facilityIds } },
+      where: {
+        status: OpenGameStatus.OPEN,
+        isPublic: true,
+      },
       include: {
         host: { select: { id: true, firstName: true, lastName: true } },
-        facility: { select: { id: true, name: true } },
+        facility: { select: { id: true, name: true, address: true } },
         _count: { select: { participants: true } },
       },
       orderBy: { gameDate: "asc" },
     });
 
-    res.json({ data: games });
+    res.json({
+      data: games.map((game) => ({
+        ...game,
+        gameDate: game.gameDate.toISOString().split("T")[0],
+        isOwnFacility: facilityIdSet.has(game.facilityId),
+      })),
+    });
   } catch (err) { next(err); }
 });
 

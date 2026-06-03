@@ -1,13 +1,30 @@
 import type { Config } from "tailwindcss";
-import sharedConfig from "@dome/config/tailwind";
 
 const config: Config = {
-  ...sharedConfig,
   content: [
     "./app/**/*.{ts,tsx}",
-    "./src/**/*.{ts,tsx}",
     "./components/**/*.{ts,tsx}",
   ],
+  theme: {
+    extend: {
+      colors: {
+        primary:         "#E85068",
+        "primary-hover": "#C73D55",
+        surface:         "#111111",
+        "surface-2":     "#1A1A1A",
+        border:          "#222222",
+        muted:           "#6B6B6B",
+        sidebar:         "#0A0A0A",
+      },
+      fontFamily: {
+        sans: ["var(--font-inter)", "system-ui", "sans-serif"],
+      },
+      borderRadius: {
+        dome: "0.75rem",
+      },
+    },
+  },
+  plugins: [],
 };
 
 export default config;

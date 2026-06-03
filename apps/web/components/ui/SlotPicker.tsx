@@ -83,7 +83,7 @@ export default function SlotPicker({ facilityId, onSelect, selectedSlotId }: Pro
                 <button
                   key={slot.id}
                   disabled={!available}
-                  onClick={() => onSelect(slot)}
+                  onClick={() => onSelect({ ...slot, date })}
                   className={`flex flex-col items-center px-3 py-2 rounded-dome border text-xs font-medium transition-colors min-w-[80px] ${
                     selected
                       ? "bg-primary border-primary text-white"

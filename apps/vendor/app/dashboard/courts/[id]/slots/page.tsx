@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import Header from "../../../../../components/layout/Header";
 import { api, apiFetch, type Slot } from "../../../../../lib/api";
@@ -26,6 +26,49 @@ interface BulkForm {
   endTime: string;
   slotDurationMinutes: number;
   priceCAD: number;
+}
+
+function DateInput({
+  label,
+  value,
+  onChange,
+  required = true,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  required?: boolean;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  function openCalendar() {
+    inputRef.current?.showPicker?.();
+    inputRef.current?.focus();
+  }
+
+  return (
+    <div>
+      <label className="block text-xs text-muted mb-1">{label}</label>
+      <div className="relative">
+        <input
+          ref={inputRef}
+          type="date"
+          required={required}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="w-full bg-black border border-border rounded-dome pl-3 pr-11 py-2 text-white text-sm focus:outline-none focus:border-primary [color-scheme:dark] [&::-webkit-calendar-picker-indicator]:hidden [&::-webkit-calendar-picker-indicator]:appearance-none"
+        />
+        <button
+          type="button"
+          aria-label={`Open ${label.toLowerCase()} calendar`}
+          onClick={openCalendar}
+          className="absolute right-2 top-1/2 -translate-y-1/2 grid h-8 w-8 place-items-center rounded text-muted hover:text-white hover:bg-white/5 transition-colors"
+        >
+          📅
+        </button>
+      </div>
+    </div>
+  );
 }
 
 export default function SlotsPage() {
@@ -147,9 +190,17 @@ export default function SlotsPage() {
           <div className="bg-surface border border-border rounded-dome p-6">
             <h2 className="font-bold text-white mb-4">Generate Slots</h2>
             <form onSubmit={handleBulkGenerate} className="grid grid-cols-2 md:grid-cols-3 gap-4">
+              <DateInput
+                label="Start Date"
+                value={form.startDate}
+                onChange={(value) => setForm((f) => ({ ...f, startDate: value }))}
+              />
+              <DateInput
+                label="End Date"
+                value={form.endDate}
+                onChange={(value) => setForm((f) => ({ ...f, endDate: value }))}
+              />
               {[
-                { label: "Start Date",  key: "startDate",  type: "date"   },
-                { label: "End Date",    key: "endDate",    type: "date"   },
                 { label: "Start Time", key: "startTime",  type: "time"   },
                 { label: "End Time",   key: "endTime",    type: "time"   },
               ].map(({ label, key, type }) => (
@@ -212,18 +263,16 @@ export default function SlotsPage() {
           <div className="bg-surface border border-border rounded-dome p-6">
             <h2 className="font-bold text-white mb-4">Block Dates (Maintenance)</h2>
             <form onSubmit={handleBlockDates} className="grid grid-cols-2 md:grid-cols-4 gap-4 items-end">
-              <div>
-                <label className="block text-xs text-muted mb-1">Start Date</label>
-                <input type="date" required value={blockForm.startDate}
-                  onChange={(e) => setBlockForm((f) => ({ ...f, startDate: e.target.value }))}
-                  className="w-full bg-black border border-border rounded-dome px-3 py-2 text-white text-sm focus:outline-none focus:border-primary" />
-              </div>
-              <div>
-                <label className="block text-xs text-muted mb-1">End Date</label>
-                <input type="date" required value={blockForm.endDate}
-                  onChange={(e) => setBlockForm((f) => ({ ...f, endDate: e.target.value }))}
-                  className="w-full bg-black border border-border rounded-dome px-3 py-2 text-white text-sm focus:outline-none focus:border-primary" />
-              </div>
+              <DateInput
+                label="Start Date"
+                value={blockForm.startDate}
+                onChange={(value) => setBlockForm((f) => ({ ...f, startDate: value }))}
+              />
+              <DateInput
+                label="End Date"
+                value={blockForm.endDate}
+                onChange={(value) => setBlockForm((f) => ({ ...f, endDate: value }))}
+              />
               <div>
                 <label className="block text-xs text-muted mb-1">Reason (optional)</label>
                 <input type="text" placeholder="e.g. Maintenance" value={blockForm.reason}

@@ -5,10 +5,11 @@ import { usePathname } from "next/navigation";
 
 const NAV = [
   { href: "/dashboard",            label: "Dashboard",     icon: "🏠" },
-  { href: "/dashboard/facilities", label: "Facilities",    icon: "🏟️" },
+  { href: "/dashboard/facilities", label: "Sports",        icon: "🏟️" },
   { href: "/dashboard/bookings",   label: "Bookings",      icon: "📅" },
   { href: "/dashboard/analytics",  label: "Analytics",     icon: "📊" },
   { href: "/dashboard/connect",    label: "Connect Games", icon: "🤝" },
+  { href: "/dashboard/membership", label: "Manage Membership", icon: "💳" },
   { href: "/dashboard/settings",   label: "Settings",      icon: "⚙️" },
 ];
 
@@ -46,9 +47,7 @@ export default function Sidebar() {
       </nav>
 
       <div className="px-5 py-4 border-t border-[#222] text-xs text-muted">
-        <a href="https://dome.ca" className="hover:text-white transition-colors">
-          dome.ca
-        </a>
+        Daflo Innovations Inc.
       </div>
     </aside>
   );

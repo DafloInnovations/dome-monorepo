@@ -14,12 +14,15 @@ interface FacilityDetail {
   description: string;
   isActive: boolean;
   capacity: number;
+  images: string[];
   courts: { id: string; name: string; isActive: boolean }[];
   address: { street: string; city: string; province: string; postalCode: string } | null;
   operatingHours: { day: number; openTime: string; closeTime: string; isClosed: boolean }[];
 }
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const MAX_PHOTOS = 5;
+const MAX_PHOTO_BYTES = 2 * 1024 * 1024;
 
 const inputCls =
   "w-full bg-black border border-border rounded-dome px-3 py-2 text-sm text-white placeholder:text-muted focus:outline-none focus:border-primary transition-colors";
@@ -32,9 +35,10 @@ export default function FacilityDetailPage() {
 
   // Edit mode state
   const [editMode, setEditMode] = useState(false);
-  const [editForm, setEditForm] = useState({ name: "", description: "", capacity: 0 });
+  const [editForm, setEditForm] = useState({ description: "", capacity: 0, images: [] as string[] });
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
+  const [photoError, setPhotoError] = useState("");
 
   // Add court state
   const [showAddCourt, setShowAddCourt] = useState(false);
@@ -49,8 +53,17 @@ export default function FacilityDetailPage() {
   useEffect(() => {
     apiFetch<{ data: FacilityDetail }>(`/facilities/${id}`)
       .then((r) => {
-        setFacility(r.data);
-        setEditForm({ name: r.data.name, description: r.data.description, capacity: r.data.capacity });
+        setFacility({
+          ...r.data,
+          images: r.data.images ?? [],
+          courts: r.data.courts ?? [],
+          operatingHours: r.data.operatingHours ?? [],
+        });
+        setEditForm({
+          description: r.data.description,
+          capacity: r.data.capacity,
+          images: r.data.images ?? [],
+        });
       })
       .catch((e) => setError(e instanceof Error ? e.message : "Not found"))
       .finally(() => setIsLoading(false));
@@ -66,6 +79,56 @@ export default function FacilityDetailPage() {
     setFacility((f) => f ? { ...f, isActive: next } : f);
   }
 
+  function readPhoto(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = () => reject(new Error("Failed to read photo"));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function handlePhotoUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = "";
+    setPhotoError("");
+    if (files.length === 0) return;
+
+    const remaining = MAX_PHOTOS - editForm.images.length;
+    if (remaining <= 0) {
+      setPhotoError(`You can upload up to ${MAX_PHOTOS} photos.`);
+      return;
+    }
+
+    const accepted = files.slice(0, remaining);
+    const invalid = accepted.find((file) => !file.type.startsWith("image/") || file.size > MAX_PHOTO_BYTES);
+    if (invalid) {
+      setPhotoError("Photos must be image files under 2 MB each.");
+      return;
+    }
+    if (files.length > remaining) {
+      setPhotoError(`Only ${remaining} more photo${remaining === 1 ? "" : "s"} can be added.`);
+    }
+
+    try {
+      const nextPhotos = await Promise.all(accepted.map(readPhoto));
+      setEditForm((current) => ({
+        ...current,
+        images: [...current.images, ...nextPhotos].slice(0, MAX_PHOTOS),
+      }));
+    } catch (err) {
+      setPhotoError(err instanceof Error ? err.message : "Failed to upload photos");
+    }
+  }
+
+  function removePhoto(index: number) {
+    setPhotoError("");
+    setEditForm((current) => ({
+      ...current,
+      images: current.images.filter((_, i) => i !== index),
+    }));
+  }
+
   async function saveEdit(e: React.FormEvent) {
     e.preventDefault();
     setSaveError("");
@@ -75,7 +138,17 @@ export default function FacilityDetailPage() {
         method: "PUT",
         body: JSON.stringify(editForm),
       });
-      setFacility(updated.data);
+      setFacility({
+        ...updated.data,
+        images: updated.data.images ?? [],
+        courts: updated.data.courts ?? [],
+        operatingHours: updated.data.operatingHours ?? [],
+      });
+      setEditForm({
+        description: updated.data.description,
+        capacity: updated.data.capacity,
+        images: updated.data.images ?? [],
+      });
       setEditMode(false);
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : "Save failed");
@@ -115,7 +188,7 @@ export default function FacilityDetailPage() {
 
   if (isLoading) return (
     <>
-      <Header title="Facility" />
+      <Header title="Sports" />
       <main className="flex-1 p-6">
         <div className="h-40 bg-surface border border-border rounded-dome animate-pulse" />
       </main>
@@ -124,9 +197,9 @@ export default function FacilityDetailPage() {
 
   if (error || !facility) return (
     <>
-      <Header title="Facility" />
+      <Header title="Sports" />
       <main className="flex-1 p-6">
-        <p className="text-red-400">{error || "Facility not found"}</p>
+        <p className="text-red-400">{error || "Sports not found"}</p>
       </main>
     </>
   );
@@ -136,7 +209,7 @@ export default function FacilityDetailPage() {
       <Header title={facility.name} />
       <main className="flex-1 p-6 space-y-6 overflow-auto">
 
-        {/* Facility info */}
+        {/* Sports info */}
         <div className="bg-surface border border-border rounded-dome p-6">
           <div className="flex items-start justify-between mb-4">
             <div>
@@ -169,9 +242,9 @@ export default function FacilityDetailPage() {
             <form onSubmit={saveEdit} className="space-y-3 mt-2">
               <div>
                 <label className="block text-xs text-muted mb-1">Name</label>
-                <input type="text" required value={editForm.name}
-                  onChange={(e) => setEditForm((f) => ({ ...f, name: e.target.value }))}
-                  className={inputCls} />
+                <div className="w-full bg-black border border-border rounded-dome px-3 py-2 text-sm text-white">
+                  {facility.name}
+                </div>
               </div>
               <div>
                 <label className="block text-xs text-muted mb-1">Description</label>
@@ -184,6 +257,46 @@ export default function FacilityDetailPage() {
                 <input type="number" min={1} value={editForm.capacity}
                   onChange={(e) => setEditForm((f) => ({ ...f, capacity: Number(e.target.value) }))}
                   className={inputCls} style={{ maxWidth: 100 }} />
+              </div>
+              <div>
+                <label className="block text-xs text-muted mb-1">
+                  Facility Photos ({editForm.images.length}/{MAX_PHOTOS})
+                </label>
+                <div className="space-y-3">
+                  <label className={`inline-flex items-center justify-center bg-surface-2 border border-border rounded-dome px-4 py-2 text-sm font-semibold text-white transition-colors ${
+                    editForm.images.length >= MAX_PHOTOS ? "opacity-50 cursor-not-allowed" : "hover:border-primary cursor-pointer"
+                  }`}>
+                    Upload Photos
+                    <input
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      disabled={editForm.images.length >= MAX_PHOTOS}
+                      onChange={handlePhotoUpload}
+                      className="sr-only"
+                    />
+                  </label>
+                  <p className="text-xs text-muted">Add up to 5 photos. Each photo must be under 2 MB.</p>
+                  {photoError && <p className="text-xs text-red-400">{photoError}</p>}
+                  {editForm.images.length > 0 && (
+                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                      {editForm.images.map((photo, index) => (
+                        <div key={photo.slice(0, 40) + index} className="relative aspect-square overflow-hidden rounded-dome border border-border bg-black">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={photo} alt={`Facility photo ${index + 1}`} className="h-full w-full object-cover" />
+                          <button
+                            type="button"
+                            onClick={() => removePhoto(index)}
+                            className="absolute right-1.5 top-1.5 h-7 w-7 rounded-full bg-black/80 border border-border text-white text-sm hover:border-primary transition-colors"
+                            aria-label={`Remove photo ${index + 1}`}
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
               {saveError && <p className="text-red-400 text-xs">{saveError}</p>}
               <button type="submit" disabled={isSaving}

@@ -6,7 +6,7 @@ const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 
 export const metadata: Metadata = {
   title: { default: "Dome Vendor Portal", template: "%s | Dome Vendor" },
-  description: "Manage your sports facilities and bookings on Dome",
+  description: "Manage your sports and bookings on Dome",
   robots: "noindex, nofollow",
 };
 

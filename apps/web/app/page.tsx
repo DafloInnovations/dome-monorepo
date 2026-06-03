@@ -151,6 +151,33 @@ export default function HomePage() {
           </div>
         </section>
 
+        {/* ── App download ──────────────────────────────────────────────── */}
+        <section className="max-w-6xl mx-auto px-4 pb-16">
+          <div className="bg-surface border border-border rounded-[28px] px-5 py-4">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+              <p className="text-xl md:text-2xl font-black text-white">
+                To create a game, download the Dome app
+              </p>
+              <div className="flex flex-col sm:flex-row gap-3">
+                <span className="inline-flex items-center gap-3 bg-black border border-border rounded-[12px] px-4 py-2.5 text-white min-w-44">
+                  <span className="text-2xl">▶</span>
+                  <span className="leading-tight">
+                    <span className="block text-[10px] uppercase tracking-wide text-muted">Get it on</span>
+                    <span className="block text-sm font-bold">Google Play</span>
+                  </span>
+                </span>
+                <span className="inline-flex items-center gap-3 bg-black border border-border rounded-[12px] px-4 py-2.5 text-white min-w-44">
+                  <span className="text-2xl"></span>
+                  <span className="leading-tight">
+                    <span className="block text-[10px] uppercase tracking-wide text-muted">Download on the</span>
+                    <span className="block text-sm font-bold">App Store</span>
+                  </span>
+                </span>
+              </div>
+            </div>
+          </div>
+        </section>
+
         {/* ── CTA banner ──────────────────────────────────────────────────── */}
         <section className="bg-primary/5 border-y border-primary/20 py-16">
           <div className="max-w-6xl mx-auto px-4 text-center">

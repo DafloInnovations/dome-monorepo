@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import Header from "../../../components/layout/Header";
 import DataTable from "../../../components/ui/DataTable";
 import StatusBadge from "../../../components/ui/StatusBadge";
@@ -27,6 +27,58 @@ function exportCsv(bookings: Booking[]) {
 
 const STATUS_OPTS = ["ALL", "CONFIRMED", "PENDING", "CANCELLED", "COMPLETED"];
 const PAGE_SIZE = 20;
+
+function DateInput({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  function openCalendar() {
+    inputRef.current?.showPicker?.();
+    inputRef.current?.focus();
+  }
+
+  return (
+    <div className="relative">
+      <input
+        ref={inputRef}
+        type="date"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        aria-label={label}
+        className="bg-black border border-border rounded-dome pl-3 pr-10 py-1.5 text-xs text-white focus:outline-none focus:border-primary [color-scheme:dark] [&::-webkit-calendar-picker-indicator]:hidden [&::-webkit-calendar-picker-indicator]:appearance-none"
+      />
+      <button
+        type="button"
+        aria-label={`Open ${label.toLowerCase()} calendar`}
+        onClick={openCalendar}
+        className="absolute right-1.5 top-1/2 -translate-y-1/2 grid h-7 w-7 place-items-center rounded text-muted hover:text-white hover:bg-white/5 transition-colors"
+      >
+        <svg
+          aria-hidden="true"
+          viewBox="0 0 24 24"
+          className="h-4 w-4"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="M8 2v4" />
+          <path d="M16 2v4" />
+          <rect x="3" y="4" width="18" height="18" rx="2" />
+          <path d="M3 10h18" />
+        </svg>
+      </button>
+    </div>
+  );
+}
 
 export default function BookingsPage() {
   const [bookings, setBookings] = useState<Booking[]>([]);
@@ -106,13 +158,17 @@ export default function BookingsPage() {
           <div className="flex-1" />
 
           <div className="flex items-center gap-2">
-            <input type="date" value={fromDate}
-              onChange={(e) => { setFromDate(e.target.value); setPage(1); }}
-              className="bg-black border border-border rounded-dome px-2 py-1.5 text-xs text-white focus:outline-none focus:border-primary" />
+            <DateInput
+              label="Start date"
+              value={fromDate}
+              onChange={(value) => { setFromDate(value); setPage(1); }}
+            />
             <span className="text-muted text-xs">–</span>
-            <input type="date" value={toDate}
-              onChange={(e) => { setToDate(e.target.value); setPage(1); }}
-              className="bg-black border border-border rounded-dome px-2 py-1.5 text-xs text-white focus:outline-none focus:border-primary" />
+            <DateInput
+              label="End date"
+              value={toDate}
+              onChange={(value) => { setToDate(value); setPage(1); }}
+            />
             {(fromDate || toDate) && (
               <button onClick={() => { setFromDate(""); setToDate(""); setPage(1); }}
                 className="text-xs text-muted hover:text-white transition-colors">✕</button>

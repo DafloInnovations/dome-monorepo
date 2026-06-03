@@ -22,22 +22,27 @@ interface ProfileData {
     totalHours: number;
     totalPoints: number;
     currentStreak: number;
-    tier: string;
+    tier: string | { name: string; min?: number; max?: number | null };
+    tierProgress?: { min: number; max: number | null };
     sportBreakdown: Record<string, number>;
   };
 }
 
 const TIER_COLORS: Record<string, string> = {
-  BRONZE:   "text-orange-400",
-  SILVER:   "text-gray-300",
-  GOLD:     "text-yellow-400",
-  PLATINUM: "text-cyan-400",
+  BEGINNER: "text-orange-400",
+  ROOKIE:   "text-gray-300",
+  AMATEUR:  "text-yellow-400",
+  PRO:      "text-cyan-400",
   ELITE:    "text-primary",
 };
 
 const TIER_BADGE: Record<string, string> = {
-  BRONZE:   "🥉", SILVER: "🥈", GOLD: "🥇", PLATINUM: "💎", ELITE: "🔥",
+  BEGINNER: "🥉", ROOKIE: "🥈", AMATEUR: "🥇", PRO: "💎", ELITE: "🔥",
 };
+
+function getTierName(tier: ProfileData["stats"]["tier"]): string {
+  return typeof tier === "string" ? tier : tier.name;
+}
 
 export default function ProfilePage() {
   const router = useRouter();
@@ -79,7 +84,7 @@ export default function ProfilePage() {
 
   const { user, stats } = profile;
   const displayName = `${user.firstName} ${user.lastName}`.trim() || "Player";
-  const tier        = stats.tier ?? "BRONZE";
+  const tier        = getTierName(stats.tier ?? "BEGINNER").toUpperCase();
   const xpPct       = Math.min(100, (stats.totalPoints % 1000) / 10); // 0–100%
   const memberSince = new Date(user.createdAt).toLocaleDateString("en-CA", { month: "long", year: "numeric" });
 

@@ -10,6 +10,7 @@ import {
 import { useLocalSearchParams, useNavigation, useRouter } from "expo-router";
 import { useStripe } from "@stripe/stripe-react-native";
 import { useBooking } from "../../src/hooks/useBooking";
+import { isStripeConfigured } from "../../src/config/stripe";
 
 const API_URL = process.env["EXPO_PUBLIC_API_URL"] ?? "http://localhost:3001/api/v1";
 
@@ -95,6 +96,13 @@ export default function BookingScreen() {
 
   async function handleConfirmAndPay() {
     if (!slotId || !facilityId) return;
+    if (!isStripeConfigured()) {
+      Alert.alert(
+        "Payment Setup Missing",
+        "Stripe is not configured for this app build. Add EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY and restart Expo."
+      );
+      return;
+    }
     try {
       // ── Step 1 & 2: create booking + payment intent ──────────────────────────
       // token is returned so we can reuse it for the confirm call without
