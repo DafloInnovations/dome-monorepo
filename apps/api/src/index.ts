@@ -3,6 +3,9 @@ import cron from "node-cron";
 import { createApp } from "./app";
 import { initSocket } from "./lib/socket";
 import { sendBookingReminders } from "./jobs/reminders";
+import { runRecurringBookings } from "./jobs/recurring";
+import { runExpireAlerts } from "./jobs/alerts";
+import { sendReviewPrompts } from "./jobs/reviews";
 
 const PORT = process.env["PORT"] ?? 3001;
 
@@ -17,3 +20,12 @@ httpServer.listen(PORT, () => {
 
 // Daily 10:00 AM — booking reminders for next-day slots
 cron.schedule("0 10 * * *", sendBookingReminders);
+
+// Daily midnight — create + charge upcoming PAY_PER_SESSION recurring bookings
+cron.schedule("0 0 * * *", runRecurringBookings);
+
+// Daily midnight — expire stale availability alerts
+cron.schedule("1 0 * * *", runExpireAlerts);
+
+// Daily 10:00 AM — review prompts for bookings that ended yesterday
+cron.schedule("0 10 * * *", sendReviewPrompts);

@@ -1,41 +1,161 @@
 import { Router } from "express";
 import { z } from "zod";
-import { authenticate } from "../middleware/auth";
+import { authenticate, requireRole } from "../middleware/auth";
 import { validate } from "../middleware/validate";
+import {
+  createReview,
+  editReview,
+  deleteReview,
+  getFacilityReviews,
+  getPendingReviews,
+  getMyReviews,
+  addVendorReply,
+  flagReview,
+  getVendorReviews,
+  getAllReviews,
+  setReviewVisibility,
+} from "../services/reviews.service";
 
 const router = Router();
 
-const createReviewSchema = z.object({
-  bookingId: z.string().uuid(),
-  facilityId: z.string().uuid(),
-  rating: z.number().int().min(1).max(5),
-  comment: z.string().max(1000).optional(),
+const starField = z.number().int().min(1).max(5);
+
+const createSchema = z.object({
+  bookingId:      z.string().cuid(),
+  rating:         starField,
+  title:          z.string().max(120).optional().nullable(),
+  body:           z.string().max(2000).optional().nullable(),
+  courtQuality:   starField.optional().nullable(),
+  cleanliness:    starField.optional().nullable(),
+  valueForMoney:  starField.optional().nullable(),
+  staffFriendly:  starField.optional().nullable(),
 });
 
-router.get("/facility/:facilityId", async (req, res) => {
-  const { page = "1", limit = "10" } = req.query as Record<string, string>;
-  // TODO: fetch reviews for facility, newest first
-  res.json({ data: [], total: 0, page: Number(page), limit: Number(limit), hasMore: false });
+const editSchema = createSchema.partial().omit({ bookingId: true });
+
+// ─── Player endpoints ─────────────────────────────────────────────────────────
+
+// POST /api/v1/reviews
+router.post("/", authenticate, validate(createSchema), async (req, res, next) => {
+  try {
+    const review = await createReview(req.user!.sub as string, req.body as z.infer<typeof createSchema>);
+    res.status(201).json({ data: review });
+  } catch (err) { next(err); }
 });
 
-router.get("/facility/:facilityId/summary", async (req, res) => {
-  // TODO: aggregate rating distribution
-  res.json({ data: { facilityId: req.params["facilityId"], averageRating: 0, totalReviews: 0, distribution: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 } } });
+// GET /api/v1/reviews/pending — bookings eligible for review
+router.get("/pending", authenticate, async (req, res, next) => {
+  try {
+    const bookings = await getPendingReviews(req.user!.sub as string);
+    res.json({ data: bookings });
+  } catch (err) { next(err); }
 });
 
-router.post("/", authenticate, validate(createReviewSchema), async (req, res) => {
-  // TODO: verify booking is completed and belongs to user, one review per booking
-  res.status(201).json({ data: { ...req.body, isVerified: true } });
+// GET /api/v1/reviews/me — my submitted reviews
+router.get("/me", authenticate, async (req, res, next) => {
+  try {
+    const reviews = await getMyReviews(req.user!.sub as string);
+    res.json({ data: reviews });
+  } catch (err) { next(err); }
 });
 
-router.put("/:id/reply", authenticate, async (req, res) => {
-  // TODO: vendor-only, add reply to review for their facility
-  res.json({ data: { id: req.params["id"], vendorReply: req.body.reply } });
+// PUT /api/v1/reviews/:id
+router.put("/:id", authenticate, validate(editSchema), async (req, res, next) => {
+  try {
+    const review = await editReview(
+      req.user!.sub as string,
+      req.params["id"] as string,
+      req.body as z.infer<typeof editSchema>
+    );
+    res.json({ data: review });
+  } catch (err) { next(err); }
 });
 
-router.delete("/:id", authenticate, async (req, res) => {
-  // TODO: admin or review author only
-  res.status(204).end();
+// DELETE /api/v1/reviews/:id
+router.delete("/:id", authenticate, async (req, res, next) => {
+  try {
+    const result = await deleteReview(req.user!.sub as string, req.params["id"] as string);
+    res.json({ data: result });
+  } catch (err) { next(err); }
+});
+
+// POST /api/v1/reviews/:id/flag
+router.post("/:id/flag", authenticate, async (req, res, next) => {
+  try {
+    const { reason } = req.body as { reason?: string };
+    await flagReview(req.params["id"] as string, reason ?? "No reason given");
+    res.json({ data: { flagged: true } });
+  } catch (err) { next(err); }
+});
+
+// ─── Public endpoints ─────────────────────────────────────────────────────────
+
+// GET /api/v1/reviews/facility/:facilityId
+router.get("/facility/:facilityId", async (req, res, next) => {
+  try {
+    const { page, limit, sort, minRating } = req.query as Record<string, string | undefined>;
+    const result = await getFacilityReviews(req.params["facilityId"] as string, {
+      page: page ? Number(page) : undefined,
+      limit: limit ? Number(limit) : undefined,
+      sort: sort as "newest" | "highest" | "lowest" | undefined,
+      minRating: minRating ? Number(minRating) : undefined,
+    });
+    res.json({ data: result });
+  } catch (err) { next(err); }
+});
+
+// ─── Vendor endpoints ─────────────────────────────────────────────────────────
+
+// POST /api/v1/reviews/:id/reply
+router.post("/:id/reply", authenticate, requireRole("VENDOR"), async (req, res, next) => {
+  try {
+    const { reply } = req.body as { reply?: string };
+    if (!reply?.trim()) { res.status(400).json({ message: "Reply text required" }); return; }
+    const review = await addVendorReply(req.user!.sub as string, req.params["id"] as string, reply.trim());
+    res.json({ data: review });
+  } catch (err) { next(err); }
+});
+
+// GET /api/v1/reviews/vendor — all reviews for vendor's facilities
+router.get("/vendor", authenticate, requireRole("VENDOR"), async (req, res, next) => {
+  try {
+    const { facilityId, rating, hasReply, sort, page, limit } = req.query as Record<string, string | undefined>;
+    const result = await getVendorReviews(req.user!.sub as string, {
+      facilityId,
+      rating: rating ? Number(rating) : undefined,
+      hasReply: hasReply === "true" ? true : hasReply === "false" ? false : undefined,
+      sort: sort as "newest" | "lowest" | undefined,
+      page: page ? Number(page) : undefined,
+      limit: limit ? Number(limit) : undefined,
+    });
+    res.json({ data: result });
+  } catch (err) { next(err); }
+});
+
+// ─── Admin endpoints ──────────────────────────────────────────────────────────
+
+// GET /api/v1/reviews/admin
+router.get("/admin", authenticate, requireRole("ADMIN"), async (req, res, next) => {
+  try {
+    const { page, limit, flagged, rating } = req.query as Record<string, string | undefined>;
+    const result = await getAllReviews({
+      page: page ? Number(page) : undefined,
+      limit: limit ? Number(limit) : undefined,
+      flagged: flagged === "true" ? true : flagged === "false" ? false : undefined,
+      rating: rating ? Number(rating) : undefined,
+    });
+    res.json({ data: result });
+  } catch (err) { next(err); }
+});
+
+// PATCH /api/v1/reviews/:id/visibility
+router.patch("/:id/visibility", authenticate, requireRole("ADMIN"), async (req, res, next) => {
+  try {
+    const { isVisible } = req.body as { isVisible?: boolean };
+    if (isVisible === undefined) { res.status(400).json({ message: "isVisible required" }); return; }
+    const review = await setReviewVisibility(req.params["id"] as string, isVisible);
+    res.json({ data: review });
+  } catch (err) { next(err); }
 });
 
 export default router;

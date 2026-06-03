@@ -1,5 +1,6 @@
 import { BookingUnitType, SlotStatus } from "@prisma/client";
 import { prisma } from "../lib/prisma";
+import { checkAndTriggerAlerts } from "./alerts.service";
 
 function appError(msg: string, status = 500, code?: string) {
   return Object.assign(new Error(msg), { status, code });
@@ -126,6 +127,24 @@ export async function bulkCreateSlots(userId: string, courtId: string, input: Bu
   }
 
   const result = await prisma.slot.createMany({ data: rows, skipDuplicates: true });
+
+  // Fire availability alerts for every newly created slot (non-blocking)
+  if (result.count > 0) {
+    const uniqueWindows = [
+      ...new Map(
+        rows.map((r) => [`${r.date.toISOString().split("T")[0]}-${r.startTime}-${r.endTime}`, r])
+      ).values(),
+    ];
+    for (const row of uniqueWindows) {
+      checkAndTriggerAlerts(
+        court.facilityId,
+        courtId,
+        row.date,
+        row.startTime,
+        row.endTime
+      ).catch((err) => console.error("[Alerts] checkAndTriggerAlerts failed:", err));
+    }
+  }
 
   return {
     created: result.count,

@@ -115,6 +115,14 @@ enum NotificationType {
   NEW_MESSAGE
   GAME_FULL
   GAME_CANCELLED
+  AVAILABILITY_ALERT
+}
+
+enum AlertStatus {
+  PENDING
+  TRIGGERED
+  EXPIRED
+  CANCELLED
 }
 
 enum SkillLevel {
@@ -199,6 +207,8 @@ model User {
   conversations          ConversationParticipant[]
   refreshTokens          RefreshToken[]
   notifications          Notification[]
+  recurringSeries        RecurringSeries[]
+  availabilityAlerts     AvailabilityAlert[]
 
   @@index([phone])
   @@index([email])
@@ -275,6 +285,8 @@ model Facility {
   bookingGroups  BookingGroup[]
   reviews        Review[]
   openGames      OpenGame[]
+  recurringSeries RecurringSeries[]
+  availabilityAlerts AvailabilityAlert[]
 
   @@index([vendorId])
   @@index([sport])
@@ -341,10 +353,78 @@ model Court {
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
 
-  facility Facility @relation(fields: [facilityId], references: [id], onDelete: Cascade)
-  slots    Slot[]
+  facility           Facility            @relation(fields: [facilityId], references: [id], onDelete: Cascade)
+  slots              Slot[]
+  pricingRules       PricingRule[]
+  dateOverrides      DateOverride[]
+  recurringSeries    RecurringSeries[]
+  availabilityAlerts AvailabilityAlert[]
 
   @@index([facilityId])
+}
+
+// ─── Dynamic Pricing ──────────────────────────────────────────────────────────
+
+enum PricingRuleType {
+  TIME_OF_DAY
+  DAY_OF_WEEK
+  PEAK_HOURS
+  SEASONAL
+  EARLY_BIRD
+}
+
+enum PriceAdjustmentType {
+  PERCENTAGE_INCREASE
+  PERCENTAGE_DECREASE
+  FIXED_INCREASE
+  FIXED_DECREASE
+  FIXED_PRICE
+}
+
+enum DateOverrideType {
+  CUSTOM_PRICE
+  BLOCKED
+  FREE
+}
+
+model PricingRule {
+  id          String   @id @default(cuid())
+  courtId     String
+  name        String
+  type        PricingRuleType
+
+  daysOfWeek  Int[]
+  startTime   String?
+  endTime     String?
+  startDate   DateTime?
+  endDate     DateTime?
+
+  adjustmentType  PriceAdjustmentType
+  adjustmentValue Decimal @db.Decimal(10, 2)
+
+  priority    Int     @default(0)
+  isActive    Boolean @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  court Court @relation(fields: [courtId], references: [id], onDelete: Cascade)
+
+  @@index([courtId, isActive])
+}
+
+model DateOverride {
+  id             String          @id @default(cuid())
+  courtId        String
+  date           DateTime        @db.Date
+  type           DateOverrideType
+  customPriceCAD Decimal?        @db.Decimal(10, 2)
+  reason         String?
+  createdAt      DateTime        @default(now())
+
+  court Court @relation(fields: [courtId], references: [id], onDelete: Cascade)
+
+  @@unique([courtId, date])
+  @@index([courtId])
 }
 
 // ─── Slots & Bookings ─────────────────────────────────────────────────────────
@@ -394,17 +474,20 @@ model Booking {
   cancelledAt      DateTime?
   cancelReason     String?
   creditsIssuedCAD Decimal?             @db.Decimal(10, 2)
+  recurringSeriesId    String?
+  recurringSeriesIndex Int?
   createdAt        DateTime             @default(now())
   updatedAt        DateTime             @updatedAt
 
-  slot          Slot           @relation(fields: [slotId], references: [id])
-  facility      Facility       @relation(fields: [facilityId], references: [id])
-  user          User           @relation(fields: [userId], references: [id])
-  bookingGroup  BookingGroup?  @relation(fields: [bookingGroupId], references: [id])
-  payment       Payment?
-  review        Review?
-  domeCredits   DomeCredit[]
-  conversations Conversation[]
+  slot            Slot              @relation(fields: [slotId], references: [id])
+  facility        Facility          @relation(fields: [facilityId], references: [id])
+  user            User              @relation(fields: [userId], references: [id])
+  bookingGroup    BookingGroup?     @relation(fields: [bookingGroupId], references: [id])
+  recurringSeries RecurringSeries?  @relation(fields: [recurringSeriesId], references: [id])
+  payment         Payment?
+  review          Review?
+  domeCredits     DomeCredit[]
+  conversations   Conversation[]
 
   // One user can only hold one booking per slot (blocks double-booking for SESSION slots too)
   @@unique([slotId, userId])
@@ -490,11 +573,27 @@ model Review {
   bookingId       String    @unique
   facilityId      String
   userId          String
-  rating          Int
-  comment         String?
+
+  rating          Int       // 1–5
+  title           String?
+  body            String?
+
+  courtQuality    Int?
+  cleanliness     Int?
+  valueForMoney   Int?
+  staffFriendly   Int?
+
+  sport           String    @default("")
+
   isVerified      Boolean   @default(true)
+  isVisible       Boolean   @default(true)
+
   vendorReply     String?
   vendorRepliedAt DateTime?
+
+  flaggedAt       DateTime?
+  flagReason      String?
+
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
@@ -502,8 +601,9 @@ model Review {
   facility Facility @relation(fields: [facilityId], references: [id])
   user     User     @relation(fields: [userId], references: [id])
 
-  @@index([facilityId])
+  @@index([facilityId, isVisible])
   @@index([userId])
+  @@index([rating])
 }
 
 // ─── Open Games ───────────────────────────────────────────────────────────────
@@ -620,4 +720,98 @@ model Notification {
 
   @@index([userId, createdAt])
   @@index([userId, isRead])
+}
+
+// ─── Recurring Bookings ───────────────────────────────────────────────────────
+
+enum RecurringFrequency {
+  WEEKLY
+  BIWEEKLY
+  MONTHLY
+}
+
+enum RecurringPaymentModel {
+  PAY_PER_SESSION
+  PAY_UPFRONT
+}
+
+enum RecurringSeriesStatus {
+  ACTIVE
+  PAUSED
+  CANCELLED
+  COMPLETED
+}
+
+model RecurringSeries {
+  id              String    @id @default(cuid())
+  userId          String
+  facilityId      String
+  courtId         String
+
+  startDate       DateTime  @db.Date
+  endDate         DateTime  @db.Date
+  startTime       String
+  durationMinutes Int
+
+  frequency    RecurringFrequency
+  daysOfWeek   Int[]
+
+  totalOccurrences      Int
+  completedOccurrences  Int @default(0)
+  cancelledOccurrences  Int @default(0)
+
+  pricePerSessionCAD Decimal @db.Decimal(10, 2)
+  discountPercent    Int     @default(0)
+
+  paymentModel RecurringPaymentModel
+
+  // Stripe — PAY_UPFRONT stores the group payment intent
+  paymentIntentId       String?
+  // PAY_PER_SESSION stores saved card details for future charges
+  stripeCustomerId      String?
+  stripePaymentMethodId String?
+
+  status    RecurringSeriesStatus @default(ACTIVE)
+  createdAt DateTime              @default(now())
+  updatedAt DateTime              @updatedAt
+
+  user     User     @relation(fields: [userId], references: [id])
+  facility Facility @relation(fields: [facilityId], references: [id])
+  court    Court    @relation(fields: [courtId], references: [id])
+  bookings Booking[]
+
+  @@index([userId])
+  @@index([facilityId])
+  @@index([courtId])
+  @@index([status])
+}
+
+// ─── Availability Alerts ──────────────────────────────────────────────────────
+
+model AvailabilityAlert {
+  id              String      @id @default(cuid())
+  userId          String
+  facilityId      String
+  courtId         String?
+  sport           String?
+
+  date            DateTime    @db.Date
+  startTime       String
+  endTime         String
+  durationMinutes Int
+
+  status          AlertStatus @default(PENDING)
+  triggeredAt     DateTime?
+  expiresAt       DateTime
+
+  createdAt       DateTime    @default(now())
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  facility Facility @relation(fields: [facilityId], references: [id], onDelete: Cascade)
+  court    Court?   @relation(fields: [courtId], references: [id])
+
+  @@unique([userId, facilityId, date, startTime, endTime])
+  @@index([facilityId, date, status])
+  @@index([userId, status])
+  @@index([expiresAt, status])
 }

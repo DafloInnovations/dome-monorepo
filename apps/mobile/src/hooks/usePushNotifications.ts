@@ -21,7 +21,7 @@ Notifications.setNotificationHandler({
 type NotifData = Record<string, string>;
 
 function handleNavigation(data: NotifData, router: ReturnType<typeof useRouter>) {
-  const { type, threadId, gameId } = data;
+  const { type, threadId, gameId, facilityId, date, startTime } = data;
   switch (type) {
     case "new_message":
       if (threadId) router.push({ pathname: "/chat/[threadId]", params: { threadId } });
@@ -33,6 +33,27 @@ function handleNavigation(data: NotifData, router: ReturnType<typeof useRouter>)
       break;
     case "booking_confirmed":
       router.push("/(tabs)/bookings");
+      break;
+    case "REVIEW_PROMPT":
+      if (data.bookingId) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (router as any).push({ pathname: "/review/[bookingId]", params: { bookingId: data.bookingId } });
+      }
+      break;
+    case "AVAILABILITY_ALERT":
+      if (facilityId) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (router as any).push({
+          pathname: "/facility/[facilityId]",
+          params: {
+            facilityId,
+            ...(date ? { preSelectedDate: date } : {}),
+            ...(startTime ? { preSelectedTime: startTime } : {}),
+          },
+        });
+      } else {
+        router.push("/(tabs)/alerts");
+      }
       break;
   }
 }

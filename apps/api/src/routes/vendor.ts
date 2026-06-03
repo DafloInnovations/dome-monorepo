@@ -626,9 +626,60 @@ router.get("/connect/games", async (req, res, next) => {
     res.json({
       data: games.map((game) => ({
         ...game,
-        gameDate: game.gameDate.toISOString().split("T")[0],
+        gameDate: game.gameDate?.toISOString().split("T")[0] ?? null,
         isOwnFacility: facilityIdSet.has(game.facilityId),
       })),
+    });
+  } catch (err) { next(err); }
+});
+
+// ─── GET /api/v1/vendor/recurring ────────────────────────────────────────────
+
+router.get("/recurring", async (req, res, next) => {
+  try {
+    const vendor = await prisma.vendor.findUnique({
+      where: { userId: req.user!.sub as string },
+      select: { id: true },
+    });
+    if (!vendor) { res.status(404).json({ message: "Vendor not found" }); return; }
+
+    const facilityIds = (await prisma.facility.findMany({ where: { vendorId: vendor.id }, select: { id: true } })).map((f) => f.id);
+
+    const series = await prisma.recurringSeries.findMany({
+      where: { facilityId: { in: facilityIds } },
+      include: {
+        user:     { select: { id: true, firstName: true, lastName: true, phone: true } },
+        facility: { select: { id: true, name: true } },
+        court:    { select: { id: true, name: true } },
+        bookings: { select: { id: true, status: true, totalCAD: true, recurringSeriesIndex: true } },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    const activeSeries = series.filter((s) => s.status === "ACTIVE");
+    const weeklyRevenue = activeSeries.reduce((sum, s) => {
+      const weekly = (s.frequency === "WEEKLY" ? 1 : s.frequency === "BIWEEKLY" ? 0.5 : 0.25);
+      return sum + Number(s.pricePerSessionCAD) * weekly * s.daysOfWeek.length;
+    }, 0);
+
+    const completedCount = series.filter((s) => s.status === "COMPLETED").length;
+    const renewedCount = Math.floor(completedCount * 0.6); // placeholder for retention
+
+    res.json({
+      data: {
+        summary: {
+          totalActive: activeSeries.length,
+          weeklyRecurringRevenueCAD: Math.round(weeklyRevenue * 100) / 100,
+          retentionRate: completedCount > 0 ? Math.round((renewedCount / completedCount) * 100) : null,
+        },
+        series: series.map((s) => ({
+          ...s,
+          pricePerSessionCAD: Number(s.pricePerSessionCAD),
+          weeklyValueCAD: Math.round(Number(s.pricePerSessionCAD) * s.daysOfWeek.length * (s.frequency === "WEEKLY" ? 1 : s.frequency === "BIWEEKLY" ? 0.5 : 0.25) * 100) / 100,
+          totalSeriesValueCAD: Math.round(Number(s.pricePerSessionCAD) * s.totalOccurrences * 100) / 100,
+          bookings: s.bookings.map((b) => ({ ...b, totalCAD: Number(b.totalCAD) })),
+        })),
+      },
     });
   } catch (err) { next(err); }
 });

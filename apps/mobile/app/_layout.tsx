@@ -2,7 +2,7 @@ import React, { useEffect } from "react";
 import { ActivityIndicator, View } from "react-native";
 import { Stack, useRouter, useSegments } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { StripeProvider } from "@stripe/stripe-react-native";
+import { StripeProvider } from "../src/lib/stripe";
 import { AuthProvider, useAuth } from "../src/context/AuthContext";
 import { SocketProvider } from "../src/context/SocketContext";
 import { NotificationsProvider } from "../src/context/NotificationsContext";
@@ -63,6 +63,18 @@ function RootNav() {
           }}
         />
         <Stack.Screen
+          name="booking/time-based"
+          options={{ title: "Confirm Booking", headerBackTitle: "Back" }}
+        />
+        <Stack.Screen
+          name="booking/recurring-confirm"
+          options={{ title: "Recurring Booking", headerBackTitle: "Back" }}
+        />
+        <Stack.Screen
+          name="bookings/recurring"
+          options={{ title: "Recurring Series", headerBackTitle: "Back" }}
+        />
+        <Stack.Screen
           name="booking/success"
           options={{
             headerShown: false,
@@ -86,6 +98,28 @@ function RootNav() {
         <Stack.Screen name="chat/[threadId]" options={{ headerShown: false }} />
         <Stack.Screen name="chat/index" options={{ headerShown: false }} />
         <Stack.Screen name="notifications" options={{ headerShown: false }} />
+        <Stack.Screen
+          name="review/[bookingId]"
+          options={{
+            headerShown: true,
+            title: "Write a Review",
+            headerBackTitle: "Back",
+            headerStyle: { backgroundColor: "#1C1C1E" },
+            headerTintColor: "#FFFFFF",
+            headerTitleStyle: { fontWeight: "700" },
+          }}
+        />
+        <Stack.Screen
+          name="review/facility/[facilityId]"
+          options={{
+            headerShown: true,
+            title: "Reviews",
+            headerBackTitle: "Back",
+            headerStyle: { backgroundColor: "#1C1C1E" },
+            headerTintColor: "#FFFFFF",
+            headerTitleStyle: { fontWeight: "700" },
+          }}
+        />
       </Stack>
     </>
   );

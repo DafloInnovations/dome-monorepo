@@ -12,6 +12,11 @@ import {
 import { useRouter } from "expo-router";
 import { useMyBookings, type MyBooking } from "../../src/hooks/useMyBookings";
 
+function todayLocalStr(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 const C = {
   bg: "#000000",
   primary: "#E85068",
@@ -43,15 +48,12 @@ function formatSlotDate(dateStr: string): string {
   });
 }
 
-function todayLocalStr(): string {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
-function BookingCard({ booking, onCancel }: { booking: MyBooking; onCancel?: () => void }) {
+function BookingCard({ booking, onCancel, onReview, reviewed }: {
+  booking: MyBooking;
+  onCancel?: () => void;
+  onReview?: () => void;
+  reviewed?: boolean;
+}) {
   const sportKey = booking.facility.sport.toLowerCase();
   const emoji = SPORT_EMOJI[sportKey] ?? "🏟";
   const statusColor = STATUS_COLOR[booking.status] ?? C.muted;
@@ -89,6 +91,17 @@ function BookingCard({ booking, onCancel }: { booking: MyBooking; onCancel?: () 
         <Pressable style={styles.cancelBtn} onPress={onCancel}>
           <Text style={styles.cancelBtnText}>Cancel Booking</Text>
         </Pressable>
+      )}
+      {onReview && (
+        reviewed ? (
+          <View style={styles.reviewedBadge}>
+            <Text style={styles.reviewedText}>✓ Reviewed</Text>
+          </View>
+        ) : (
+          <Pressable style={styles.reviewBtn} onPress={onReview}>
+            <Text style={styles.reviewBtnText}>⭐ Leave a Review</Text>
+          </Pressable>
+        )
       )}
     </View>
   );
@@ -173,29 +186,48 @@ export default function BookingsScreen() {
         <FlatList
           data={displayed}
           keyExtractor={(item) => item.id}
-          renderItem={({ item }) => (
-            <BookingCard
-              booking={item}
-              onCancel={
-                activeTab === "upcoming" &&
-                (item.status === "CONFIRMED" || item.status === "PENDING")
-                  ? () =>
-                      router.push({
-                        pathname: "/booking/cancel/[bookingId]",
-                        params: {
-                          bookingId: item.id,
-                          facilityName: item.facility.name,
-                          sport: item.facility.sport,
-                          slotDate: item.slot.date.split("T")[0],
-                          startTime: item.slot.startTime,
-                          endTime: item.slot.endTime,
-                          totalCAD: String(item.totalCAD),
-                        },
-                      })
-                  : undefined
-              }
-            />
-          )}
+          renderItem={({ item }) => {
+            const slotDate = item.slot.date.split("T")[0]!;
+            const isPast = slotDate < today && item.status === "CONFIRMED";
+            return (
+              <BookingCard
+                booking={item}
+                onCancel={
+                  activeTab === "upcoming" &&
+                  (item.status === "CONFIRMED" || item.status === "PENDING")
+                    ? () =>
+                        router.push({
+                          pathname: "/booking/cancel/[bookingId]",
+                          params: {
+                            bookingId: item.id,
+                            facilityName: item.facility.name,
+                            sport: item.facility.sport,
+                            slotDate,
+                            startTime: item.slot.startTime,
+                            endTime: item.slot.endTime,
+                            totalCAD: String(item.totalCAD),
+                          },
+                        })
+                    : undefined
+                }
+                onReview={
+                  activeTab === "past" && isPast
+                    ? () =>
+                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                        (router as any).push({
+                          pathname: "/review/[bookingId]",
+                          params: {
+                            bookingId: item.id,
+                            facilityName: item.facility.name,
+                            sport: item.facility.sport,
+                            slotDate,
+                          },
+                        })
+                    : undefined
+                }
+              />
+            );
+          }}
           contentContainerStyle={styles.list}
           showsVerticalScrollIndicator={false}
           refreshControl={
@@ -292,6 +324,24 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   cancelBtnText: { color: C.muted, fontSize: 13, fontWeight: "600" },
+  reviewBtn: {
+    marginTop: 10,
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: "#F59E0B22",
+    borderWidth: 1,
+    borderColor: "#F59E0B44",
+    alignItems: "center",
+  },
+  reviewBtnText: { color: "#F59E0B", fontSize: 13, fontWeight: "700" },
+  reviewedBadge: {
+    marginTop: 10,
+    paddingVertical: 8,
+    borderRadius: 10,
+    backgroundColor: "#14532d33",
+    alignItems: "center",
+  },
+  reviewedText: { color: "#4ade80", fontSize: 13, fontWeight: "600" },
   center: { flex: 1, alignItems: "center", justifyContent: "center", paddingTop: 60 },
   errorText: { color: "#ff6b6b", fontSize: 15, marginBottom: 14, textAlign: "center" },
   retryBtn: {

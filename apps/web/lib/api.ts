@@ -101,9 +101,19 @@ export interface Booking {
 export interface Review {
   id: string;
   rating: number;
-  comment: string | null;
+  title: string | null;
+  body: string | null;
+  sport: string;
+  courtQuality: number | null;
+  cleanliness: number | null;
+  valueForMoney: number | null;
+  staffFriendly: number | null;
+  vendorReply: string | null;
+  vendorRepliedAt: string | null;
+  isVerified: boolean;
   createdAt: string;
   user: { firstName: string; lastName: string; avatarUrl: string | null };
+  booking?: { slot: { date: string } };
 }
 
 export interface OpenGame {

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
+import Link from "next/link";
 import Header from "../../../../../components/layout/Header";
 import { api, apiFetch, type Slot } from "../../../../../lib/api";
 
@@ -162,6 +163,12 @@ export default function SlotsPage() {
       <Header title="Slot Management" />
       <main className="flex-1 p-6 space-y-6 overflow-auto">
         <div className="flex items-center justify-between">
+          <Link
+            href={`/dashboard/courts/${courtId}/pricing`}
+            className="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-semibold border border-primary/50 text-primary hover:bg-primary hover:text-white rounded-dome transition-colors"
+          >
+            ⚡ Manage Pricing
+          </Link>
           <div className="flex gap-2 text-xs">
             {Object.entries(STATUS_STYLE).map(([status, cls]) => (
               <span key={status} className={`px-2 py-0.5 rounded border ${cls}`}>

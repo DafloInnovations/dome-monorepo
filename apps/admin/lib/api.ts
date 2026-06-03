@@ -85,6 +85,15 @@ export interface AdminBooking {
   payment?: { status: string; amountCAD: number } | null;
 }
 
+export interface ActivityEvent {
+  id: string;
+  type: "user_signup" | "booking_created" | "booking_cancelled" | "vendor_applied";
+  title: string;
+  sub: string;
+  createdAt: string;
+  href?: string;
+}
+
 export interface RevenueData {
   totalRevenueAllTime: number;
   totalRevenueMonth: number;

@@ -14,7 +14,7 @@ const NAV = [
 ];
 
 export default function Sidebar() {
-  const pathname = usePathname();
+  const pathname = usePathname() ?? "";
   return (
     <aside className="w-52 shrink-0 flex flex-col min-h-screen bg-sidebar border-r border-[#1a1a1a]">
       <div className="px-5 py-5 border-b border-[#1a1a1a]">

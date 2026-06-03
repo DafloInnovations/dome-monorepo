@@ -302,7 +302,8 @@ router.get("/revenue", async (req, res, next) => {
 
     const bookings = await prisma.booking.findMany({
       where: { status: { in: [BookingStatus.CONFIRMED, BookingStatus.COMPLETED] } },
-      include: {
+      select: {
+        totalCAD: true, createdAt: true,
         facility: {
           select: {
             sport: true,
@@ -311,10 +312,6 @@ router.get("/revenue", async (req, res, next) => {
             vendor: { select: { businessName: true } },
           },
         },
-      },
-      select: {
-        totalCAD: true, createdAt: true,
-        facility: true,
       },
     });
 
@@ -380,6 +377,80 @@ router.get("/revenue", async (req, res, next) => {
         totalBookings: bookings.length,
       },
     });
+  } catch (err) { next(err); }
+});
+
+// ─── GET /api/v1/admin/activity ──────────────────────────────────────────────
+
+router.get("/activity", async (req, res, next) => {
+  try {
+    const limit = Math.min(Number((req.query as Record<string, string>)["limit"] ?? "20"), 50);
+
+    const [recentUsers, recentBookings, recentVendors] = await Promise.all([
+      prisma.user.findMany({
+        orderBy: { createdAt: "desc" },
+        take: limit,
+        select: { id: true, phone: true, firstName: true, lastName: true, createdAt: true },
+      }),
+      prisma.booking.findMany({
+        orderBy: { createdAt: "desc" },
+        take: limit,
+        select: {
+          id: true,
+          status: true,
+          totalCAD: true,
+          createdAt: true,
+          user: { select: { firstName: true, lastName: true, phone: true } },
+          facility: { select: { name: true } },
+        },
+      }),
+      prisma.vendor.findMany({
+        orderBy: { createdAt: "desc" },
+        take: limit,
+        select: { id: true, businessName: true, status: true, createdAt: true, submittedAt: true },
+      }),
+    ]);
+
+    type ActivityEvent = {
+      id: string;
+      type: "user_signup" | "booking_created" | "booking_cancelled" | "vendor_applied";
+      title: string;
+      sub: string;
+      createdAt: string;
+      href?: string;
+    };
+
+    const events: ActivityEvent[] = [
+      ...recentUsers.map((u) => ({
+        id: `user-${u.id}`,
+        type: "user_signup" as const,
+        title: `${u.firstName || ""} ${u.lastName || ""}`.trim() || u.phone,
+        sub: "New user signed up",
+        createdAt: u.createdAt.toISOString(),
+        href: `/dashboard/users/${u.id}`,
+      })),
+      ...recentBookings.map((b) => ({
+        id: `booking-${b.id}`,
+        type: b.status === "CANCELLED" ? "booking_cancelled" as const : "booking_created" as const,
+        title: b.facility.name,
+        sub: b.status === "CANCELLED"
+          ? `Booking cancelled — C$${Number(b.totalCAD).toFixed(2)}`
+          : `New booking — C$${Number(b.totalCAD).toFixed(2)} by ${b.user.firstName || b.user.phone}`,
+        createdAt: b.createdAt.toISOString(),
+      })),
+      ...recentVendors.map((v) => ({
+        id: `vendor-${v.id}`,
+        type: "vendor_applied" as const,
+        title: v.businessName,
+        sub: `Vendor application (${v.status.toLowerCase()})`,
+        createdAt: (v.submittedAt ?? v.createdAt).toISOString(),
+        href: `/dashboard/vendors/${v.id}`,
+      })),
+    ];
+
+    events.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+    res.json({ data: events.slice(0, limit) });
   } catch (err) { next(err); }
 });
 

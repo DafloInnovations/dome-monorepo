@@ -1,10 +1,12 @@
 import { Redirect, Tabs } from "expo-router";
 import { useAuth } from "../../src/context/AuthContext";
 import { useThreads } from "../../src/hooks/useChat";
+import { useAlerts } from "../../src/hooks/useAlerts";
 
 export default function TabLayout() {
   const { user } = useAuth();
   const { threads } = useThreads();
+  const { pendingCount } = useAlerts();
 
   if (!user) return <Redirect href="/(auth)/phone" />;
 
@@ -25,6 +27,13 @@ export default function TabLayout() {
       <Tabs.Screen name="index" options={{ title: "Home" }} />
       <Tabs.Screen name="connect" options={{ title: "Connect" }} />
       <Tabs.Screen name="bookings" options={{ title: "Bookings" }} />
+      <Tabs.Screen
+        name="alerts"
+        options={{
+          title: "Alerts",
+          tabBarBadge: pendingCount > 0 ? pendingCount : undefined,
+        }}
+      />
       <Tabs.Screen
         name="chats"
         options={{

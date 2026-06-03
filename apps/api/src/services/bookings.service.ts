@@ -13,6 +13,7 @@ import { prisma } from "../lib/prisma";
 import { redis } from "../lib/redis";
 import { stripe } from "../lib/stripe";
 import { sendPushNotification, saveNotification } from "../lib/firebase";
+import { checkAndTriggerAlerts } from "./alerts.service";
 
 const SLOT_LOCK_TTL = 300;          // 5 minutes
 const FULL_REFUND_CUTOFF_HOURS = 24; // ≥ 24h before slot → full Stripe refund
@@ -379,6 +380,15 @@ export async function cancelBooking(
 
   await prisma.$transaction(ops);
   await redis.del(`slot:${booking.slotId}:lock`);
+
+  // Fire availability alerts for the now-free slot (non-blocking)
+  checkAndTriggerAlerts(
+    booking.slot.facilityId,
+    booking.slot.courtId,
+    booking.slot.date,
+    booking.slot.startTime,
+    booking.slot.endTime
+  ).catch((err) => console.error("[Alerts] checkAndTriggerAlerts failed:", err));
 
   // Push + DB notification
   const actor = await prisma.user.findUnique({
@@ -763,6 +773,149 @@ export async function cancelGroupBooking(
     refundType,
     creditsIssuedCAD: refundType === "credits" ? totalCAD : null,
     refundedCAD: refundType === "full" ? totalCAD : null,
+  };
+}
+
+// ─── Time-based booking (1+ slot IDs from available-courts) ──────────────────
+
+export async function createTimeBooking(
+  userId: string,
+  slotIds: string[],
+  facilityId: string
+) {
+  if (slotIds.length === 0) throw appError("No slots provided", 400);
+  if (slotIds.length > 20) throw appError("Too many slots", 400);
+
+  // Validate all slots exist and belong to the facility
+  const slots = await prisma.slot.findMany({
+    where: { id: { in: slotIds }, facilityId },
+    orderBy: { startTime: "asc" },
+  });
+  if (slots.length !== slotIds.length) throw appError("One or more slots not found", 404);
+
+  for (const slot of slots) {
+    if (slot.status !== SlotStatus.AVAILABLE) {
+      throw appError(
+        `Slot ${slot.startTime}–${slot.endTime} is no longer available (${slot.status})`,
+        409,
+        "SLOT_UNAVAILABLE"
+      );
+    }
+  }
+
+  // Acquire Redis locks on all slots
+  const lockResults = await Promise.all(
+    slots.map((s) => redis.set(`slot:${s.id}:lock`, userId, "EX", SLOT_LOCK_TTL, "NX"))
+  );
+  const failedIdx = lockResults.findIndex((r) => r !== "OK");
+  if (failedIdx !== -1) {
+    const toRelease = lockResults
+      .map((r, i) => (r === "OK" ? slots[i]!.id : null))
+      .filter(Boolean) as string[];
+    if (toRelease.length) await redis.del(...toRelease.map((id) => `slot:${id}:lock`));
+    throw appError(
+      `Slot ${slots[failedIdx]!.startTime}–${slots[failedIdx]!.endTime} is held by another player`,
+      409,
+      "SLOT_LOCKED"
+    );
+  }
+
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { province: true } });
+  if (!user) throw appError("User not found", 404);
+
+  const subtotalCAD = slots.reduce((s, sl) => s + Number(sl.priceCAD), 0);
+  const taxCAD = calculateTax(subtotalCAD, user.province as Province);
+  const totalCAD = Math.round((subtotalCAD + taxCAD) * 100) / 100;
+
+  // Single slot → individual booking; multiple → group booking
+  if (slots.length === 1) {
+    const slot = slots[0]!;
+    const sub = Number(slot.priceCAD);
+    const tax = calculateTax(sub, user.province as Province);
+    const tot = Math.round((sub + tax) * 100) / 100;
+
+    const booking = await prisma.booking.create({
+      data: {
+        slotId: slot.id,
+        facilityId,
+        userId,
+        status: BookingStatus.PENDING,
+        paymentStatus: BookingPaymentStatus.UNPAID,
+        subtotalCAD: sub,
+        taxCAD: tax,
+        totalCAD: tot,
+        taxProvince: user.province,
+      },
+      include: { slot: true, facility: { include: { address: true } } },
+    });
+
+    const pi = await stripe.paymentIntents.create({
+      amount: Math.round(tot * 100),
+      currency: "cad",
+      metadata: { bookingId: booking.id, userId },
+    });
+
+    return {
+      type: "single" as const,
+      bookingId: booking.id,
+      groupId: null,
+      clientSecret: pi.client_secret,
+      paymentIntentId: pi.id,
+      totalCAD: tot,
+      subtotalCAD: sub,
+      taxCAD: tax,
+      lockExpiresInSeconds: SLOT_LOCK_TTL,
+    };
+  }
+
+  // Multiple slots → group booking (no minimum-2 constraint for time-based)
+  const group = await prisma.bookingGroup.create({
+    data: {
+      userId,
+      facilityId,
+      subtotalCAD,
+      taxCAD,
+      totalCAD,
+      status: GroupBookingStatus.PENDING,
+      bookings: {
+        create: slots.map((slot) => {
+          const sub = Number(slot.priceCAD);
+          const tax = calculateTax(sub, user.province as Province);
+          return {
+            slotId: slot.id,
+            facilityId,
+            userId,
+            status: BookingStatus.PENDING,
+            paymentStatus: BookingPaymentStatus.UNPAID,
+            subtotalCAD: sub,
+            taxCAD: tax,
+            totalCAD: Math.round((sub + tax) * 100) / 100,
+            taxProvince: user.province,
+          };
+        }),
+      },
+    },
+    include: { bookings: { include: { slot: true } }, facility: { include: { address: true } } },
+  });
+
+  const pi = await stripe.paymentIntents.create({
+    amount: Math.round(totalCAD * 100),
+    currency: "cad",
+    metadata: { groupId: group.id, userId, slotIds: slotIds.join(",") },
+  });
+
+  await prisma.bookingGroup.update({ where: { id: group.id }, data: { paymentIntentId: pi.id } });
+
+  return {
+    type: "group" as const,
+    bookingId: null,
+    groupId: group.id,
+    clientSecret: pi.client_secret,
+    paymentIntentId: pi.id,
+    totalCAD,
+    subtotalCAD,
+    taxCAD,
+    lockExpiresInSeconds: SLOT_LOCK_TTL,
   };
 }
 

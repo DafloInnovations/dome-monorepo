@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect } from "react";
+import React, { useEffect } from "react";
 
 interface ModalProps {
   open: boolean;
   title: string;
   description?: string;
+  children?: React.ReactNode;
   confirmLabel?: string;
   cancelLabel?: string;
   destructive?: boolean;
@@ -18,6 +19,7 @@ export default function Modal({
   open,
   title,
   description,
+  children,
   confirmLabel = "Confirm",
   cancelLabel = "Cancel",
   destructive = false,
@@ -44,9 +46,8 @@ export default function Modal({
       />
       <div className="relative bg-surface border border-border rounded-dome p-6 w-full max-w-sm shadow-xl">
         <h2 className="text-base font-bold text-white mb-2">{title}</h2>
-        {description && (
-          <p className="text-sm text-muted mb-6">{description}</p>
-        )}
+        {description && <p className="text-sm text-muted mb-4">{description}</p>}
+        {children && <div className="mb-5">{children}</div>}
         <div className="flex gap-3 justify-end">
           <button
             onClick={onCancel}

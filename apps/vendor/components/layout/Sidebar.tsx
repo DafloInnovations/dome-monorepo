@@ -10,6 +10,7 @@ const NAV = [
   { href: "/dashboard/analytics",  label: "Analytics",     icon: "📊" },
   { href: "/dashboard/connect",    label: "Connect Games", icon: "🤝" },
   { href: "/dashboard/membership", label: "Manage Membership", icon: "💳" },
+  { href: "/dashboard/recurring",  label: "Recurring",     icon: "🔄" },
   { href: "/dashboard/settings",   label: "Settings",      icon: "⚙️" },
 ];
 

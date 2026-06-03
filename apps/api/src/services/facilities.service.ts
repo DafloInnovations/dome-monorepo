@@ -5,6 +5,7 @@ import {
   SportType,
   SurfaceType,
 } from "@prisma/client";
+import { calculatePricingForCourt } from "./pricing.service";
 import { prisma } from "../lib/prisma";
 
 // ─── Geo helpers ─────────────────────────────────────────────────────────────
@@ -113,6 +114,7 @@ export interface ListFacilitiesParams {
   province?: string;
   page?: number;
   limit?: number;
+  sort?: "distance" | "rating" | "price";
 }
 
 export interface CreateFacilityInput {
@@ -154,6 +156,7 @@ export async function listFacilities(params: ListFacilitiesParams) {
     province,
     page = 1,
     limit = 20,
+    sort,
   } = params;
 
   const geoSearch = lat !== undefined && lng !== undefined;
@@ -221,11 +224,20 @@ export async function listFacilities(params: ListFacilitiesParams) {
         : undefined,
   }));
 
-  // Post-filter and sort by distance for geo queries
+  // Post-filter and sort
   if (geoSearch) {
-    results = results
-      .filter((f) => f.distanceKm !== undefined && f.distanceKm <= radiusKm)
-      .sort((a, b) => (a.distanceKm ?? 0) - (b.distanceKm ?? 0));
+    results = results.filter((f) => f.distanceKm !== undefined && f.distanceKm <= radiusKm);
+  }
+
+  if (sort === "rating") {
+    results = results.sort((a, b) => {
+      const rA = a.averageRating ?? 0;
+      const rB = b.averageRating ?? 0;
+      if (rB !== rA) return rB - rA;
+      return (b.totalReviews ?? 0) - (a.totalReviews ?? 0);
+    });
+  } else if (geoSearch) {
+    results = results.sort((a, b) => (a.distanceKm ?? 0) - (b.distanceKm ?? 0));
   }
 
   const paged = geoSearch
@@ -445,4 +457,122 @@ export async function updateFacility(
   });
 
   return updated;
+}
+
+// ─── Time helpers ─────────────────────────────────────────────────────────────
+
+function addMins(time: string, mins: number): string {
+  const [h, m] = time.split(":").map(Number);
+  const total = h! * 60 + m! + mins;
+  return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+}
+
+// ─── Available courts for a time window ──────────────────────────────────────
+
+export async function getAvailableCourts(
+  facilityId: string,
+  date: string,
+  startTime: string,
+  durationMinutes: number
+) {
+  const endTime = addMins(startTime, durationMinutes);
+
+  const facility = await prisma.facility.findFirst({
+    where: { id: facilityId, isActive: true },
+    include: {
+      courts: {
+        where: { isActive: true },
+        orderBy: { createdAt: "asc" },
+      },
+    },
+  });
+  if (!facility) throw appError("Facility not found", 404);
+
+  const parsedDate = parseDate(date);
+
+  const courtData = await Promise.all(
+    facility.courts.map(async (court) => {
+      // Slots in the window for this court (across all statuses)
+      const slots = await prisma.slot.findMany({
+        where: {
+          courtId: court.id,
+          date: parsedDate,
+          startTime: { gte: startTime },
+          endTime: { lte: endTime },
+        },
+        orderBy: { startTime: "asc" },
+        select: {
+          id: true,
+          startTime: true,
+          endTime: true,
+          priceCAD: true,
+          status: true,
+        },
+      });
+
+      // Verify slots continuously cover startTime → endTime
+      let cursor = startTime;
+      let isFullyCovered = slots.length > 0;
+      for (const slot of slots) {
+        if (slot.startTime !== cursor) { isFullyCovered = false; break; }
+        cursor = slot.endTime;
+      }
+      if (cursor !== endTime) isFullyCovered = false;
+
+      const allAvailable = isFullyCovered && slots.every((s) => s.status === SlotStatus.AVAILABLE);
+
+      // First non-available slot (for "booked until" display)
+      const blockedSlot = slots.find((s) => s.status !== SlotStatus.AVAILABLE);
+
+      // Apply dynamic pricing to each slot in the window
+      const pricingResults = await calculatePricingForCourt(
+        court.id,
+        parsedDate,
+        slots.map((s) => ({
+          startTime: s.startTime,
+          endTime: s.endTime,
+          basePriceCAD: Number(s.priceCAD),
+        }))
+      );
+
+      // Sum dynamic prices; use first slot's breakdown for priceBreakdown display
+      const totalPriceCAD = Math.round(
+        pricingResults.reduce((sum, p) => sum + p.finalPriceCAD, 0) * 100
+      ) / 100;
+      const baseTotalCAD = Math.round(
+        pricingResults.reduce((sum, p) => sum + p.basePriceCAD, 0) * 100
+      ) / 100;
+      const firstBreakdown = pricingResults[0];
+
+      return {
+        id: court.id,
+        name: court.name,
+        unitType: court.unitType,
+        unitLabel: court.unitLabel,
+        sport: facility.sport as string,
+        surface: facility.surface as string,
+        totalPriceCAD,
+        basePriceCAD: baseTotalCAD,
+        priceBreakdown: firstBreakdown
+          ? {
+              basePriceCAD: firstBreakdown.basePriceCAD,
+              appliedRule: firstBreakdown.appliedRule,
+              finalPriceCAD: firstBreakdown.finalPriceCAD,
+            }
+          : null,
+        isAvailable: allAvailable,
+        notCovered: !isFullyCovered,
+        slots: allAvailable ? slots.map((s) => s.id) : [],
+        bookedUntil: !allAvailable && blockedSlot ? blockedSlot.endTime : null,
+      };
+    })
+  );
+
+  return {
+    date,
+    startTime,
+    endTime,
+    durationMinutes,
+    courts: courtData,
+  };
 }

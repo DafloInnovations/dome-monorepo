@@ -9,13 +9,28 @@ import { getSportEmoji } from "../../../lib/cities";
 
 interface PageProps { params: { id: string } }
 
+interface ReviewSummary {
+  averageRating: number | null;
+  totalReviews: number;
+  distribution: Record<string, number>;
+  subRatings: { courtQuality: number | null; cleanliness: number | null; valueForMoney: number | null; staffFriendly: number | null };
+}
+
 interface FacilityDetail extends Facility {
   reviews?: Review[];
+  ratingDistribution?: Record<string, number>;
 }
 
 async function getFacility(id: string): Promise<FacilityDetail | null> {
   try {
     const res = await serverFetch<{ data: FacilityDetail }>(`/facilities/${id}`);
+    return res.data;
+  } catch { return null; }
+}
+
+async function getFacilityReviews(id: string): Promise<{ reviews: Review[]; summary: ReviewSummary } | null> {
+  try {
+    const res = await serverFetch<{ data: { reviews: Review[]; summary: ReviewSummary } }>(`/reviews/facility/${id}?limit=5`);
     return res.data;
   } catch { return null; }
 }
@@ -41,7 +56,10 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 }
 
 export default async function FacilityDetailPage({ params }: PageProps) {
-  const facility = await getFacility(params.id);
+  const [facility, reviewsData] = await Promise.all([
+    getFacility(params.id),
+    getFacilityReviews(params.id),
+  ]);
   if (!facility) notFound();
 
   const sport   = facility.sport.charAt(0).toUpperCase() + facility.sport.slice(1).toLowerCase();
@@ -152,29 +170,81 @@ export default async function FacilityDetailPage({ params }: PageProps) {
             )}
 
             {/* Reviews */}
-            {(facility.reviews?.length ?? 0) > 0 && (
-              <div className="bg-surface border border-border rounded-dome p-5">
-                <h2 className="text-sm font-semibold text-muted uppercase tracking-wide mb-4">Reviews</h2>
-                <div className="space-y-4">
-                  {facility.reviews!.slice(0, 5).map((review) => (
-                    <div key={review.id} className="border-b border-border last:border-0 pb-4 last:pb-0">
-                      <div className="flex items-center justify-between mb-1">
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-medium text-white">
-                            {review.user.firstName} {review.user.lastName.charAt(0)}.
-                          </span>
-                          <StarRating rating={review.rating} />
-                        </div>
-                        <span className="text-xs text-muted">
-                          {new Date(review.createdAt).toLocaleDateString("en-CA", { month: "short", year: "numeric" })}
-                        </span>
-                      </div>
-                      {review.comment && <p className="text-sm text-muted leading-relaxed">{review.comment}</p>}
-                    </div>
-                  ))}
-                </div>
+            <div className="bg-surface border border-border rounded-dome p-5">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-sm font-semibold text-muted uppercase tracking-wide">
+                  Reviews
+                  {reviewsData?.summary?.totalReviews ? ` (${reviewsData.summary.totalReviews})` : ""}
+                </h2>
+                {reviewsData && reviewsData.summary.totalReviews > 5 && (
+                  <a href={`/facilities/${facility.id}/reviews`} className="text-xs text-primary font-semibold hover:underline">
+                    All reviews →
+                  </a>
+                )}
               </div>
-            )}
+
+              {reviewsData && reviewsData.summary.totalReviews > 0 ? (
+                <>
+                  {/* Summary row */}
+                  <div className="flex items-center gap-4 mb-4 p-3 bg-black/30 rounded-dome">
+                    <div className="text-4xl font-black text-white">
+                      {reviewsData.summary.averageRating?.toFixed(1) ?? "—"}
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <StarRating rating={Math.round(reviewsData.summary.averageRating ?? 0)} />
+                      <span className="text-xs text-muted">{reviewsData.summary.totalReviews} verified review{reviewsData.summary.totalReviews !== 1 ? "s" : ""}</span>
+                    </div>
+                    {/* Sub-ratings */}
+                    <div className="ml-auto grid grid-cols-2 gap-x-6 gap-y-1 text-xs">
+                      {reviewsData.summary.subRatings.courtQuality !== null && (
+                        <span className="text-muted">🎾 Court <span className="text-amber-400 font-semibold">{reviewsData.summary.subRatings.courtQuality?.toFixed(1)}</span></span>
+                      )}
+                      {reviewsData.summary.subRatings.cleanliness !== null && (
+                        <span className="text-muted">🧹 Clean <span className="text-amber-400 font-semibold">{reviewsData.summary.subRatings.cleanliness?.toFixed(1)}</span></span>
+                      )}
+                      {reviewsData.summary.subRatings.valueForMoney !== null && (
+                        <span className="text-muted">💰 Value <span className="text-amber-400 font-semibold">{reviewsData.summary.subRatings.valueForMoney?.toFixed(1)}</span></span>
+                      )}
+                      {reviewsData.summary.subRatings.staffFriendly !== null && (
+                        <span className="text-muted">😊 Staff <span className="text-amber-400 font-semibold">{reviewsData.summary.subRatings.staffFriendly?.toFixed(1)}</span></span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Review cards */}
+                  <div className="space-y-4">
+                    {reviewsData.reviews.map((review) => (
+                      <div key={review.id} className="border-b border-border last:border-0 pb-4 last:pb-0 space-y-2">
+                        <div className="flex items-start justify-between">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-semibold text-white">
+                              {review.user.firstName} {review.user.lastName.charAt(0)}.
+                            </span>
+                            <StarRating rating={review.rating} />
+                            {review.isVerified && (
+                              <span className="text-[10px] text-green-400 font-semibold bg-green-900/30 px-1.5 py-0.5 rounded">✓ Verified</span>
+                            )}
+                          </div>
+                          <span className="text-xs text-muted shrink-0">
+                            {new Date(review.createdAt).toLocaleDateString("en-CA", { month: "short", year: "numeric" })}
+                          </span>
+                        </div>
+                        {review.title && <p className="text-sm font-semibold text-white">{review.title}</p>}
+                        {review.body && <p className="text-sm text-white/70 leading-relaxed">{review.body}</p>}
+                        {review.vendorReply && (
+                          <div className="ml-4 pl-3 border-l-2 border-primary/40 bg-primary/[0.04] rounded-r p-2">
+                            <p className="text-xs text-primary font-semibold mb-1">Vendor reply</p>
+                            <p className="text-xs text-white/70">{review.vendorReply}</p>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <p className="text-sm text-muted">No reviews yet. Book a session and be the first to review!</p>
+              )}
+            </div>
 
             {/* Location */}
             <div className="bg-surface border border-border rounded-dome p-5">

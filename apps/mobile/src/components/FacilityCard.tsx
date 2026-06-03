@@ -19,6 +19,7 @@ export default function FacilityCard({ facility }: Props) {
 
   const imageUri = facility.images?.length > 0 ? facility.images[0] : null;
 
+  const hasReviews = (facility.totalReviews ?? 0) > 0;
   const ratingText = facility.averageRating
     ? facility.averageRating.toFixed(1)
     : "New";
@@ -56,7 +57,15 @@ export default function FacilityCard({ facility }: Props) {
           </Text>
         ) : null}
         <View style={styles.metaRow}>
-          <Text style={styles.meta}>⭐ {ratingText}</Text>
+          <Text style={styles.meta}>
+            ⭐ {ratingText}
+            {hasReviews ? ` (${facility.totalReviews})` : ""}
+          </Text>
+          {!hasReviews && (
+            <View style={styles.newBadge}>
+              <Text style={styles.newBadgeText}>New</Text>
+            </View>
+          )}
           {distanceText ? (
             <Text style={styles.meta}>{distanceText}</Text>
           ) : null}
@@ -98,4 +107,13 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   sportChipText: { color: C.muted, fontSize: 11, fontWeight: "600" },
+  newBadge: {
+    backgroundColor: "#E8506822",
+    borderRadius: 99,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderWidth: 1,
+    borderColor: "#E8506844",
+  },
+  newBadgeText: { color: C.primary, fontSize: 10, fontWeight: "700" },
 });

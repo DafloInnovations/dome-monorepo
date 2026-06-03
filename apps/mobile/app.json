@@ -7,6 +7,7 @@
     "icon": "./assets/images/icon.png",
     "scheme": "dome",
     "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
     "splash": {
       "backgroundColor": "#000000"
     },
@@ -29,21 +30,7 @@
     },
     "plugins": [
       "expo-router",
-      "expo-location",
-      [
-        "@stripe/stripe-react-native",
-        {
-          "merchantIdentifier": "merchant.com.daflo.dome",
-          "enableGooglePay": true
-        }
-      ],
-      [
-        "expo-notifications",
-        {
-          "icon": "./assets/images/icon.png",
-          "color": "#E85068"
-        }
-      ]
+      "expo-location"
     ],
     "experiments": {
       "typedRoutes": true

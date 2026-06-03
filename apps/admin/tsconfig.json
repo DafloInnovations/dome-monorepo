@@ -9,7 +9,8 @@
     },
     "noEmit": true,
     "resolveJsonModule": true,
-    "isolatedModules": true
+    "isolatedModules": true,
+    "strictNullChecks": true
   },
   "include": [
     "next-env.d.ts",

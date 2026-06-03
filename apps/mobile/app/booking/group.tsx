@@ -9,7 +9,7 @@ import {
   View,
 } from "react-native";
 import { useLocalSearchParams, useNavigation, useRouter } from "expo-router";
-import { useStripe } from "@stripe/stripe-react-native";
+import { useStripe } from "../../src/lib/stripe";
 import { useGroupBooking } from "../../src/hooks/useGroupBooking";
 import { isStripeConfigured } from "../../src/config/stripe";
 
