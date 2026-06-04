@@ -2,7 +2,7 @@
   "expo": {
     "name": "Dome",
     "slug": "dome",
-    "version": "1.0.0",
+    "version": "1.2.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "dome",
@@ -16,7 +16,8 @@
       "bundleIdentifier": "com.daflo.dome",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
-      }
+      },
+      "buildNumber": "3"
     },
     "android": {
       "adaptiveIcon": {
