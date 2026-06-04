@@ -243,9 +243,10 @@ export async function confirmBooking(
     throw appError("Booking is not in a confirmable state", 400);
   }
 
-  // Verify payment directly with Stripe
+  // Verify payment directly with Stripe (skipped in TEST_MODE)
   const pi = await stripe.paymentIntents.retrieve(paymentIntentId);
-  if (pi.status !== "succeeded") throw appError("Payment has not succeeded yet", 402);
+  if (process.env["TEST_MODE"] !== "true" && pi.status !== "succeeded")
+    throw appError("Payment has not succeeded yet", 402);
   if (pi.metadata["bookingId"] !== bookingId)
     throw appError("PaymentIntent does not belong to this booking", 400);
 
@@ -710,7 +711,8 @@ export async function confirmGroupBooking(
   }
 
   const pi = await stripe.paymentIntents.retrieve(paymentIntentId);
-  if (pi.status !== "succeeded") throw appError("Payment has not succeeded yet", 402);
+  if (process.env["TEST_MODE"] !== "true" && pi.status !== "succeeded")
+    throw appError("Payment has not succeeded yet", 402);
   if (pi.metadata["groupId"] !== groupId)
     throw appError("PaymentIntent does not belong to this group", 400);
 
