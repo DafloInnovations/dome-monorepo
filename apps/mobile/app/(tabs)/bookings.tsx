@@ -141,11 +141,13 @@ export default function BookingsScreen() {
   const today = todayLocalStr();
 
   const { upcoming, past } = useMemo(() => {
+    const now = new Date();
     const up: MyBooking[] = [];
     const pa: MyBooking[] = [];
     for (const b of bookings) {
-      const slotDate = b.slot.date.split("T")[0]!;
-      if (slotDate >= today && b.status !== "CANCELLED") {
+      const dateStr = b.slot.date.split("T")[0]!;
+      const slotEnd = new Date(`${dateStr}T${b.slot.endTime}:00`);
+      if (slotEnd >= now && b.status !== "CANCELLED") {
         up.push(b);
       } else {
         pa.push(b);

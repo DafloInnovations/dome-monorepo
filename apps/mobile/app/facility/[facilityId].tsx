@@ -344,6 +344,7 @@ export default function FacilityDetailScreen() {
             durationMinutes={durationMinutes}
             slots={slots}
             onSelectTime={setSelectedTime}
+            isToday={selectedDay === 0}
           />
         </View>
 

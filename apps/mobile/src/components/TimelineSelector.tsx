@@ -10,6 +10,7 @@ const C = {
   muted: "#6B6B6B",
   available: "#166534",
   unavailable: "#3f3f46",
+  past: "#1a1a1a",
   selectedRange: "#E85068",
 };
 
@@ -55,9 +56,11 @@ interface Props {
   durationMinutes: number;
   slots: Slot[];
   onSelectTime: (time: string) => void;
+  isToday?: boolean;
 }
 
-export default function TimelineSelector({ selectedTime, durationMinutes, slots, onSelectTime }: Props) {
+export default function TimelineSelector({ selectedTime, durationMinutes, slots, onSelectTime, isToday = false }: Props) {
+  const nowMinutes = isToday ? new Date().getHours() * 60 + new Date().getMinutes() : -1;
   const scrollRef = useRef<ScrollView>(null);
 
   // Build availability map from slots (any available slot at this time = green)
@@ -77,7 +80,13 @@ export default function TimelineSelector({ selectedTime, durationMinutes, slots,
     return bMins >= selectedStartMins && bMins < selectedEndMins;
   }
 
+  function isBucketPast(time: string): boolean {
+    if (!isToday) return false;
+    return minsFromMidnight(time) <= nowMinutes;
+  }
+
   function getBucketColor(time: string): string {
+    if (isBucketPast(time)) return C.past;
     if (isBucketInRange(time)) return C.selectedRange;
     const isAvail = availMap.get(time);
     if (isAvail === true) return C.available;
@@ -114,11 +123,12 @@ export default function TimelineSelector({ selectedTime, durationMinutes, slots,
           const bgColor = getBucketColor(time);
           const showLabel = minsFromMidnight(time) % 60 === 0;
 
+          const isPast = isBucketPast(time);
           return (
             <Pressable
               key={time}
-              style={[styles.cell, { backgroundColor: bgColor }]}
-              onPress={() => onSelectTime(time)}
+              style={[styles.cell, { backgroundColor: bgColor }, isPast && styles.cellPast]}
+              onPress={() => !isPast && onSelectTime(time)}
             >
               {showLabel ? (
                 <Text style={[styles.timeLabel, (isSelected || isInRange) && styles.timeLabelActive]}>
@@ -187,6 +197,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "flex-end",
     paddingBottom: 8,
+  },
+  cellPast: {
+    opacity: 0.35,
   },
   timeLabel: {
     color: "rgba(255,255,255,0.5)",
