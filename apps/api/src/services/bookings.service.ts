@@ -47,6 +47,11 @@ export async function createBooking(
   if (!slot) throw appError("Slot not found", 404);
   if (slot.facilityId !== facilityId) throw appError("Slot not found", 404);
 
+  const slotStart = new Date(slot.date);
+  const [sh, sm] = slot.startTime.split(":").map(Number);
+  slotStart.setHours(sh!, sm!, 0, 0);
+  if (slotStart < new Date()) throw appError("Cannot book a slot in the past", 400, "SLOT_IN_PAST");
+
   // ── SESSION slots: capacity-based, multiple bookings allowed ────────────────
   const isSession = slot.capacity !== null;
   if (isSession) {
@@ -869,6 +874,13 @@ export async function createTimeBooking(
         409,
         "SLOT_UNAVAILABLE"
       );
+    }
+    // Reject bookings for slots whose start time has already passed
+    const slotDate = new Date(slot.date);
+    const [h, m] = slot.startTime.split(":").map(Number);
+    slotDate.setHours(h!, m!, 0, 0);
+    if (slotDate < new Date()) {
+      throw appError(`Cannot book a slot in the past (${slot.startTime} has passed)`, 400, "SLOT_IN_PAST");
     }
   }
 

@@ -124,9 +124,18 @@ export default function SlotBookingCta({ facilityId, facilityName, sport }: Prop
   const date = formatDate(days[dayIdx]!);
   const endTime = startTime ? addMins(startTime, duration) : null;
 
+  const isToday = dayIdx === 0;
+  const nowMinutes = isToday ? new Date().getHours() * 60 + new Date().getMinutes() : -1;
+  function isPastTime(t: string) {
+    if (!isToday) return false;
+    const [h, m] = t.split(":").map(Number);
+    return h! * 60 + m! <= nowMinutes;
+  }
+
   // Fetch available courts whenever date/time/duration changes
   useEffect(() => {
     setAlertSet(false);
+    if (startTime && isPastTime(startTime)) setStartTime(null);
     if (!startTime) { setCourtsResult(null); setSelectedCourts([]); return; }
     setCourtsLoading(true);
     setSelectedCourts([]);
@@ -297,7 +306,7 @@ export default function SlotBookingCta({ facilityId, facilityName, sport }: Prop
           >
             <option value="">Select time…</option>
             {ALL_TIMES.map((t) => (
-              <option key={t} value={t}>{formatAmPm(t)}</option>
+              <option key={t} value={t} disabled={isPastTime(t)}>{formatAmPm(t)}{isPastTime(t) ? " (past)" : ""}</option>
             ))}
           </select>
 
