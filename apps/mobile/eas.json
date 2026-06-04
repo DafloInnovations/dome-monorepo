@@ -9,16 +9,28 @@
       "distribution": "internal",
       "ios": {
         "simulator": false
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "http://localhost:3001/api/v1",
+        "EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY": ""
       }
     },
     "preview": {
       "distribution": "internal",
       "ios": {
         "simulator": false
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://dome-monorepo-production.up.railway.app/api/v1",
+        "EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY": "pk_test_51PfQOVRrYwdBl6oLko5EXiROUUl9pyN6BMsgOrBIQlrERFjCosZRiGe8UbTftsS9O4COOh9bD4mZqEwD0ybyuSA2003oMNlOXK"
       }
     },
     "production": {
-      "autoIncrement": true
+      "autoIncrement": true,
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://dome-monorepo-production.up.railway.app/api/v1",
+        "EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY": "pk_test_51PfQOVRrYwdBl6oLko5EXiROUUl9pyN6BMsgOrBIQlrERFjCosZRiGe8UbTftsS9O4COOh9bD4mZqEwD0ybyuSA2003oMNlOXK"
+      }
     }
   }
 }
