@@ -50,16 +50,16 @@ export default function BookingsPage() {
 
   const upcoming = bookings.filter((b) => {
     if (b.status === "CANCELLED") return false;
-    const [y, m, d] = b.slot.date.split("T")[0]!.split("-").map(Number);
-    const slotDate = new Date(y!, m! - 1, d!);
-    return slotDate >= now;
+    const dateStr = b.slot.date.split("T")[0]!;
+    const slotEnd = new Date(`${dateStr}T${b.slot.endTime}:00`);
+    return slotEnd >= now;
   });
 
   const past = bookings.filter((b) => {
     if (b.status === "CANCELLED") return true;
-    const [y, m, d] = b.slot.date.split("T")[0]!.split("-").map(Number);
-    const slotDate = new Date(y!, m! - 1, d!);
-    return slotDate < now;
+    const dateStr = b.slot.date.split("T")[0]!;
+    const slotEnd = new Date(`${dateStr}T${b.slot.endTime}:00`);
+    return slotEnd < now;
   });
 
   const displayed = tab === "upcoming" ? upcoming : past;
