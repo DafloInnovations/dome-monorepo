@@ -2,6 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { BookingStatus, BookingUnitType, OpenGameStatus, Prisma, SlotStatus } from "@prisma/client";
 import { authenticate, requireRole } from "../middleware/auth";
+import pricingRouter from "./pricing";
 import { validate } from "../middleware/validate";
 import { createFacility, updateFacility } from "../services/facilities.service";
 import { sendVendorApplicationReceived } from "../lib/email";
@@ -134,8 +135,13 @@ router.get("/application-status", authenticate, async (req, res, next) => {
 });
 
 // ─── All routes below require VENDOR role ────────────────────────────────────
+// POST /apply and GET /application-status are intentionally above this line.
+// Adding routes here without reading this comment will expose them to all users.
 
 router.use(authenticate, requireRole("VENDOR"));
+
+// Pricing sub-router — inherits the VENDOR guard above
+router.use("/courts", pricingRouter);
 
 function param(p: string | string[]): string {
   return Array.isArray(p) ? p[0]! : p;

@@ -13,7 +13,6 @@ import notificationsRouter from "./notifications";
 import vendorRouter from "./vendor";
 import vendorsRouter from "./vendors";
 import adminRouter from "./admin";
-import pricingRouter from "./pricing";
 import alertsRouter from "./alerts";
 
 export const router = Router();
@@ -30,7 +29,6 @@ router.use("/open-games", openGamesRouter);
 router.use("/connect", connectRouter);
 router.use("/chat", chatRouter);
 router.use("/notifications", notificationsRouter);
-router.use("/vendor", vendorRouter);
+router.use("/vendor", vendorRouter);   // pricing sub-router is mounted inside vendorRouter
 router.use("/admin", adminRouter);
-router.use("/vendor/courts", pricingRouter);
 router.use("/alerts", alertsRouter);
