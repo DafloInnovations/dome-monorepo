@@ -16,6 +16,9 @@
       "bundleIdentifier": "com.daflo.dome",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
+        "NSCameraUsageDescription": "Allow Dome to use your camera when you choose to take a photo for sharing or facility uploads.",
+        "NSPhotoLibraryUsageDescription": "Allow Dome to access your photo library when you choose photos for sharing or facility uploads.",
+        "NSPhotoLibraryAddUsageDescription": "Allow Dome to save share cards to your photo library.",
         "UISupportedInterfaceOrientations": [
           "UIInterfaceOrientationPortrait",
           "UIInterfaceOrientationPortraitUpsideDown",
@@ -23,7 +26,7 @@
           "UIInterfaceOrientationLandscapeRight"
         ]
       },
-      "buildNumber": "7"
+      "buildNumber": "8"
     },
     "android": {
       "adaptiveIcon": {
