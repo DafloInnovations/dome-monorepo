@@ -9,9 +9,12 @@ import {
   View,
 } from "react-native";
 import { useLocalSearchParams, useNavigation, useRouter } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useStripe } from "../../src/lib/stripe";
 import { useAuthToken } from "../../src/hooks/useAuthToken";
 import { isStripeConfigured } from "../../src/config/stripe";
+import { useEquipment } from "../../src/hooks/useEquipment";
+import EquipmentItemRow from "../../src/components/EquipmentItem";
 
 const API_URL = process.env["EXPO_PUBLIC_API_URL"] ?? "http://localhost:3001/api/v1";
 
@@ -57,6 +60,8 @@ export default function TimeBasedBookingScreen() {
     slotIds: slotIdsParam,
     facilityId,
     facilityName,
+    facilityCity,
+    sport,
     date,
     startTime,
     endTime,
@@ -67,6 +72,8 @@ export default function TimeBasedBookingScreen() {
     slotIds: string;
     facilityId: string;
     facilityName: string;
+    facilityCity: string;
+    sport: string;
     date: string;
     startTime: string;
     endTime: string;
@@ -77,8 +84,19 @@ export default function TimeBasedBookingScreen() {
 
   const router = useRouter();
   const navigation = useNavigation();
+  const insets = useSafeAreaInsets();
   const { initPaymentSheet, presentPaymentSheet } = useStripe();
   const { getValidToken, checkResponse } = useAuthToken();
+
+  const {
+    equipment,
+    loading: equipmentLoading,
+    selected: equipmentSelected,
+    selectedItems: equipmentItems,
+    equipmentTotalCAD,
+    setQuantity: setEquipmentQty,
+    addToBooking: addEquipmentToBooking,
+  } = useEquipment(facilityId ?? "", sport ?? "");
 
   const [isCreating, setIsCreating] = useState(false);
   const [isConfirming, setIsConfirming] = useState(false);
@@ -90,7 +108,6 @@ export default function TimeBasedBookingScreen() {
 
   const slotIds = slotIdsParam?.split(",").filter(Boolean) ?? [];
   const courtNames: string[] = courtsParam ? (JSON.parse(courtsParam) as string[]) : [];
-  const estimatedTotal = Number(totalPrice ?? 0);
 
   // Release lock if user backs out before Stripe succeeds
   useEffect(() => {
@@ -145,7 +162,12 @@ export default function TimeBasedBookingScreen() {
       const { data: bookingResult } = (await bookRes.json()) as { data: TimeBookingResult };
       bookingResultRef.current = bookingResult;
 
-      // 2. Init Stripe payment sheet
+      // 2. Add equipment if selected (updates PaymentIntent amount server-side)
+      if (equipmentItems.length > 0 && bookingResult.bookingId) {
+        await addEquipmentToBooking(bookingResult.bookingId);
+      }
+
+      // 3. Init Stripe payment sheet (amount already updated by equipment step)
       const { error: initErr } = await initPaymentSheet({
         paymentIntentClientSecret: bookingResult.clientSecret!,
         merchantDisplayName: "Dome Sports",
@@ -185,7 +207,21 @@ export default function TimeBasedBookingScreen() {
         return;
       }
 
-      router.replace("/booking/success");
+      const confirmData = (await confirmRes.json()) as { data?: { id?: string; slot?: { startTime?: string; endTime?: string } } };
+      const confirmedId = confirmData.data?.id ?? bookingResult.bookingId ?? bookingResult.groupId ?? "";
+      router.replace({
+        pathname: "/booking/success",
+        params: {
+          bookingId: confirmedId,
+          facilityName: facilityName ?? "",
+          facilityCity: facilityCity ?? "",
+          sport: sport ?? "",
+          date: date ?? "",
+          startTime: startTime ?? "",
+          endTime: endTime ?? "",
+          totalCAD: String(bookingResult.totalCAD),
+        },
+      } as Parameters<typeof router.replace>[0]);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong. Please try again.");
       stripeSucceededRef.current = false;
@@ -201,11 +237,34 @@ export default function TimeBasedBookingScreen() {
   const mins = durationMins % 60;
   const durationLabel = hours > 0 ? (mins > 0 ? `${hours}h ${mins}m` : `${hours}h`) : `${mins}m`;
 
+  const courtPrice = Number(totalPrice ?? 0);
+  const subtotal = Math.round((courtPrice + equipmentTotalCAD) * 100) / 100;
+  const estimatedTax = Math.round(subtotal * 0.13 * 100) / 100;
+  const estimatedTotal = Math.round((subtotal + estimatedTax) * 100) / 100;
+
+  function handleBack() {
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+      return;
+    }
+    router.replace("/(tabs)");
+  }
+
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={[
+        styles.content,
+        { paddingTop: insets.top + 14, paddingBottom: insets.bottom + 40 },
+      ]}
+    >
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.facilityName}>{facilityName}</Text>
+        <Pressable style={styles.backButton} onPress={handleBack} hitSlop={10}>
+          <Text style={styles.backIcon}>‹</Text>
+          <Text style={styles.backText}>Back</Text>
+        </Pressable>
+        <Text style={styles.facilityName} numberOfLines={1}>{facilityName}</Text>
         <Text style={styles.dateStr}>{date ? formatDisplayDate(date) : ""}</Text>
       </View>
 
@@ -240,14 +299,51 @@ export default function TimeBasedBookingScreen() {
         )}
       </View>
 
-      {/* Price breakdown */}
+      {/* Equipment upsell */}
+      {equipment.length > 0 && (
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>🎒 Add Equipment (Optional)</Text>
+          {equipmentLoading ? (
+            <ActivityIndicator color={C.primary} size="small" style={{ marginVertical: 8 }} />
+          ) : (
+            equipment.map((item) => (
+              <EquipmentItemRow
+                key={item.id}
+                item={item}
+                quantity={equipmentSelected[item.id] ?? 0}
+                onChangeQuantity={(qty) => setEquipmentQty(item.id, qty)}
+              />
+            ))
+          )}
+        </View>
+      )}
+
+      {/* Live price breakdown */}
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Price</Text>
         <View style={styles.row}>
-          <Text style={styles.rowLabel}>Estimated total</Text>
+          <Text style={styles.rowLabel}>Court</Text>
+          <Text style={styles.rowValue}>C${courtPrice.toFixed(2)}</Text>
+        </View>
+        {equipmentTotalCAD > 0 && (
+          <View style={styles.row}>
+            <Text style={styles.rowLabel}>Equipment</Text>
+            <Text style={styles.rowValue}>C${equipmentTotalCAD.toFixed(2)}</Text>
+          </View>
+        )}
+        <View style={styles.row}>
+          <Text style={styles.rowLabel}>Subtotal</Text>
+          <Text style={styles.rowValue}>C${subtotal.toFixed(2)}</Text>
+        </View>
+        <View style={styles.row}>
+          <Text style={styles.rowLabel}>Tax (est.)</Text>
+          <Text style={styles.rowValue}>C${estimatedTax.toFixed(2)}</Text>
+        </View>
+        <View style={[styles.row, { borderBottomWidth: 0 }]}>
+          <Text style={styles.rowLabel}>Total</Text>
           <Text style={styles.rowValueHighlight}>C${estimatedTotal.toFixed(2)}</Text>
         </View>
-        <Text style={styles.taxNote}>Tax calculated at checkout based on your province</Text>
+        <Text style={styles.taxNote}>Exact tax calculated at checkout based on your province</Text>
       </View>
 
       {error && (
@@ -280,15 +376,24 @@ export default function TimeBasedBookingScreen() {
         Courts will be held for 5 minutes while you complete payment
       </Text>
 
-      <View style={{ height: 40 }} />
+      <View style={{ height: 16 }} />
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: C.bg },
-  content: { padding: 16, paddingTop: 24 },
+  content: { paddingHorizontal: 16 },
   header: { marginBottom: 20 },
+  backButton: {
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginBottom: 12,
+  },
+  backIcon: { color: C.primary, fontSize: 30, fontWeight: "500", lineHeight: 30 },
+  backText: { color: C.text, fontSize: 16, fontWeight: "700" },
   facilityName: { color: C.text, fontSize: 22, fontWeight: "800", marginBottom: 4 },
   dateStr: { color: C.muted, fontSize: 14 },
   card: {

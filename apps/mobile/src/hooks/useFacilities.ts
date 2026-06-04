@@ -38,17 +38,19 @@ export function useFacilities(opts: UseFacilitiesOpts = {}) {
   const [error, setError] = useState<string | null>(null);
 
   const fetchFacilities = useCallback(async () => {
-    if (!lat || !lng) return;
     setIsLoading(true);
     setError(null);
     try {
-      const params = new URLSearchParams({
-        lat: String(lat),
-        lng: String(lng),
-        radius: String(radius),
-        ...(sport ? { sport } : {}),
-      });
-      const res = await fetch(`${API_URL}/facilities?${params}`);
+      const params = new URLSearchParams();
+      if (lat !== undefined && lng !== undefined) {
+        params.set("lat", String(lat));
+        params.set("lng", String(lng));
+        params.set("radius", String(radius));
+      }
+      if (sport) params.set("sport", sport);
+
+      const query = params.toString();
+      const res = await fetch(`${API_URL}/facilities${query ? `?${query}` : ""}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = (await res.json()) as { data: Facility[] };
       setFacilities(json.data ?? []);

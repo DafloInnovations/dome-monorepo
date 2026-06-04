@@ -5,6 +5,7 @@ import {
   getAvailableCourts,
   listFacilities,
 } from "../services/facilities.service";
+import { getFacilityEquipment } from "../services/equipment.service";
 
 const router = Router();
 
@@ -70,6 +71,15 @@ router.get("/:id/available-courts", async (req, res, next) => {
   } catch (err) {
     next(err);
   }
+});
+
+// GET /api/v1/facilities/:id/equipment?sport=
+router.get("/:id/equipment", async (req, res, next) => {
+  try {
+    const { sport } = req.query as { sport?: string };
+    const data = await getFacilityEquipment(req.params["id"]!, sport);
+    res.json({ data });
+  } catch (err) { next(err); }
 });
 
 // GET /api/v1/facilities/:id/slots?date=YYYY-MM-DD

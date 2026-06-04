@@ -30,6 +30,7 @@ export interface MyBooking {
   createdAt: string;
   slot: BookingSlot;
   facility: BookingFacility;
+  review?: { id: string } | null;
 }
 
 export function useMyBookings() {

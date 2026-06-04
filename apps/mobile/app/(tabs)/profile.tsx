@@ -1,15 +1,22 @@
 import {
   ActivityIndicator,
+  Alert,
   Platform,
   Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
+  TextInput,
   View,
 } from "react-native";
+import { useState } from "react";
 import { useAuth } from "../../src/context/AuthContext";
 import { useMyProfile } from "../../src/hooks/useMyProfile";
+import { useAuthToken } from "../../src/hooks/useAuthToken";
+
+const API_URL = process.env["EXPO_PUBLIC_API_URL"] ?? "http://localhost:3001/api/v1";
 
 const C = {
   bg: "#000000",
@@ -57,6 +64,60 @@ function StatCard({ label, value, sub }: { label: string; value: string; sub?: s
 export default function ProfileScreen() {
   const { user: authUser, clearSession } = useAuth();
   const { profile, isLoading, error, refetch } = useMyProfile();
+  const { getValidToken } = useAuthToken();
+
+  const [email, setEmail] = useState("");
+  const [emailSaving, setEmailSaving] = useState(false);
+  const [emailConfirmation, setEmailConfirmation] = useState(true);
+  const [emailReminders, setEmailReminders] = useState(true);
+  const [emailMarketing, setEmailMarketing] = useState(false);
+  const [prefsSaving, setPrefsSaving] = useState(false);
+
+  async function handleSaveEmail() {
+    const trimmed = email.trim().toLowerCase();
+    if (!trimmed || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
+      Alert.alert("Invalid email", "Please enter a valid email address.");
+      return;
+    }
+    setEmailSaving(true);
+    try {
+      const token = await getValidToken();
+      const res = await fetch(`${API_URL}/users/me/email`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ email: trimmed }),
+      });
+      if (!res.ok) {
+        const j = (await res.json()) as { message?: string };
+        Alert.alert("Error", j.message ?? "Failed to save email");
+      } else {
+        Alert.alert("Saved", "Your email has been updated.");
+        setEmail("");
+      }
+    } catch {
+      Alert.alert("Error", "Network error. Please try again.");
+    } finally {
+      setEmailSaving(false);
+    }
+  }
+
+  async function handleSaveEmailPrefs(patch: {
+    emailBookingConfirmation?: boolean;
+    emailReminders?: boolean;
+    emailMarketing?: boolean;
+  }) {
+    setPrefsSaving(true);
+    try {
+      const token = await getValidToken();
+      await fetch(`${API_URL}/users/me/email-preferences`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify(patch),
+      });
+    } catch { /* non-blocking */ } finally {
+      setPrefsSaving(false);
+    }
+  }
 
   const initials = authUser?.firstName
     ? `${authUser.firstName[0] ?? ""}${authUser.lastName?.[0] ?? ""}`.toUpperCase()
@@ -227,6 +288,75 @@ export default function ProfileScreen() {
         })}
       </View>
 
+      {/* Email settings */}
+      <Text style={styles.sectionTitle}>Email Notifications</Text>
+      <View style={styles.card}>
+        <Text style={styles.emailPrompt}>
+          Add your email to receive booking receipts and reminders.
+        </Text>
+        <View style={styles.emailRow}>
+          <TextInput
+            style={styles.emailInput}
+            value={email}
+            onChangeText={setEmail}
+            placeholder="your@email.com"
+            placeholderTextColor={C.muted}
+            keyboardType="email-address"
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+          <Pressable
+            style={[styles.emailSaveBtn, emailSaving && styles.emailSaveBtnDisabled]}
+            onPress={handleSaveEmail}
+            disabled={emailSaving}
+          >
+            <Text style={styles.emailSaveBtnText}>{emailSaving ? "…" : "Save"}</Text>
+          </Pressable>
+        </View>
+
+        <View style={styles.prefDivider} />
+
+        <View style={styles.prefRow}>
+          <Text style={styles.prefLabel}>📧 Booking confirmations</Text>
+          <Switch
+            value={emailConfirmation}
+            onValueChange={(v) => {
+              setEmailConfirmation(v);
+              handleSaveEmailPrefs({ emailBookingConfirmation: v });
+            }}
+            trackColor={{ false: C.border, true: C.primary }}
+            thumbColor="#fff"
+            disabled={prefsSaving}
+          />
+        </View>
+        <View style={styles.prefRow}>
+          <Text style={styles.prefLabel}>🔔 Game reminders</Text>
+          <Switch
+            value={emailReminders}
+            onValueChange={(v) => {
+              setEmailReminders(v);
+              handleSaveEmailPrefs({ emailReminders: v });
+            }}
+            trackColor={{ false: C.border, true: C.primary }}
+            thumbColor="#fff"
+            disabled={prefsSaving}
+          />
+        </View>
+        <View style={[styles.prefRow, { borderBottomWidth: 0 }]}>
+          <Text style={styles.prefLabel}>📣 Promotions & news</Text>
+          <Switch
+            value={emailMarketing}
+            onValueChange={(v) => {
+              setEmailMarketing(v);
+              handleSaveEmailPrefs({ emailMarketing: v });
+            }}
+            trackColor={{ false: C.border, true: C.primary }}
+            thumbColor="#fff"
+            disabled={prefsSaving}
+          />
+        </View>
+      </View>
+
       {/* Sign out */}
       <Pressable style={styles.signOutBtn} onPress={clearSession}>
         <Text style={styles.signOutText}>Sign Out</Text>
@@ -342,4 +472,37 @@ const styles = StyleSheet.create({
   },
   signOutText: { color: "#EF4444", fontWeight: "700", fontSize: 15 },
   errorText: { color: "#ff6b6b", fontSize: 14, paddingHorizontal: 16 },
+
+  // Email settings
+  emailPrompt: { color: C.muted, fontSize: 13, marginBottom: 12, lineHeight: 18 },
+  emailRow: { flexDirection: "row", gap: 8, alignItems: "center" },
+  emailInput: {
+    flex: 1,
+    backgroundColor: "#0d0d0d",
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: C.border,
+    color: C.text,
+    fontSize: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  emailSaveBtn: {
+    backgroundColor: C.primary,
+    borderRadius: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+  },
+  emailSaveBtnDisabled: { opacity: 0.5 },
+  emailSaveBtnText: { color: "#fff", fontWeight: "700", fontSize: 14 },
+  prefDivider: { height: 1, backgroundColor: C.border, marginVertical: 12 },
+  prefRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: C.border,
+  },
+  prefLabel: { color: C.text, fontSize: 14 },
 });

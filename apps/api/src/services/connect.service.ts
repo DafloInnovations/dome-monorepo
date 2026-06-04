@@ -40,6 +40,7 @@ function coerceSkill(s: string): SkillLevel {
 const gameInclude = {
   host: { select: { id: true, firstName: true, lastName: true, avatarUrl: true } },
   facility: { select: { id: true, name: true, address: true } },
+  participants: { select: { id: true, userId: true, status: true } },
   _count: { select: { participants: true } },
 } satisfies Prisma.OpenGameInclude;
 

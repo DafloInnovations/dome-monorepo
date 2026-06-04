@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Sidebar from "../../components/layout/Sidebar";
+import { VendorProfileProvider } from "../../components/layout/VendorProfileProvider";
 import { getToken } from "../../lib/api";
 import { apiFetch } from "../../lib/api";
 
@@ -46,11 +47,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }
 
   return (
-    <div className="flex min-h-screen bg-black">
-      <Sidebar />
-      <div className="flex-1 flex flex-col min-w-0">
-        {children}
+    <VendorProfileProvider>
+      <div className="flex min-h-screen bg-black">
+        <Sidebar />
+        <div className="flex-1 flex flex-col min-w-0">
+          {children}
+        </div>
       </div>
-    </div>
+    </VendorProfileProvider>
   );
 }

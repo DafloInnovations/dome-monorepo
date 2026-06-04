@@ -17,6 +17,14 @@ function todayLocalStr(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
+function isPastSlotDate(dateStr: string): boolean {
+  const [year, month, day] = dateStr.split("T")[0]!.split("-").map(Number) as [number, number, number];
+  const slotDate = new Date(year, month - 1, day);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return slotDate < today;
+}
+
 const C = {
   bg: "#000000",
   primary: "#E85068",
@@ -48,10 +56,11 @@ function formatSlotDate(dateStr: string): string {
   });
 }
 
-function BookingCard({ booking, onCancel, onReview, reviewed }: {
+function BookingCard({ booking, onCancel, onReview, onShare, reviewed }: {
   booking: MyBooking;
   onCancel?: () => void;
   onReview?: () => void;
+  onShare?: () => void;
   reviewed?: boolean;
 }) {
   const sportKey = booking.facility.sport.toLowerCase();
@@ -102,6 +111,11 @@ function BookingCard({ booking, onCancel, onReview, reviewed }: {
             <Text style={styles.reviewBtnText}>⭐ Leave a Review</Text>
           </Pressable>
         )
+      )}
+      {onShare && (
+        <Pressable style={styles.shareBtn} onPress={onShare}>
+          <Text style={styles.shareBtnText}>📤 Share</Text>
+        </Pressable>
       )}
     </View>
   );
@@ -188,7 +202,9 @@ export default function BookingsScreen() {
           keyExtractor={(item) => item.id}
           renderItem={({ item }) => {
             const slotDate = item.slot.date.split("T")[0]!;
-            const isPast = slotDate < today && item.status === "CONFIRMED";
+            const isPast = isPastSlotDate(item.slot.date);
+            const isConfirmed = item.status === "CONFIRMED";
+            const hasNoReview = !item.review;
             return (
               <BookingCard
                 booking={item}
@@ -211,16 +227,36 @@ export default function BookingsScreen() {
                     : undefined
                 }
                 onReview={
-                  activeTab === "past" && isPast
-                    ? () =>
-                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                        (router as any).push({
+                  activeTab === "past" && isPast && isConfirmed && hasNoReview
+                    ? () => {
+                        console.log("Review button tapped:", item.id);
+                        router.push({
                           pathname: "/review/[bookingId]",
                           params: {
                             bookingId: item.id,
                             facilityName: item.facility.name,
                             sport: item.facility.sport,
                             slotDate,
+                          },
+                        });
+                      }
+                    : undefined
+                }
+                reviewed={!!item.review}
+                onShare={
+                  activeTab === "past" && item.status === "CONFIRMED"
+                    ? () =>
+                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                        (router as any).push({
+                          pathname: "/share/[bookingId]",
+                          params: {
+                            bookingId: item.id,
+                            facilityName: item.facility.name,
+                            facilityCity: item.facility.address?.city ?? "",
+                            sport: item.facility.sport,
+                            date: formatSlotDate(item.slot.date.split("T")[0]!),
+                            startTime: item.slot.startTime,
+                            endTime: item.slot.endTime,
                           },
                         })
                     : undefined
@@ -342,6 +378,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   reviewedText: { color: "#4ade80", fontSize: 13, fontWeight: "600" },
+  shareBtn: {
+    marginTop: 8,
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: "#1a1a2e",
+    borderWidth: 1,
+    borderColor: "#3A3A5C",
+    alignItems: "center",
+  },
+  shareBtnText: { color: "#a78bfa", fontSize: 13, fontWeight: "700" },
   center: { flex: 1, alignItems: "center", justifyContent: "center", paddingTop: 60 },
   errorText: { color: "#ff6b6b", fontSize: 15, marginBottom: 14, textAlign: "center" },
   retryBtn: {

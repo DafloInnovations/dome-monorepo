@@ -47,6 +47,20 @@ const FORM_STEP_TITLES = ["Business Info", "Location", "Sports", "Review & Submi
 const STORAGE_KEY = "dome_vendor_onboarding";
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001/api/v1";
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function formatWebsite(url: string): string {
+  if (url.startsWith("http://") || url.startsWith("https://")) return url;
+  return `https://${url}`;
+}
+
+function formatPhone(phone: string): string {
+  const digits = phone.replace(/\D/g, "");
+  if (digits.length === 10) return `+1${digits}`;
+  if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
+  return `+${digits}`;
+}
+
 // ─── Validation ───────────────────────────────────────────────────────────────
 
 function validateFormStep(step: number, form: FormData): Record<string, string> {
@@ -230,7 +244,11 @@ export default function OnboardingPage() {
     try {
       await apiFetch("/vendor/apply", {
         method: "POST",
-        body: JSON.stringify({ ...form, website: form.website || undefined }),
+        body: JSON.stringify({
+          ...form,
+          businessPhone: form.businessPhone ? formatPhone(form.businessPhone) : undefined,
+          website: form.website ? formatWebsite(form.website) : undefined,
+        }),
       });
       localStorage.removeItem(STORAGE_KEY);
       router.replace("/pending");

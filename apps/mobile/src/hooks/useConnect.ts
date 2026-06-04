@@ -40,6 +40,7 @@ export interface OpenGame {
   status: string;
   host: GameHost;
   facility: GameFacility;
+  participants?: Pick<GameParticipant, "id" | "userId" | "status">[];
   distanceKm?: number;
 }
 
@@ -96,8 +97,7 @@ export function useGames(filter: GamesFilter = {}) {
     }
   }, [filter.sport, filter.date, filter.city, filter.lat, filter.lng]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { fetchGames(); }, []);
+  useEffect(() => { fetchGames(); }, [fetchGames]);
 
   return { games, isLoading, error, refetch: fetchGames };
 }

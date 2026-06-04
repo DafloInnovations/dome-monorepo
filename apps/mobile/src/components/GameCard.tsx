@@ -50,6 +50,12 @@ export default function GameCard({ game, onJoin, joinedGameIds, currentUserId }:
 
   const isHost = currentUserId === game.host.id;
   const isJoined = joinedGameIds?.has(game.id) ?? false;
+  const myParticipation = currentUserId
+    ? game.participants?.find((participant) => participant.userId === currentUserId)
+    : undefined;
+  const hasServerParticipation = myParticipation != null;
+  const isConfirmed = myParticipation?.status === "CONFIRMED";
+  const isPending = myParticipation?.status === "PENDING" || (!hasServerParticipation && isJoined);
   const isFull = game.status === "FULL" || spotsLeft <= 0;
 
   const hostName = [game.host.firstName, game.host.lastName].filter(Boolean).join(" ") || "Host";
@@ -110,9 +116,13 @@ export default function GameCard({ game, onJoin, joinedGameIds, currentUserId }:
         <View style={styles.hostBadge}>
           <Text style={styles.hostBadgeText}>Your Game</Text>
         </View>
-      ) : isJoined ? (
-        <View style={[styles.joinBtn, styles.joinBtnJoined]}>
-          <Text style={styles.joinBtnText}>✓ Requested</Text>
+      ) : isConfirmed ? (
+        <View style={[styles.joinBtn, styles.joinBtnConfirmed]}>
+          <Text style={styles.joinBtnConfirmedText}>✓ You're In!</Text>
+        </View>
+      ) : isPending ? (
+        <View style={[styles.joinBtn, styles.joinBtnPending]}>
+          <Text style={styles.joinBtnPendingText}>⏳ Request Pending</Text>
         </View>
       ) : isFull ? (
         <View style={[styles.joinBtn, styles.joinBtnDisabled]}>
@@ -163,9 +173,12 @@ const styles = StyleSheet.create({
     paddingVertical: 11,
     alignItems: "center",
   },
-  joinBtnJoined: { backgroundColor: C.green + "22", borderWidth: 1, borderColor: C.green },
+  joinBtnConfirmed: { backgroundColor: C.green + "22", borderWidth: 1, borderColor: C.green },
+  joinBtnPending: { backgroundColor: C.primary + "22", borderWidth: 1, borderColor: C.primary },
   joinBtnDisabled: { backgroundColor: "#2A2A2A" },
   joinBtnText: { color: C.text, fontSize: 14, fontWeight: "700" },
+  joinBtnConfirmedText: { color: C.green, fontSize: 14, fontWeight: "800" },
+  joinBtnPendingText: { color: C.primary, fontSize: 14, fontWeight: "800" },
   hostBadge: {
     borderRadius: 10,
     paddingVertical: 11,

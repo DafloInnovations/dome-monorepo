@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { Suspense, useEffect, useState, useCallback } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import FacilityCard from "../../components/ui/FacilityCard";
 import SportPill from "../../components/ui/SportPill";
@@ -15,7 +15,7 @@ function buildQuery(params: Record<string, string | number | undefined>): string
   return qs ? `?${qs}` : "";
 }
 
-export default function FacilitiesPage() {
+function FacilitiesContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
 
@@ -235,5 +235,13 @@ export default function FacilitiesPage() {
         </div>
       </div>
     </main>
+  );
+}
+
+export default function FacilitiesPage() {
+  return (
+    <Suspense fallback={<main className="max-w-6xl mx-auto px-4 py-8" />}>
+      <FacilitiesContent />
+    </Suspense>
   );
 }

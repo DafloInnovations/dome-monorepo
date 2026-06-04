@@ -5,6 +5,7 @@ import { authenticate, requireRole } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { prisma } from "../lib/prisma";
 import { sendPushNotification, saveNotification } from "../lib/firebase";
+import { sendVendorApplicationApproved, sendVendorApplicationRejected } from "../lib/email";
 
 const router = Router();
 
@@ -64,7 +65,7 @@ router.put("/vendors/:vendorId/approve", async (req, res, next) => {
     const vendorId = param(req.params["vendorId"]!);
     const vendor = await prisma.vendor.findUnique({
       where: { id: vendorId },
-      include: { user: { select: { id: true, deviceToken: true, firstName: true } } },
+      include: { user: { select: { id: true, deviceToken: true, firstName: true, email: true } } },
     });
     if (!vendor) { res.status(404).json({ message: "Vendor not found" }); return; }
     if (vendor.status === VendorStatus.APPROVED) {
@@ -84,6 +85,10 @@ router.put("/vendors/:vendorId/approve", async (req, res, next) => {
     if (vendor.user.deviceToken) {
       await sendPushNotification(vendor.user.deviceToken, title, body, data);
     }
+    sendVendorApplicationApproved(vendor.user.email, {
+      vendorFirstName: vendor.user.firstName || vendor.businessName,
+      businessName: vendor.businessName,
+    }).catch(() => null);
 
     res.json({ data: { status: "APPROVED", message: "Vendor approved" } });
   } catch (err) { next(err); }
@@ -102,7 +107,7 @@ router.put("/vendors/:vendorId/reject", validate(rejectSchema), async (req, res,
 
     const vendor = await prisma.vendor.findUnique({
       where: { id: vendorId },
-      include: { user: { select: { id: true, deviceToken: true, firstName: true } } },
+      include: { user: { select: { id: true, deviceToken: true, firstName: true, email: true } } },
     });
     if (!vendor) { res.status(404).json({ message: "Vendor not found" }); return; }
 
@@ -118,6 +123,10 @@ router.put("/vendors/:vendorId/reject", validate(rejectSchema), async (req, res,
     if (vendor.user.deviceToken) {
       await sendPushNotification(vendor.user.deviceToken, title, body, data);
     }
+    sendVendorApplicationRejected(vendor.user.email, {
+      vendorFirstName: vendor.user.firstName || vendor.businessName,
+      reason,
+    }).catch(() => null);
 
     res.json({ data: { status: "REJECTED", message: "Vendor rejected" } });
   } catch (err) { next(err); }

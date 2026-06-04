@@ -2,6 +2,7 @@ import { AlertStatus, SlotStatus } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { sendPushNotification, saveNotification } from "../lib/firebase";
 import { sendSms } from "../lib/twilio";
+import { sendAvailabilityAlert } from "../lib/email";
 
 const MAX_ALERTS_PER_USER = 10;
 
@@ -103,7 +104,7 @@ export async function checkAndTriggerAlerts(
       ...(courtId ? { OR: [{ courtId }, { courtId: null }] } : {}),
     },
     include: {
-      user: { select: { id: true, deviceToken: true, phone: true } },
+      user: { select: { id: true, deviceToken: true, phone: true, email: true, emailReminders: true } },
       facility: { select: { name: true, sport: true } },
       court: { select: { name: true } },
     },
@@ -156,6 +157,19 @@ export async function checkAndTriggerAlerts(
       `Dome: Court available at ${alert.facility.name} ` +
       `${dateLabel} at ${timeLabel}. Book now before it's gone!`;
     await sendSms(alert.user.phone, smsBody);
+
+    // Email
+    if (alert.user.email && alert.user.emailReminders) {
+      sendAvailabilityAlert(alert.user.email, {
+        facilityName: alert.facility.name,
+        sport: alert.sport ?? alert.facility.sport,
+        date: dateLabel,
+        startTime: formatTimeLabel(alert.startTime),
+        endTime: formatTimeLabel(alert.endTime),
+        facilityId: alert.facilityId,
+        slotDate: typeof date === "string" ? date : date.toISOString().split("T")[0]!,
+      }).catch(() => null);
+    }
 
     // Mark as triggered
     await prisma.availabilityAlert.update({

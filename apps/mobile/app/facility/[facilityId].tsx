@@ -229,6 +229,8 @@ export default function FacilityDetailScreen() {
           slotIds: allSlotIds.join(","),
           facilityId,
           facilityName: facility?.name ?? "",
+          facilityCity: facility?.address?.city ?? "",
+          sport: facility?.sport ?? "",
           date,
           startTime: selectedTime,
           endTime,
@@ -276,9 +278,21 @@ export default function FacilityDetailScreen() {
             </Text>
           )}
           <View style={styles.heroMeta}>
-            <View style={styles.metaChip}>
-              <Text style={styles.metaChipText}>⭐ {ratingText}</Text>
-            </View>
+            <Pressable
+              style={styles.metaChip}
+              onPress={() =>
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                (router as any).push({
+                  pathname: "/review/facility/[facilityId]",
+                  params: { facilityId, facilityName: facility.name },
+                })
+              }
+            >
+              <Text style={styles.metaChipText}>
+                ⭐ {ratingText}
+                {facility.totalReviews > 0 ? ` (${facility.totalReviews})` : ""}
+              </Text>
+            </Pressable>
             {sportLabel ? (
               <View style={styles.metaChip}>
                 <Text style={styles.metaChipText}>{sportLabel}</Text>

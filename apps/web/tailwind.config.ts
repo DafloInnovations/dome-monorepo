@@ -16,7 +16,7 @@ const config: Config = {
         muted:          "#6B6B6B",
       },
       fontFamily: {
-        sans: ["var(--font-inter)", "system-ui", "sans-serif"],
+        sans: ["Inter", "system-ui", "sans-serif"],
       },
       borderRadius: {
         dome: "0.75rem",

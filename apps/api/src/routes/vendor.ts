@@ -4,6 +4,14 @@ import { BookingStatus, BookingUnitType, OpenGameStatus, Prisma, SlotStatus } fr
 import { authenticate, requireRole } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { createFacility, updateFacility } from "../services/facilities.service";
+import { sendVendorApplicationReceived } from "../lib/email";
+import {
+  getVendorEquipment,
+  createEquipment,
+  updateEquipment,
+  deleteEquipment,
+  getEquipmentRentalHistory,
+} from "../services/equipment.service";
 import { bulkCreateSlots, createCourt } from "../services/courts.service";
 import { prisma } from "../lib/prisma";
 
@@ -90,6 +98,20 @@ router.post("/apply", authenticate, validate(applySchema), async (req, res, next
         }),
       ]);
     }
+
+    // Send confirmation email (non-blocking)
+    const applicant = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { email: true, firstName: true },
+    });
+    sendVendorApplicationReceived(applicant?.email, {
+      vendorFirstName: applicant?.firstName || body.businessName,
+      businessName: body.businessName,
+      businessEmail: body.businessEmail,
+      city: body.city,
+      province: body.province,
+      sports: body.sports,
+    }).catch(() => null);
 
     res.status(201).json({ data: { status: "PENDING", message: "Application submitted successfully. We'll notify you within 24–48 hours." } });
   } catch (err) { next(err); }
@@ -469,6 +491,7 @@ const bulkSlotsSchema = z.object({
   endTime: z.string().regex(/^\d{2}:\d{2}$/, "HH:mm"),
   slotDurationMinutes: z.number().int().positive(),
   priceCAD: z.number().positive(),
+  conflictStrategy: z.enum(["skip", "replace"]).optional().default("skip"),
 });
 
 // ─── Facility routes ──────────────────────────────────────────────────────────
@@ -510,11 +533,33 @@ router.post("/facilities/:id/courts", validate(createCourtSchema), async (req, r
 // POST /api/v1/vendor/courts/:id/slots/bulk
 router.post("/courts/:id/slots/bulk", validate(bulkSlotsSchema), async (req, res, next) => {
   try {
-    const courtId = Array.isArray(req.params["id"])
-      ? req.params["id"][0]!
-      : req.params["id"]!;
-    const result = await bulkCreateSlots(req.user!.sub, courtId, req.body);
-    res.status(201).json({ data: result });
+    const courtId = Array.isArray(req.params["id"]) ? req.params["id"][0]! : req.params["id"]!;
+    const { conflictStrategy, ...slotInput } = req.body as z.infer<typeof bulkSlotsSchema>;
+
+    // Ownership check before we touch anything
+    const court = await prisma.court.findFirst({
+      where: { id: courtId, facility: { vendor: { userId: req.user!.sub as string } } },
+      select: { id: true },
+    });
+    if (!court) { res.status(404).json({ message: "Court not found" }); return; }
+
+    // Count existing slots in range so we can report conflicts
+    const existed = await prisma.slot.count({
+      where: { courtId, date: { gte: new Date(slotInput.startDate), lte: new Date(slotInput.endDate) } },
+    });
+
+    if (conflictStrategy === "replace" && existed > 0) {
+      await prisma.slot.deleteMany({
+        where: {
+          courtId,
+          status: { not: SlotStatus.BOOKED },
+          date: { gte: new Date(slotInput.startDate), lte: new Date(slotInput.endDate) },
+        },
+      });
+    }
+
+    const result = await bulkCreateSlots(req.user!.sub, courtId, slotInput);
+    res.status(201).json({ data: { ...result, existed: conflictStrategy === "replace" ? 0 : existed } });
   } catch (err) {
     next(err);
   }
@@ -592,6 +637,100 @@ router.post("/slots/block", validate(blockSlotsSchema), async (req, res, next) =
     });
 
     res.json({ data: { blocked: result.count } });
+  } catch (err) { next(err); }
+});
+
+// ─── Individual slot management ──────────────────────────────────────────────
+
+async function resolveVendorSlot(userId: string, slotId: string) {
+  const vendor = await prisma.vendor.findUnique({ where: { userId }, select: { id: true } });
+  if (!vendor) return null;
+  const slot = await prisma.slot.findUnique({
+    where: { id: slotId },
+    include: { court: { include: { facility: { select: { vendorId: true } } } } },
+  });
+  if (!slot || !slot.court || slot.court.facility.vendorId !== vendor.id) return null;
+  return slot;
+}
+
+// DELETE /api/v1/vendor/slots/bulk — must be registered before /:slotId
+const bulkDeleteSlotsSchema = z.object({
+  slotIds: z.array(z.string().min(1)).min(1).max(500),
+});
+
+router.delete("/slots/bulk", validate(bulkDeleteSlotsSchema), async (req, res, next) => {
+  try {
+    const { slotIds } = req.body as z.infer<typeof bulkDeleteSlotsSchema>;
+    const vendor = await prisma.vendor.findUnique({ where: { userId: req.user!.sub as string }, select: { id: true } });
+    if (!vendor) { res.status(404).json({ message: "Vendor not found" }); return; }
+
+    const slots = await prisma.slot.findMany({
+      where: { id: { in: slotIds } },
+      include: { court: { include: { facility: { select: { vendorId: true } } } } },
+    });
+
+    const deletableIds = slots
+      .filter((s) => s.court && s.court.facility.vendorId === vendor.id && s.status !== SlotStatus.BOOKED)
+      .map((s) => s.id);
+
+    const result = await prisma.slot.deleteMany({ where: { id: { in: deletableIds } } });
+    res.json({ data: { deleted: result.count, skipped: slotIds.length - result.count } });
+  } catch (err) { next(err); }
+});
+
+// DELETE /api/v1/vendor/slots/:slotId
+router.delete("/slots/:slotId", async (req, res, next) => {
+  try {
+    const slot = await resolveVendorSlot(req.user!.sub as string, param(req.params["slotId"]!));
+    if (!slot) { res.status(404).json({ message: "Slot not found" }); return; }
+    if (slot.status === SlotStatus.BOOKED) { res.status(400).json({ message: "Cannot delete a booked slot" }); return; }
+    await prisma.slot.delete({ where: { id: slot.id } });
+    res.status(204).end();
+  } catch (err) { next(err); }
+});
+
+// PUT /api/v1/vendor/slots/:slotId/block
+router.put("/slots/:slotId/block", async (req, res, next) => {
+  try {
+    const slot = await resolveVendorSlot(req.user!.sub as string, param(req.params["slotId"]!));
+    if (!slot) { res.status(404).json({ message: "Slot not found" }); return; }
+    if (slot.status === SlotStatus.BOOKED) { res.status(400).json({ message: "Cannot block a booked slot" }); return; }
+    const updated = await prisma.slot.update({ where: { id: slot.id }, data: { status: SlotStatus.BLOCKED } });
+    res.json({ data: { ...updated, priceCAD: Number(updated.priceCAD) } });
+  } catch (err) { next(err); }
+});
+
+// PUT /api/v1/vendor/slots/:slotId/unblock
+router.put("/slots/:slotId/unblock", async (req, res, next) => {
+  try {
+    const slot = await resolveVendorSlot(req.user!.sub as string, param(req.params["slotId"]!));
+    if (!slot) { res.status(404).json({ message: "Slot not found" }); return; }
+    const updated = await prisma.slot.update({ where: { id: slot.id }, data: { status: SlotStatus.AVAILABLE } });
+    res.json({ data: { ...updated, priceCAD: Number(updated.priceCAD) } });
+  } catch (err) { next(err); }
+});
+
+// PUT /api/v1/vendor/slots/:slotId — update price or status
+const updateSlotSchema = z.object({
+  priceCAD: z.number().positive().optional(),
+  status: z.nativeEnum(SlotStatus).optional(),
+});
+
+router.put("/slots/:slotId", validate(updateSlotSchema), async (req, res, next) => {
+  try {
+    const slot = await resolveVendorSlot(req.user!.sub as string, param(req.params["slotId"]!));
+    if (!slot) { res.status(404).json({ message: "Slot not found" }); return; }
+    if (slot.status === SlotStatus.BOOKED) { res.status(400).json({ message: "Cannot modify a booked slot" }); return; }
+
+    const body = req.body as z.infer<typeof updateSlotSchema>;
+    const updated = await prisma.slot.update({
+      where: { id: slot.id },
+      data: {
+        ...(body.priceCAD !== undefined && { priceCAD: body.priceCAD }),
+        ...(body.status   !== undefined && { status:   body.status }),
+      },
+    });
+    res.json({ data: { ...updated, priceCAD: Number(updated.priceCAD) } });
   } catch (err) { next(err); }
 });
 
@@ -681,6 +820,69 @@ router.get("/recurring", async (req, res, next) => {
         })),
       },
     });
+  } catch (err) { next(err); }
+});
+
+// ─── Equipment ────────────────────────────────────────────────────────────────
+
+const equipmentSchema = z.object({
+  name:        z.string().min(1).max(100),
+  description: z.string().max(300).optional().nullable(),
+  sport:       z.string().min(2).max(30),
+  priceCAD:    z.number().positive().max(200),
+  quantity:    z.number().int().min(1).max(1000),
+  imageUrl:    z.string().url().optional().nullable(),
+});
+
+const equipmentUpdateSchema = equipmentSchema.partial().extend({
+  isActive: z.boolean().optional(),
+});
+
+// GET /api/v1/vendor/equipment
+router.get("/equipment", async (req, res, next) => {
+  try {
+    const data = await getVendorEquipment(req.user!.sub as string);
+    res.json({ data });
+  } catch (err) { next(err); }
+});
+
+// POST /api/v1/vendor/facilities/:id/equipment
+router.post("/facilities/:id/equipment", validate(equipmentSchema), async (req, res, next) => {
+  try {
+    const data = await createEquipment(
+      req.user!.sub as string,
+      param(req.params["id"]!),
+      req.body as z.infer<typeof equipmentSchema>
+    );
+    res.status(201).json({ data });
+  } catch (err) { next(err); }
+});
+
+// PUT /api/v1/vendor/equipment/:id
+router.put("/equipment/:id", validate(equipmentUpdateSchema), async (req, res, next) => {
+  try {
+    const data = await updateEquipment(
+      req.user!.sub as string,
+      param(req.params["id"]!),
+      req.body as z.infer<typeof equipmentUpdateSchema>
+    );
+    res.json({ data });
+  } catch (err) { next(err); }
+});
+
+// DELETE /api/v1/vendor/equipment/:id
+router.delete("/equipment/:id", async (req, res, next) => {
+  try {
+    await deleteEquipment(req.user!.sub as string, param(req.params["id"]!));
+    res.status(204).end();
+  } catch (err) { next(err); }
+});
+
+// GET /api/v1/vendor/equipment/:id/rentals
+router.get("/equipment/:id/rentals", async (req, res, next) => {
+  try {
+    const data = await getEquipmentRentalHistory(req.user!.sub as string, param(req.params["id"]!));
+    res.json({ data });
   } catch (err) { next(err); }
 });
 

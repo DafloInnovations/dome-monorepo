@@ -13,6 +13,11 @@ import { prisma } from "../lib/prisma";
 import { redis } from "../lib/redis";
 import { stripe } from "../lib/stripe";
 import { sendPushNotification, saveNotification } from "../lib/firebase";
+import {
+  sendBookingConfirmation,
+  sendBookingCancellation,
+  sendVendorBookingNotification,
+} from "../lib/email";
 import { checkAndTriggerAlerts } from "./alerts.service";
 
 const SLOT_LOCK_TTL = 300;          // 5 minutes
@@ -274,22 +279,70 @@ export async function confirmBooking(
 
   await redis.del(`slot:${booking.slotId}:lock`);
 
-  // Push: booking confirmed
-  const userForToken = await prisma.user.findUnique({
+  // Push + email: booking confirmed
+  const userForNotif = await prisma.user.findUnique({
     where: { id: userId },
-    select: { deviceToken: true },
+    select: { deviceToken: true, email: true, emailBookingConfirmation: true, firstName: true },
   });
   if (confirmed) {
     const sport = confirmed.facility.sport.charAt(0) + confirmed.facility.sport.slice(1).toLowerCase();
-    const slotDate = confirmed.slot.date instanceof Date
-      ? confirmed.slot.date.toLocaleDateString("en-CA", { month: "short", day: "numeric" })
-      : String(confirmed.slot.date).split("T")[0];
+    const slotDateObj = confirmed.slot.date instanceof Date ? confirmed.slot.date : new Date(confirmed.slot.date);
+    const slotDate = slotDateObj.toLocaleDateString("en-CA", { month: "short", day: "numeric" });
+    const slotDateFull = slotDateObj.toLocaleDateString("en-CA", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
     const bTitle = "Booking Confirmed ✅";
     const bBody = `${sport} at ${confirmed.facility.name} on ${slotDate} at ${confirmed.slot.startTime}`;
     const bData = { type: "booking_confirmed", bookingId };
     await saveNotification(userId, "BOOKING_CONFIRMED", bTitle, bBody, bData);
-    if (userForToken?.deviceToken) {
-      await sendPushNotification(userForToken.deviceToken, bTitle, bBody, bData);
+    if (userForNotif?.deviceToken) {
+      await sendPushNotification(userForNotif.deviceToken, bTitle, bBody, bData);
+    }
+
+    // Email confirmation to player
+    if (userForNotif?.email && userForNotif.emailBookingConfirmation) {
+      const addr = confirmed.facility.address;
+      const addrStr = addr
+        ? `${addr.street}, ${addr.city}, ${addr.province}`
+        : confirmed.facility.name;
+      const [sh, sm] = confirmed.slot.startTime.split(":").map(Number);
+      const [eh, em] = confirmed.slot.endTime.split(":").map(Number);
+      const cancelDeadlineMs = slotDateObj.getTime() - (24 * 3_600_000);
+      const cancelDeadline = new Date(cancelDeadlineMs).toLocaleString("en-CA", {
+        month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
+      });
+      sendBookingConfirmation(userForNotif.email, {
+        bookingId,
+        facilityName: confirmed.facility.name,
+        facilityAddress: addrStr,
+        sport: confirmed.facility.sport,
+        courtName: null,
+        date: slotDateFull,
+        startTime: `${sh}:${String(sm).padStart(2,"0")} ${sh! >= 12 ? "PM" : "AM"}`,
+        endTime: `${eh}:${String(em).padStart(2,"0")} ${eh! >= 12 ? "PM" : "AM"}`,
+        durationMinutes: Math.round(((eh! * 60 + em!) - (sh! * 60 + sm!)) * 60) / 60,
+        subtotalCAD: Number(booking.subtotalCAD),
+        taxCAD: Number(booking.taxCAD),
+        totalCAD: Number(booking.totalCAD),
+        cancelDeadline,
+      }).catch(() => null);
+    }
+
+    // Email vendor
+    const vendorUser = await prisma.user.findFirst({
+      where: { vendor: { facilities: { some: { id: confirmed.facilityId } } } },
+      select: { email: true },
+    });
+    if (vendorUser?.email) {
+      const addr = confirmed.facility.address;
+      const slotDateFmt = slotDateObj.toLocaleDateString("en-CA", { weekday: "short", month: "short", day: "numeric" });
+      sendVendorBookingNotification(vendorUser.email, {
+        playerFirstName: userForNotif?.firstName || "A player",
+        facilityName: confirmed.facility.name,
+        courtName: null,
+        date: slotDateFmt,
+        startTime: confirmed.slot.startTime,
+        endTime: confirmed.slot.endTime,
+        amountEarnedCAD: Number(booking.totalCAD) * 0.971 - 0.30, // after Stripe fee
+      }).catch(() => null);
     }
   }
 
@@ -309,7 +362,7 @@ export async function cancelBooking(
       userId,
       status: { in: [BookingStatus.PENDING, BookingStatus.CONFIRMED] },
     },
-    include: { slot: true, payment: true },
+    include: { slot: true, payment: true, facility: { select: { name: true } } },
   });
   if (!booking) throw appError("Booking not found", 404);
 
@@ -390,10 +443,10 @@ export async function cancelBooking(
     booking.slot.endTime
   ).catch((err) => console.error("[Alerts] checkAndTriggerAlerts failed:", err));
 
-  // Push + DB notification
+  // Push + DB + email: booking cancelled
   const actor = await prisma.user.findUnique({
     where: { id: userId },
-    select: { deviceToken: true },
+    select: { deviceToken: true, email: true, emailBookingConfirmation: true },
   });
   const cancelTitle = "Booking Cancelled";
   const cancelBody =
@@ -406,6 +459,19 @@ export async function cancelBooking(
   await saveNotification(userId, "BOOKING_CANCELLED", cancelTitle, cancelBody, cancelData);
   if (actor?.deviceToken) {
     await sendPushNotification(actor.deviceToken, cancelTitle, cancelBody, cancelData);
+  }
+
+  if (actor?.email && actor.emailBookingConfirmation) {
+    const slotDateObj = booking.slot.date instanceof Date ? booking.slot.date : new Date(booking.slot.date);
+    sendBookingCancellation(actor.email, {
+      bookingId,
+      facilityName: booking.facility?.name ?? "facility",
+      date: slotDateObj.toLocaleDateString("en-CA", { weekday: "long", year: "numeric", month: "long", day: "numeric" }),
+      startTime: booking.slot.startTime,
+      endTime: booking.slot.endTime,
+      refundType,
+      refundAmountCAD: totalCAD,
+    }).catch(() => null);
   }
 
   return {
@@ -475,6 +541,7 @@ export async function myBookings(userId: string, page = 1, limit = 20) {
         payment: {
           select: { id: true, status: true, method: true, amountCAD: true },
         },
+        review: { select: { id: true } },
       },
       orderBy: { slot: { date: "desc" } },
       skip,
@@ -855,6 +922,9 @@ export async function createTimeBooking(
       metadata: { bookingId: booking.id, userId },
     });
 
+    // Store PI ID so equipment can update the amount before payment
+    await prisma.booking.update({ where: { id: booking.id }, data: { paymentIntentId: pi.id } });
+
     return {
       type: "single" as const,
       bookingId: booking.id,
@@ -949,4 +1019,52 @@ export async function getGroupBooking(userId: string, groupId: string) {
       slot: { ...b.slot, priceCAD: Number(b.slot.priceCAD) },
     })),
   };
+}
+
+// ─── Log share ────────────────────────────────────────────────────────────────
+
+const SHARE_BONUS_POINTS = 50;
+
+export async function logBookingShare(
+  userId: string,
+  bookingId: string,
+  platform: "instagram" | "whatsapp" | "other"
+) {
+  const booking = await prisma.booking.findFirst({
+    where: { id: bookingId, userId },
+    select: { id: true, shareCount: true },
+  });
+  if (!booking) throw appError("Booking not found", 404);
+
+  const isFirstShare = booking.shareCount === 0;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const ops: Prisma.PrismaPromise<any>[] = [
+    prisma.booking.update({
+      where: { id: bookingId },
+      data: { shareCount: { increment: 1 } },
+      select: { id: true, shareCount: true },
+    }),
+  ];
+
+  if (isFirstShare) {
+    ops.push(
+      prisma.domeCredit.create({
+        data: {
+          userId,
+          bookingId,
+          amountCAD: SHARE_BONUS_POINTS,
+          reason: `Share bonus (${platform}) for booking ${bookingId}`,
+          expiresAt: new Date(Date.now() + 365 * 24 * 3_600_000),
+        },
+      }),
+      prisma.user.update({
+        where: { id: userId },
+        data: { creditBalanceCAD: { increment: SHARE_BONUS_POINTS } },
+      })
+    );
+  }
+
+  await prisma.$transaction(ops);
+  return { shareCount: booking.shareCount + 1, pointsAwarded: isFirstShare ? SHARE_BONUS_POINTS : 0 };
 }

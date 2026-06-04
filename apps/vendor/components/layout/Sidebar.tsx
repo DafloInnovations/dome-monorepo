@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useVendorProfile } from "./VendorProfileProvider";
 
 const NAV = [
   { href: "/dashboard",            label: "Dashboard",     icon: "🏠" },
@@ -10,18 +11,29 @@ const NAV = [
   { href: "/dashboard/analytics",  label: "Analytics",     icon: "📊" },
   { href: "/dashboard/connect",    label: "Connect Games", icon: "🤝" },
   { href: "/dashboard/membership", label: "Manage Membership", icon: "💳" },
+  { href: "/dashboard/equipment",  label: "Equipment",     icon: "🎒" },
+  { href: "/dashboard/reviews",    label: "Reviews",       icon: "⭐" },
   { href: "/dashboard/recurring",  label: "Recurring",     icon: "🔄" },
   { href: "/dashboard/settings",   label: "Settings",      icon: "⚙️" },
 ];
 
 export default function Sidebar() {
   const pathname = usePathname();
+  const { businessName, initials, statusLabel } = useVendorProfile();
 
   return (
     <aside className="w-56 shrink-0 flex flex-col min-h-screen bg-[#0D0D0D] border-r border-[#222]">
       <div className="px-5 py-5 border-b border-[#222]">
-        <span className="text-xl font-black text-white tracking-tight">DOME</span>
-        <span className="ml-2 text-xs text-muted font-medium">Vendor</span>
+        <div className="h-12 w-12 rounded-full bg-primary/25 border-2 border-primary flex items-center justify-center text-primary font-black text-base">
+          {initials}
+        </div>
+        <div className="mt-3 min-w-0">
+          <p className="truncate text-sm font-bold text-white">{businessName}</p>
+          <div className="mt-1 flex items-center gap-1.5 text-xs text-muted">
+            <span className="h-1.5 w-1.5 rounded-full bg-green-400" />
+            <span>{statusLabel}</span>
+          </div>
+        </div>
       </div>
 
       <nav className="flex-1 px-2 py-4 flex flex-col gap-0.5">
@@ -48,7 +60,7 @@ export default function Sidebar() {
       </nav>
 
       <div className="px-5 py-4 border-t border-[#222] text-xs text-muted">
-        Daflo Innovations Inc.
+        Dome Vendor Portal
       </div>
     </aside>
   );

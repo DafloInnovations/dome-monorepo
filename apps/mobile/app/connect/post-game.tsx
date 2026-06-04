@@ -1,8 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  FlatList,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -40,6 +39,32 @@ const SPORTS = [
 
 const SKILL_LEVELS = ["BEGINNER", "ROOKIE", "INTERMEDIATE", "ADVANCED", "PRO", "ELITE"];
 
+interface City {
+  name: string;
+  province: string;
+  lat: number;
+  lng: number;
+}
+
+const CITIES: City[] = [
+  { name: "Toronto",     province: "ON", lat: 43.6532, lng: -79.3832  },
+  { name: "Montreal",    province: "QC", lat: 45.5017, lng: -73.5673  },
+  { name: "Vancouver",   province: "BC", lat: 49.2827, lng: -123.1207 },
+  { name: "Calgary",     province: "AB", lat: 51.0447, lng: -114.0719 },
+  { name: "Edmonton",    province: "AB", lat: 53.5461, lng: -113.4938 },
+  { name: "Ottawa",      province: "ON", lat: 45.4215, lng: -75.6972  },
+  { name: "Winnipeg",    province: "MB", lat: 49.8951, lng: -97.1384  },
+  { name: "Quebec City", province: "QC", lat: 46.8139, lng: -71.2080  },
+  { name: "Hamilton",    province: "ON", lat: 43.2557, lng: -79.8711  },
+  { name: "Scarborough", province: "ON", lat: 43.7764, lng: -79.2318  },
+  { name: "Kitchener",   province: "ON", lat: 43.4516, lng: -80.4925  },
+  { name: "London",      province: "ON", lat: 42.9849, lng: -81.2453  },
+  { name: "Halifax",     province: "NS", lat: 44.6488, lng: -63.5752  },
+  { name: "Victoria",    province: "BC", lat: 48.4284, lng: -123.3656 },
+  { name: "Saskatoon",   province: "SK", lat: 52.1332, lng: -106.6700 },
+  { name: "Regina",      province: "SK", lat: 50.4452, lng: -104.6189 },
+];
+
 interface FacilityResult {
   id: string;
   name: string;
@@ -57,48 +82,92 @@ export default function PostGameScreen() {
 
   const [sport, setSport] = useState<string | null>(null);
   const [skillLevel, setSkillLevel] = useState<string | null>(null);
+  const [selectedCity, setSelectedCity] = useState<City>(CITIES[0]!);
   const [playersNeeded, setPlayersNeeded] = useState(4);
   const [gameDate, setGameDate] = useState(todayStr());
   const [startTime, setStartTime] = useState("10:00");
   const [endTime, setEndTime] = useState("11:00");
   const [description, setDescription] = useState("");
 
-  // Facility search
-  const [facilityQuery, setFacilityQuery] = useState("");
   const [facilities, setFacilities] = useState<FacilityResult[]>([]);
   const [selectedFacility, setSelectedFacility] = useState<FacilityResult | null>(null);
   const [facilityLoading, setFacilityLoading] = useState(false);
-  const [showFacilityList, setShowFacilityList] = useState(false);
-
-  const searchFacilities = useCallback(async (q: string) => {
-    if (q.length < 2) {
-      setFacilities([]);
-      setShowFacilityList(false);
-      return;
-    }
-    setFacilityLoading(true);
-    try {
-      const res = await fetch(`${API_URL}/facilities?city=Toronto&limit=20`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json = (await res.json()) as { data: FacilityResult[] };
-      const all = json.data ?? [];
-      const filtered = all.filter((f) =>
-        f.name.toLowerCase().includes(q.toLowerCase())
-      );
-      setFacilities(filtered);
-      setShowFacilityList(true);
-    } catch {
-      setFacilities([]);
-    } finally {
-      setFacilityLoading(false);
-    }
-  }, []);
+  const [facilityError, setFacilityError] = useState<string | null>(null);
+  const [facilityDropdownOpen, setFacilityDropdownOpen] = useState(false);
 
   useEffect(() => {
-    if (selectedFacility) return;
-    const t = setTimeout(() => searchFacilities(facilityQuery), 300);
-    return () => clearTimeout(t);
-  }, [facilityQuery, selectedFacility, searchFacilities]);
+    if (!sport) {
+      setFacilities([]);
+      return;
+    }
+
+    const controller = new AbortController();
+    const selectedSport = sport;
+
+    async function fetchFacilities() {
+      setFacilityLoading(true);
+      setFacilityError(null);
+      setFacilities([]);
+
+      const cityParams = new URLSearchParams({
+        city: selectedCity.name,
+        limit: "20",
+        sport: selectedSport,
+      });
+      const nearbyParams = new URLSearchParams({
+        lat: String(selectedCity.lat),
+        lng: String(selectedCity.lng),
+        radius: "20",
+        sport: selectedSport,
+      });
+
+      try {
+        const cityRes = await fetch(`${API_URL}/facilities?${cityParams.toString()}`, {
+          signal: controller.signal,
+        });
+        if (!cityRes.ok) throw new Error(`HTTP ${cityRes.status}`);
+        const cityJson = (await cityRes.json()) as { data: FacilityResult[] };
+        const exactCityFacilities = cityJson.data ?? [];
+
+        const nearbyRes = await fetch(`${API_URL}/facilities?${nearbyParams.toString()}`, {
+          signal: controller.signal,
+        });
+        if (!nearbyRes.ok) throw new Error(`HTTP ${nearbyRes.status}`);
+        const nearbyJson = (await nearbyRes.json()) as { data: FacilityResult[] };
+        const nearbyFacilities = nearbyJson.data ?? [];
+
+        const byId = new Map<string, FacilityResult>();
+        for (const facility of exactCityFacilities) byId.set(facility.id, facility);
+        for (const facility of nearbyFacilities) {
+          if (!byId.has(facility.id)) byId.set(facility.id, facility);
+        }
+
+        setFacilities(Array.from(byId.values()));
+      } catch (e) {
+        if (e instanceof Error && e.name === "AbortError") return;
+        setFacilities([]);
+        setFacilityError("Could not load facilities. Please try again.");
+      } finally {
+        if (!controller.signal.aborted) setFacilityLoading(false);
+      }
+    }
+
+    void fetchFacilities();
+
+    return () => controller.abort();
+  }, [selectedCity, sport]);
+
+  function handleSportSelect(nextSport: string) {
+    setSport(nextSport);
+    setSelectedFacility(null);
+    setFacilityDropdownOpen(false);
+  }
+
+  function handleCitySelect(city: City) {
+    setSelectedCity(city);
+    setSelectedFacility(null);
+    setFacilityDropdownOpen(false);
+  }
 
   async function handleSubmit() {
     if (!sport) return Alert.alert("Missing", "Please select a sport.");
@@ -153,7 +222,7 @@ export default function PostGameScreen() {
             <Pressable
               key={s.key}
               style={[styles.pill, sport === s.key && styles.pillActive]}
-              onPress={() => setSport(s.key)}
+              onPress={() => handleSportSelect(s.key)}
             >
               <Text style={[styles.pillText, sport === s.key && styles.pillTextActive]}>
                 {s.emoji} {s.key.charAt(0) + s.key.slice(1).toLowerCase()}
@@ -162,165 +231,197 @@ export default function PostGameScreen() {
           ))}
         </View>
 
-        {/* Facility search */}
-        <Text style={styles.label}>Facility</Text>
-        {selectedFacility ? (
-          <Pressable
-            style={styles.selectedFacility}
-            onPress={() => {
-              setSelectedFacility(null);
-              setFacilityQuery("");
-            }}
-          >
+        {sport && (
+          <>
+            <Text style={styles.label}>City</Text>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.cityPillRow}
+            >
+              {CITIES.map((city) => {
+                const active = selectedCity.name === city.name;
+                return (
+                  <Pressable
+                    key={city.name}
+                    style={[styles.cityPill, active && styles.cityPillActive]}
+                    onPress={() => handleCitySelect(city)}
+                  >
+                    <Text style={[styles.cityPillText, active && styles.cityPillTextActive]}>
+                      {city.name}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+
+            <Text style={styles.label}>Facility</Text>
             <View>
-              <Text style={styles.selectedFacilityName}>{selectedFacility.name}</Text>
-              {selectedFacility.address ? (
-                <Text style={styles.selectedFacilityAddr}>
-                  {selectedFacility.address.city} · Tap to change
-                </Text>
-              ) : (
-                <Text style={styles.selectedFacilityAddr}>Tap to change</Text>
+              <Pressable
+                style={[
+                  styles.facilitySelect,
+                  selectedFacility && styles.facilitySelectActive,
+                ]}
+                onPress={() => setFacilityDropdownOpen((open) => !open)}
+                disabled={facilityLoading}
+              >
+                <View style={styles.facilitySelectTextWrap}>
+                  <Text
+                    style={[
+                      styles.facilitySelectText,
+                      !selectedFacility && styles.facilitySelectPlaceholder,
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {selectedFacility?.name ?? "Select a facility"}
+                  </Text>
+                  {selectedFacility?.address ? (
+                    <Text style={styles.selectedFacilityAddr} numberOfLines={1}>
+                      {selectedFacility.address.city}
+                    </Text>
+                  ) : null}
+                </View>
+                {facilityLoading ? (
+                  <ActivityIndicator color={C.primary} size="small" />
+                ) : (
+                  <Text style={styles.dropdownChevron}>▾</Text>
+                )}
+              </Pressable>
+
+              {facilityError && <Text style={styles.noResults}>{facilityError}</Text>}
+
+              {facilityDropdownOpen && !facilityLoading && (
+                <View style={styles.facilityDropdown}>
+                  {facilities.length > 0 ? (
+                    facilities.map((f) => (
+                      <Pressable
+                        key={f.id}
+                        style={styles.facilityOption}
+                        onPress={() => {
+                          setSelectedFacility(f);
+                          setFacilityDropdownOpen(false);
+                        }}
+                      >
+                        <Text style={styles.facilityOptionName}>{f.name}</Text>
+                        {f.address ? (
+                          <Text style={styles.facilityOptionCity}>{f.address.city}</Text>
+                        ) : null}
+                      </Pressable>
+                    ))
+                  ) : (
+                    <Text style={styles.facilityEmpty}>
+                      No facilities found in {selectedCity.name}
+                    </Text>
+                  )}
+                </View>
               )}
             </View>
-            <Text style={styles.clearX}>✕</Text>
-          </Pressable>
-        ) : (
-          <View>
-            <TextInput
-              style={styles.input}
-              placeholder="Search facility name…"
-              placeholderTextColor={C.muted}
-              value={facilityQuery}
-              onChangeText={setFacilityQuery}
-              autoCorrect={false}
-            />
-            {facilityLoading && (
-              <ActivityIndicator color={C.primary} style={{ marginTop: 8 }} />
-            )}
-            {showFacilityList && facilities.length > 0 && (
-              <View style={styles.facilityDropdown}>
-                {facilities.map((f) => (
-                  <Pressable
-                    key={f.id}
-                    style={styles.facilityOption}
-                    onPress={() => {
-                      setSelectedFacility(f);
-                      setShowFacilityList(false);
-                    }}
-                  >
-                    <Text style={styles.facilityOptionName}>{f.name}</Text>
-                    {f.address ? (
-                      <Text style={styles.facilityOptionCity}>{f.address.city}</Text>
-                    ) : null}
-                  </Pressable>
-                ))}
-              </View>
-            )}
-            {showFacilityList && facilities.length === 0 && !facilityLoading && (
-              <Text style={styles.noResults}>No facilities found. Try a different name.</Text>
-            )}
-          </View>
+          </>
         )}
 
-        {/* Date */}
-        <Text style={styles.label}>Date</Text>
-        <TextInput
-          style={styles.input}
-          value={gameDate}
-          onChangeText={setGameDate}
-          placeholder="YYYY-MM-DD"
-          placeholderTextColor={C.muted}
-          keyboardType="numeric"
-          maxLength={10}
-        />
-
-        {/* Start / End time */}
-        <View style={styles.row}>
-          <View style={styles.halfField}>
-            <Text style={styles.label}>Start Time</Text>
+        {sport && selectedFacility && (
+          <>
+            {/* Date */}
+            <Text style={styles.label}>Date</Text>
             <TextInput
               style={styles.input}
-              value={startTime}
-              onChangeText={setStartTime}
-              placeholder="HH:mm"
+              value={gameDate}
+              onChangeText={setGameDate}
+              placeholder="YYYY-MM-DD"
               placeholderTextColor={C.muted}
               keyboardType="numeric"
-              maxLength={5}
+              maxLength={10}
             />
-          </View>
-          <View style={styles.halfField}>
-            <Text style={styles.label}>End Time</Text>
+
+            {/* Start / End time */}
+            <View style={styles.row}>
+              <View style={styles.halfField}>
+                <Text style={styles.label}>Start Time</Text>
+                <TextInput
+                  style={styles.input}
+                  value={startTime}
+                  onChangeText={setStartTime}
+                  placeholder="HH:mm"
+                  placeholderTextColor={C.muted}
+                  keyboardType="numeric"
+                  maxLength={5}
+                />
+              </View>
+              <View style={styles.halfField}>
+                <Text style={styles.label}>End Time</Text>
+                <TextInput
+                  style={styles.input}
+                  value={endTime}
+                  onChangeText={setEndTime}
+                  placeholder="HH:mm"
+                  placeholderTextColor={C.muted}
+                  keyboardType="numeric"
+                  maxLength={5}
+                />
+              </View>
+            </View>
+
+            {/* Players needed stepper */}
+            <Text style={styles.label}>Players Needed</Text>
+            <View style={styles.stepper}>
+              <Pressable
+                style={styles.stepperBtn}
+                onPress={() => setPlayersNeeded((n) => Math.max(2, n - 1))}
+              >
+                <Text style={styles.stepperBtnText}>−</Text>
+              </Pressable>
+              <Text style={styles.stepperValue}>{playersNeeded}</Text>
+              <Pressable
+                style={styles.stepperBtn}
+                onPress={() => setPlayersNeeded((n) => Math.min(10, n + 1))}
+              >
+                <Text style={styles.stepperBtnText}>+</Text>
+              </Pressable>
+            </View>
+
+            {/* Skill level */}
+            <Text style={styles.label}>Skill Level</Text>
+            <View style={styles.pillGrid}>
+              {SKILL_LEVELS.map((s) => (
+                <Pressable
+                  key={s}
+                  style={[styles.pill, skillLevel === s && styles.pillActive]}
+                  onPress={() => setSkillLevel(s)}
+                >
+                  <Text style={[styles.pillText, skillLevel === s && styles.pillTextActive]}>
+                    {s.charAt(0) + s.slice(1).toLowerCase()}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+
+            {/* Description */}
+            <Text style={styles.label}>Description (optional)</Text>
             <TextInput
-              style={styles.input}
-              value={endTime}
-              onChangeText={setEndTime}
-              placeholder="HH:mm"
+              style={[styles.input, styles.textArea]}
+              value={description}
+              onChangeText={setDescription}
+              placeholder="Any notes for players joining…"
               placeholderTextColor={C.muted}
-              keyboardType="numeric"
-              maxLength={5}
+              multiline
+              numberOfLines={4}
+              maxLength={500}
             />
-          </View>
-        </View>
 
-        {/* Players needed stepper */}
-        <Text style={styles.label}>Players Needed</Text>
-        <View style={styles.stepper}>
-          <Pressable
-            style={styles.stepperBtn}
-            onPress={() => setPlayersNeeded((n) => Math.max(2, n - 1))}
-          >
-            <Text style={styles.stepperBtnText}>−</Text>
-          </Pressable>
-          <Text style={styles.stepperValue}>{playersNeeded}</Text>
-          <Pressable
-            style={styles.stepperBtn}
-            onPress={() => setPlayersNeeded((n) => Math.min(10, n + 1))}
-          >
-            <Text style={styles.stepperBtnText}>+</Text>
-          </Pressable>
-        </View>
-
-        {/* Skill level */}
-        <Text style={styles.label}>Skill Level</Text>
-        <View style={styles.pillGrid}>
-          {SKILL_LEVELS.map((s) => (
+            {/* Submit */}
             <Pressable
-              key={s}
-              style={[styles.pill, skillLevel === s && styles.pillActive]}
-              onPress={() => setSkillLevel(s)}
+              style={[styles.submitBtn, isLoading && styles.submitBtnDisabled]}
+              onPress={handleSubmit}
+              disabled={isLoading}
             >
-              <Text style={[styles.pillText, skillLevel === s && styles.pillTextActive]}>
-                {s.charAt(0) + s.slice(1).toLowerCase()}
-              </Text>
+              {isLoading ? (
+                <ActivityIndicator color={C.text} />
+              ) : (
+                <Text style={styles.submitBtnText}>Post Game</Text>
+              )}
             </Pressable>
-          ))}
-        </View>
-
-        {/* Description */}
-        <Text style={styles.label}>Description (optional)</Text>
-        <TextInput
-          style={[styles.input, styles.textArea]}
-          value={description}
-          onChangeText={setDescription}
-          placeholder="Any notes for players joining…"
-          placeholderTextColor={C.muted}
-          multiline
-          numberOfLines={4}
-          maxLength={500}
-        />
-
-        {/* Submit */}
-        <Pressable
-          style={[styles.submitBtn, isLoading && styles.submitBtnDisabled]}
-          onPress={handleSubmit}
-          disabled={isLoading}
-        >
-          {isLoading ? (
-            <ActivityIndicator color={C.text} />
-          ) : (
-            <Text style={styles.submitBtnText}>Post Game</Text>
-          )}
-        </Pressable>
+          </>
+        )}
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -347,6 +448,20 @@ const styles = StyleSheet.create({
   pillActive: { backgroundColor: C.primary, borderColor: C.primary },
   pillText: { color: C.muted, fontSize: 13, fontWeight: "600" },
   pillTextActive: { color: C.text },
+  cityPillRow: { gap: 8, paddingRight: 16 },
+  cityPill: {
+    backgroundColor: C.surface,
+    borderRadius: 99,
+    borderWidth: 1,
+    borderColor: C.border,
+    minHeight: 38,
+    paddingHorizontal: 16,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  cityPillActive: { backgroundColor: C.primary, borderColor: C.primary },
+  cityPillText: { color: C.muted, fontSize: 13, fontWeight: "700" },
+  cityPillTextActive: { color: C.text },
   input: {
     backgroundColor: C.inputBg,
     borderWidth: 1,
@@ -380,19 +495,22 @@ const styles = StyleSheet.create({
   },
   stepperBtnText: { color: C.text, fontSize: 20, fontWeight: "700" },
   stepperValue: { color: C.text, fontSize: 22, fontWeight: "800", minWidth: 28, textAlign: "center" },
-  selectedFacility: {
+  facilitySelect: {
     backgroundColor: C.surface,
     borderRadius: 12,
     padding: 14,
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    borderWidth: 1.5,
-    borderColor: C.primary,
+    borderWidth: 1,
+    borderColor: C.border,
   },
-  selectedFacilityName: { color: C.text, fontSize: 15, fontWeight: "600" },
+  facilitySelectActive: { borderColor: C.primary },
+  facilitySelectTextWrap: { flex: 1, paddingRight: 12 },
+  facilitySelectText: { color: C.text, fontSize: 15, fontWeight: "700" },
+  facilitySelectPlaceholder: { color: C.muted, fontWeight: "600" },
   selectedFacilityAddr: { color: C.muted, fontSize: 12, marginTop: 2 },
-  clearX: { color: C.muted, fontSize: 16 },
+  dropdownChevron: { color: C.muted, fontSize: 18, fontWeight: "800" },
   facilityDropdown: {
     backgroundColor: C.surface,
     borderRadius: 12,
@@ -408,6 +526,7 @@ const styles = StyleSheet.create({
   },
   facilityOptionName: { color: C.text, fontSize: 14, fontWeight: "600" },
   facilityOptionCity: { color: C.muted, fontSize: 12, marginTop: 2 },
+  facilityEmpty: { color: C.muted, fontSize: 13, padding: 14, textAlign: "center" },
   noResults: { color: C.muted, fontSize: 13, marginTop: 8, textAlign: "center" },
   submitBtn: {
     backgroundColor: C.primary,

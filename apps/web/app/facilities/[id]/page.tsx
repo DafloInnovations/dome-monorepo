@@ -294,7 +294,7 @@ export default async function FacilityDetailPage({ params }: PageProps) {
             <div className="sticky top-24">
               <div className="bg-surface border border-border rounded-dome p-5">
                 <h2 className="text-base font-bold text-white mb-4">Select a Slot</h2>
-                <SlotBookingCta facilityId={facility.id} facilityName={facility.name} />
+                <SlotBookingCta facilityId={facility.id} facilityName={facility.name} sport={facility.sport} />
               </div>
             </div>
           </div>

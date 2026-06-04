@@ -38,11 +38,6 @@ interface AvailableCourtsResult {
   courts: AvailableCourt[];
 }
 
-const SPORT_EMOJI: Record<string, string> = {
-  SOCCER: "⚽", BASKETBALL: "🏀", TENNIS: "🎾", BADMINTON: "🏸",
-  VOLLEYBALL: "🏐", HOCKEY: "🏒", SQUASH: "🎾", PICKLEBALL: "🏓",
-};
-
 function getNext7Days(): Date[] {
   return Array.from({ length: 7 }, (_, i) => {
     const d = new Date();
@@ -79,12 +74,29 @@ function buildTimeslots(): string[] {
 }
 const ALL_TIMES = buildTimeslots();
 
+interface EquipmentItem {
+  id: string;
+  name: string;
+  description: string | null;
+  sport: string;
+  priceCAD: number;
+  quantity: number;
+  availableQuantity: number;
+}
+
+const SPORT_EMOJI: Record<string, string> = {
+  BADMINTON: "🏸", TENNIS: "🎾", BASKETBALL: "🏀", SOCCER: "⚽",
+  PICKLEBALL: "🏓", VOLLEYBALL: "🏐", HOCKEY: "🏒", CRICKET: "🏏",
+  BASEBALL: "⚾", SQUASH: "🎾",
+};
+
 interface Props {
   facilityId: string;
   facilityName: string;
+  sport?: string;
 }
 
-export default function SlotBookingCta({ facilityId, facilityName }: Props) {
+export default function SlotBookingCta({ facilityId, facilityName, sport }: Props) {
   const router = useRouter();
   const days = getNext7Days();
 
@@ -98,6 +110,10 @@ export default function SlotBookingCta({ facilityId, facilityName }: Props) {
   const [bookingError, setBookingError] = useState("");
   const [alertSet, setAlertSet] = useState(false);
   const [alertLoading, setAlertLoading] = useState(false);
+
+  // Equipment state
+  const [equipment, setEquipment] = useState<EquipmentItem[]>([]);
+  const [equipmentSelected, setEquipmentSelected] = useState<Record<string, number>>({});
 
   // Recurring state
   const [recurringOn, setRecurringOn] = useState(false);
@@ -121,6 +137,16 @@ export default function SlotBookingCta({ facilityId, facilityName }: Props) {
       .catch(() => setCourtsResult(null))
       .finally(() => setCourtsLoading(false));
   }, [facilityId, date, startTime, duration]);
+
+  // Fetch equipment once when facilityId/sport is known
+  useEffect(() => {
+    if (!facilityId) return;
+    const qs = sport ? `?sport=${encodeURIComponent(sport)}` : "";
+    fetch(`${API_URL}/facilities/${facilityId}/equipment${qs}`)
+      .then((r) => r.json())
+      .then((json: { data: EquipmentItem[] }) => setEquipment(json.data ?? []))
+      .catch(() => null);
+  }, [facilityId, sport]);
 
   function toggleCourt(court: AvailableCourt) {
     if (!court.isAvailable) return;
@@ -148,6 +174,18 @@ export default function SlotBookingCta({ facilityId, facilityName }: Props) {
       });
 
       const { type, bookingId, groupId, clientSecret, totalCAD } = result.data;
+
+      // Add equipment if selected (updates PaymentIntent amount server-side)
+      const equipItems = Object.entries(equipmentSelected)
+        .filter(([, qty]) => qty > 0)
+        .map(([equipmentId, quantity]) => ({ equipmentId, quantity }));
+      if (equipItems.length > 0 && type === "single" && bookingId) {
+        await apiFetch(`/bookings/${bookingId}/equipment`, {
+          method: "POST",
+          body: JSON.stringify({ items: equipItems }),
+        });
+      }
+
       const courtNames = selectedCourts.map((c) => c.name).join(", ");
       const params = new URLSearchParams({
         facilityId,
@@ -195,7 +233,12 @@ export default function SlotBookingCta({ facilityId, facilityName }: Props) {
     }
   }
 
-  const totalPrice = selectedCourts.reduce((s, c) => s + c.totalPriceCAD, 0);
+  const courtPrice = selectedCourts.reduce((s, c) => s + c.totalPriceCAD, 0);
+  const equipmentTotal = Object.entries(equipmentSelected).reduce((s, [id, qty]) => {
+    const eq = equipment.find((e) => e.id === id);
+    return s + (eq ? eq.priceCAD * qty : 0);
+  }, 0);
+  const totalPrice = courtPrice + equipmentTotal;
   const canBook = selectedCourts.length > 0 && !!startTime;
 
   // Recurring helpers
@@ -501,15 +544,65 @@ export default function SlotBookingCta({ facilityId, facilityName }: Props) {
         </div>
       )}
 
+      {/* Equipment upsell */}
+      {canBook && !recurringOn && equipment.length > 0 && (
+        <div className="bg-surface border border-border rounded-dome p-4 space-y-1">
+          <p className="text-xs font-semibold text-muted uppercase tracking-wide mb-3">🎒 Add Equipment (Optional)</p>
+          {equipment.map((item) => {
+            const qty = equipmentSelected[item.id] ?? 0;
+            const soldOut = item.availableQuantity === 0;
+            const emoji = SPORT_EMOJI[item.sport.toUpperCase()] ?? "🎒";
+            return (
+              <div key={item.id} className={`flex items-center justify-between py-2 border-b border-border last:border-0 ${soldOut ? "opacity-40" : ""}`}>
+                <div className="flex items-center gap-2 flex-1 min-w-0">
+                  <span className="text-lg">{emoji}</span>
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-white truncate">{item.name}</p>
+                    {item.description && <p className="text-xs text-muted truncate">{item.description}</p>}
+                    {soldOut
+                      ? <p className="text-xs text-red-400 font-semibold">Sold out</p>
+                      : <p className="text-xs text-primary font-bold">C${item.priceCAD.toFixed(2)} / session</p>
+                    }
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 ml-4 shrink-0">
+                  <button
+                    onClick={() => setEquipmentSelected((p) => { const n = {...p}; if (qty <= 1) delete n[item.id]; else n[item.id] = qty - 1; return n; })}
+                    disabled={qty === 0 || soldOut}
+                    className="w-7 h-7 rounded-full bg-black border border-border text-white text-lg font-bold flex items-center justify-center disabled:opacity-30 hover:border-primary/50 transition-colors"
+                  >−</button>
+                  <span className="text-sm font-bold text-white w-4 text-center">{qty}</span>
+                  <button
+                    onClick={() => setEquipmentSelected((p) => ({...p, [item.id]: Math.min(item.availableQuantity, qty + 1)}))}
+                    disabled={soldOut || qty >= item.availableQuantity}
+                    className="w-7 h-7 rounded-full bg-black border border-border text-white text-lg font-bold flex items-center justify-center disabled:opacity-30 hover:border-primary/50 transition-colors"
+                  >+</button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       {/* CTA */}
       {canBook && (
         <div className="border-t border-border pt-4 space-y-2">
-          <div className="flex justify-between text-sm">
-            <span className="text-muted">
-              {selectedCourts.length} court{selectedCourts.length !== 1 ? "s" : ""} ·{" "}
-              {startTime ? formatAmPm(startTime) : ""} – {endTime ? formatAmPm(endTime) : ""}
-            </span>
-            <span className="text-primary font-bold">{recurringOn ? `C$${recurringPayModel === "PAY_UPFRONT" ? recurringTotal.toFixed(2) : totalPrice.toFixed(2)}` : `C$${totalPrice.toFixed(2)}`}</span>
+          {/* Live price breakdown */}
+          <div className="bg-black rounded-dome px-4 py-3 text-sm space-y-1">
+            <div className="flex justify-between">
+              <span className="text-muted">Court{selectedCourts.length > 1 ? "s" : ""}</span>
+              <span className="text-white">C${courtPrice.toFixed(2)}</span>
+            </div>
+            {equipmentTotal > 0 && (
+              <div className="flex justify-between">
+                <span className="text-muted">Equipment</span>
+                <span className="text-white">C${equipmentTotal.toFixed(2)}</span>
+              </div>
+            )}
+            <div className="flex justify-between font-bold border-t border-border pt-1 mt-1">
+              <span className="text-white">{recurringOn ? (recurringPayModel === "PAY_UPFRONT" ? "Total upfront" : "First session") : "Total (excl. tax)"}</span>
+              <span className="text-primary">{recurringOn ? `C$${recurringPayModel === "PAY_UPFRONT" ? recurringTotal.toFixed(2) : totalPrice.toFixed(2)}` : `C$${totalPrice.toFixed(2)}`}</span>
+            </div>
           </div>
           <button
             onClick={handleBook}

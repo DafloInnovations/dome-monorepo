@@ -23,9 +23,11 @@ import { useNotificationsContext } from "../../src/context/NotificationsContext"
 interface City {
   name: string;
   province: string;
-  lat: number;
-  lng: number;
+  lat?: number;
+  lng?: number;
 }
+
+const ALL_CITIES: City = { name: "All Cities", province: "" };
 
 const CITIES: City[] = [
   { name: "Toronto",     province: "ON", lat: 43.6532, lng: -79.3832  },
@@ -46,7 +48,7 @@ const CITIES: City[] = [
 ];
 
 const TORONTO = CITIES[0]!;
-const STORAGE_KEY = "dome_selected_city";
+const STORAGE_KEY = "dome_selected_city_v2";
 const SPORTS = ["All", "Soccer", "Basketball", "Tennis", "Badminton", "Hockey", "Pickleball"];
 
 const C = {
@@ -71,11 +73,12 @@ function CityPickerModal({ visible, selectedCity, onSelect, onClose }: CityPicke
   const [query, setQuery] = useState("");
   const [locating, setLocating] = useState(false);
 
+  const cityOptions = [ALL_CITIES, ...CITIES];
   const filtered = query.trim()
-    ? CITIES.filter((c) =>
+    ? cityOptions.filter((c) =>
         `${c.name} ${c.province}`.toLowerCase().includes(query.toLowerCase())
       )
-    : CITIES;
+    : cityOptions;
 
   async function handleUseGPS() {
     setLocating(true);
@@ -87,6 +90,7 @@ function CityPickerModal({ visible, selectedCity, onSelect, onClose }: CityPicke
       let nearest = TORONTO;
       let minDist = Infinity;
       for (const city of CITIES) {
+        if (city.lat === undefined || city.lng === undefined) continue;
         const d = Math.hypot(
           city.lat - loc.coords.latitude,
           city.lng - loc.coords.longitude
@@ -178,18 +182,22 @@ function CityPickerModal({ visible, selectedCity, onSelect, onClose }: CityPicke
 function EmptyState({
   cityName,
   isToronto,
+  isAllCities,
   onExploreToronto,
 }: {
   cityName: string;
   isToronto: boolean;
+  isAllCities: boolean;
   onExploreToronto: () => void;
 }) {
   return (
     <View style={styles.emptyWrap}>
       <Text style={styles.emptyEmoji}>🏟</Text>
-      <Text style={styles.emptyTitle}>No facilities in {cityName} yet</Text>
+      <Text style={styles.emptyTitle}>
+        {isAllCities ? "No facilities yet" : `No facilities in ${cityName} yet`}
+      </Text>
       <Text style={styles.emptySub}>Be the first venue to join Dome</Text>
-      {!isToronto && (
+      {!isToronto && !isAllCities && (
         <Pressable style={styles.primaryBtn} onPress={onExploreToronto}>
           <Text style={styles.primaryBtnText}>Explore Toronto instead</Text>
         </Pressable>
@@ -203,7 +211,7 @@ function EmptyState({
 export default function DiscoverScreen() {
   const router = useRouter();
   const { unreadCount } = useNotificationsContext();
-  const [selectedCity, setSelectedCity] = useState<City>(TORONTO);
+  const [selectedCity, setSelectedCity] = useState<City>(ALL_CITIES);
   const [pickerVisible, setPickerVisible] = useState(false);
   const [search, setSearch] = useState("");
   const [activeSport, setActiveSport] = useState("All");
@@ -214,6 +222,10 @@ export default function DiscoverScreen() {
       if (!raw) return;
       try {
         const saved = JSON.parse(raw) as City;
+        if (saved.name === ALL_CITIES.name) {
+          setSelectedCity(ALL_CITIES);
+          return;
+        }
         // Validate it's still in our list (guard against stale data)
         const match = CITIES.find((c) => c.name === saved.name);
         if (match) setSelectedCity(match);
@@ -226,7 +238,7 @@ export default function DiscoverScreen() {
   const { facilities, isLoading, error, refetch } = useFacilities({
     lat: selectedCity.lat,
     lng: selectedCity.lng,
-    radius: 10,
+    radius: selectedCity.lat !== undefined && selectedCity.lng !== undefined ? 10 : undefined,
     sport: activeSport === "All" ? undefined : activeSport,
   });
 
@@ -244,6 +256,7 @@ export default function DiscoverScreen() {
     : facilities;
 
   const isToronto = selectedCity.name === "Toronto";
+  const isAllCities = selectedCity.name === ALL_CITIES.name;
 
   return (
     <View style={styles.container}>
@@ -253,7 +266,7 @@ export default function DiscoverScreen() {
           <Text style={styles.headerLabel}>Near</Text>
           <View style={styles.headerRow}>
             <Text style={styles.headerCity}>
-              {selectedCity.name}, {selectedCity.province}
+              {isAllCities ? selectedCity.name : `${selectedCity.name}, ${selectedCity.province}`}
             </Text>
             <Text style={styles.headerArrow}>▾</Text>
           </View>
@@ -329,6 +342,7 @@ export default function DiscoverScreen() {
             <EmptyState
               cityName={selectedCity.name}
               isToronto={isToronto}
+              isAllCities={isAllCities}
               onExploreToronto={() => handleCitySelect(TORONTO)}
             />
           }
@@ -396,16 +410,19 @@ const styles = StyleSheet.create({
     fontSize: 15,
   },
   // Sport pills
-  pillRow: { flexGrow: 0, marginBottom: 16 },
-  pillContent: { paddingHorizontal: 16, gap: 8 },
+  pillRow: { flexGrow: 0, flexShrink: 0, height: 48, marginBottom: 16 },
+  pillContent: { paddingHorizontal: 16, gap: 8, alignItems: "center" },
   pill: {
     backgroundColor: C.surface,
     borderRadius: 99,
+    minHeight: 36,
+    minWidth: 64,
     paddingHorizontal: 16,
-    paddingVertical: 8,
+    alignItems: "center",
+    justifyContent: "center",
   },
   pillActive: { backgroundColor: C.primary },
-  pillText: { color: C.muted, fontSize: 13, fontWeight: "600" },
+  pillText: { color: C.muted, fontSize: 13, fontWeight: "600", lineHeight: 18 },
   pillTextActive: { color: C.text },
   // List
   list: { paddingBottom: 32 },

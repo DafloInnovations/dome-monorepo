@@ -48,6 +48,7 @@ export default function LoginPage() {
           accessToken?: string;
           vendorStatus?: "APPROVED" | "PENDING" | "REJECTED" | "NONE";
           user?: { role?: string; firstName?: string; lastName?: string; phone?: string; id?: string; businessName?: string };
+          vendor?: { businessName?: string };
         };
         message?: string;
       };
@@ -57,17 +58,21 @@ export default function LoginPage() {
       }
 
       const user = data.data?.user;
+      const businessName = data.data?.vendor?.businessName ?? user?.businessName;
       const vendorStatus = data.data?.vendorStatus ?? "NONE";
 
       // Save token + user regardless of vendor status
       setToken(data.data!.accessToken!);
+      if (businessName) {
+        localStorage.setItem("businessName", businessName);
+      }
       setStoredUser({
         id:           user?.id ?? "",
         phone:        user?.phone ?? "",
         firstName:    user?.firstName ?? "",
         lastName:     user?.lastName ?? "",
         role:         user?.role ?? "PLAYER",
-        businessName: user?.businessName,
+        businessName,
       });
 
       // Route based on vendor application status

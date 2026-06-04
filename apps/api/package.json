@@ -25,6 +25,7 @@
     "@dome/types": "workspace:*",
     "@dome/utils": "workspace:*",
     "@prisma/client": "^6.1.0",
+    "@sendgrid/mail": "^8.1.6",
     "@types/node-cron": "^3.0.11",
     "cors": "^2.8.5",
     "express": "^4.21.2",

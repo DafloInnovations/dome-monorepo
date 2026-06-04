@@ -187,6 +187,42 @@ router.post("/me/device-token", authenticate, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// PUT /api/v1/users/me/email
+const emailSchema = z.object({
+  email: z.string().email().max(254),
+});
+
+router.put("/me/email", authenticate, validate(emailSchema), async (req, res, next) => {
+  try {
+    const { email } = req.body as z.infer<typeof emailSchema>;
+    const user = await prisma.user.update({
+      where: { id: req.user!.sub as string },
+      data: { email: email.toLowerCase().trim() },
+      select: { id: true, email: true },
+    });
+    res.json({ data: user });
+  } catch (err) { next(err); }
+});
+
+// PUT /api/v1/users/me/email-preferences
+const emailPrefsSchema = z.object({
+  emailBookingConfirmation: z.boolean().optional(),
+  emailReminders:           z.boolean().optional(),
+  emailMarketing:           z.boolean().optional(),
+});
+
+router.put("/me/email-preferences", authenticate, validate(emailPrefsSchema), async (req, res, next) => {
+  try {
+    const data = req.body as z.infer<typeof emailPrefsSchema>;
+    const user = await prisma.user.update({
+      where: { id: req.user!.sub as string },
+      data,
+      select: { emailBookingConfirmation: true, emailReminders: true, emailMarketing: true },
+    });
+    res.json({ data: user });
+  } catch (err) { next(err); }
+});
+
 router.delete("/me", authenticate, async (req, res) => {
   // TODO: anonymize / delete account (PIPEDA compliance)
   res.status(204).end();

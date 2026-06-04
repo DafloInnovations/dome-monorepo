@@ -104,3 +104,27 @@ export interface RevenueData {
   revenueBySport: Array<{ sport: string; amount: number }>;
   topVendors: Array<{ vendorId: string; businessName: string; amount: number; bookings: number }>;
 }
+
+export interface AdminReview {
+  id: string;
+  rating: number;
+  title: string | null;
+  body: string | null;
+  sport: string;
+  isVerified: boolean;
+  isVisible: boolean;
+  vendorReply: string | null;
+  flaggedAt: string | null;
+  flagReason: string | null;
+  createdAt: string;
+  user: { firstName: string; lastName: string };
+  facility: { id: string; name: string };
+}
+
+export interface AdminReviewsResponse {
+  reviews: AdminReview[];
+  total: number;
+  page: number;
+  limit: number;
+  hasMore: boolean;
+}

@@ -1,4 +1,4 @@
-import { Platform, Pressable, Share, StyleSheet, Text, View } from "react-native";
+import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 
 const C = {
@@ -12,10 +12,12 @@ const C = {
 };
 
 export default function BookingSuccessScreen() {
-  const { bookingId, facilityName, date, startTime, endTime, totalCAD } =
+  const { bookingId, facilityName, facilityCity, sport, date, startTime, endTime, totalCAD } =
     useLocalSearchParams<{
       bookingId: string;
       facilityName: string;
+      facilityCity: string;
+      sport: string;
       date: string;
       startTime: string;
       endTime: string;
@@ -24,17 +26,20 @@ export default function BookingSuccessScreen() {
 
   const router = useRouter();
 
-  async function handleShare() {
-    try {
-      await Share.share({
-        message: `Just booked ${facilityName ?? "a facility"} on Dome! ${
-          date ? `${date} ` : ""
-        }${startTime && endTime ? `${startTime}–${endTime}` : ""}. Download Dome to join my game 🏟`,
-        title: "I just booked on Dome!",
-      });
-    } catch {
-      // user dismissed share sheet
-    }
+  function handleShareCard() {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (router as any).push({
+      pathname: "/share/[bookingId]",
+      params: {
+        bookingId: bookingId ?? "",
+        facilityName: facilityName ?? "",
+        facilityCity: facilityCity ?? "",
+        sport: sport ?? "",
+        date: date ?? "",
+        startTime: startTime ?? "",
+        endTime: endTime ?? "",
+      },
+    });
   }
 
   return (
@@ -66,9 +71,16 @@ export default function BookingSuccessScreen() {
         <Text style={styles.pointsText}>+100 Dome Points earned</Text>
       </View>
 
-      {/* Actions */}
-      <Pressable style={styles.shareBtn} onPress={handleShare}>
-        <Text style={styles.shareBtnText}>Share Your Game</Text>
+      {/* Share card teaser */}
+      <Pressable style={styles.shareCardTeaser} onPress={handleShareCard}>
+        <View style={styles.shareTeaserLeft}>
+          <Text style={styles.shareTeaserEmoji}>📤</Text>
+          <View>
+            <Text style={styles.shareTeaserTitle}>Share your game</Text>
+            <Text style={styles.shareTeaserSub}>Create a share card · Earn +50 pts</Text>
+          </View>
+        </View>
+        <Text style={styles.shareTeaserArrow}>→</Text>
       </Pressable>
 
       <Pressable
@@ -170,16 +182,23 @@ const styles = StyleSheet.create({
   },
   pointsEmoji: { fontSize: 18 },
   pointsText: { color: "#F59E0B", fontSize: 14, fontWeight: "700" },
-  shareBtn: {
-    backgroundColor: C.surface,
+  shareCardTeaser: {
+    backgroundColor: "#0f0f1a",
     borderRadius: 14,
-    paddingVertical: 15,
-    alignItems: "center",
+    paddingVertical: 14,
+    paddingHorizontal: 16,
     marginBottom: 12,
     borderWidth: 1,
-    borderColor: "#3A3A3C",
+    borderColor: "#3A3A5C",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
   },
-  shareBtnText: { color: C.text, fontSize: 16, fontWeight: "600" },
+  shareTeaserLeft: { flexDirection: "row", alignItems: "center", gap: 12 },
+  shareTeaserEmoji: { fontSize: 26 },
+  shareTeaserTitle: { color: C.text, fontSize: 15, fontWeight: "700" },
+  shareTeaserSub: { color: "#a78bfa", fontSize: 12, marginTop: 2 },
+  shareTeaserArrow: { color: "#a78bfa", fontSize: 18, fontWeight: "700" },
   homeBtn: {
     backgroundColor: C.primary,
     borderRadius: 14,

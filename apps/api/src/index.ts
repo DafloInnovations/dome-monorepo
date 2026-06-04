@@ -5,7 +5,7 @@ import { initSocket } from "./lib/socket";
 import { sendBookingReminders } from "./jobs/reminders";
 import { runRecurringBookings } from "./jobs/recurring";
 import { runExpireAlerts } from "./jobs/alerts";
-import { sendReviewPrompts } from "./jobs/reviews";
+import { sendReviewPrompts, sendEmailReviewRequests } from "./jobs/reviews";
 
 const PORT = process.env["PORT"] ?? 3001;
 
@@ -27,5 +27,8 @@ cron.schedule("0 0 * * *", runRecurringBookings);
 // Daily midnight — expire stale availability alerts
 cron.schedule("1 0 * * *", runExpireAlerts);
 
-// Daily 10:00 AM — review prompts for bookings that ended yesterday
+// Daily 10:00 AM — push review prompts for bookings that ended yesterday
 cron.schedule("0 10 * * *", sendReviewPrompts);
+
+// Hourly — email review requests 2h after slot end time
+cron.schedule("0 * * * *", sendEmailReviewRequests);

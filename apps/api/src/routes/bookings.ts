@@ -13,6 +13,7 @@ import {
   createGroupBooking,
   createTimeBooking,
   getGroupBooking,
+  logBookingShare,
   myBookings,
   releaseLock,
 } from "../services/bookings.service";
@@ -23,6 +24,7 @@ import {
   getMyRecurringSeries,
   pauseRecurringSeries,
 } from "../services/recurring.service";
+import { addEquipmentToBooking, removeEquipmentFromBooking } from "../services/equipment.service";
 
 const router = Router();
 
@@ -249,6 +251,50 @@ router.put("/recurring/:seriesId/pause", validate(recurringPauseSchema), async (
   try {
     const { pauseUntil } = req.body as z.infer<typeof recurringPauseSchema>;
     const result = await pauseRecurringSeries(req.user!.sub, param(req.params["seriesId"]!), pauseUntil);
+    res.json({ data: result });
+  } catch (err) { next(err); }
+});
+
+// POST /api/v1/bookings/:id/equipment
+const equipmentSchema = z.object({
+  items: z.array(
+    z.object({ equipmentId: z.string().cuid(), quantity: z.number().int().min(1).max(20) })
+  ).min(1),
+});
+router.post("/:id/equipment", validate(equipmentSchema), async (req, res, next) => {
+  try {
+    const result = await addEquipmentToBooking(
+      req.user!.sub,
+      param(req.params["id"]!),
+      (req.body as z.infer<typeof equipmentSchema>).items
+    );
+    res.json({ data: result });
+  } catch (err) { next(err); }
+});
+
+// DELETE /api/v1/bookings/:id/equipment/:rentalId
+router.delete("/:id/equipment/:rentalId", async (req, res, next) => {
+  try {
+    const result = await removeEquipmentFromBooking(
+      req.user!.sub,
+      param(req.params["id"]!),
+      param(req.params["rentalId"]!)
+    );
+    res.json({ data: result });
+  } catch (err) { next(err); }
+});
+
+// POST /api/v1/bookings/:id/share
+const shareSchema = z.object({
+  platform: z.enum(["instagram", "whatsapp", "other"]),
+});
+router.post("/:id/share", authenticate, validate(shareSchema), async (req, res, next) => {
+  try {
+    const result = await logBookingShare(
+      req.user!.sub,
+      param(req.params["id"]!),
+      (req.body as z.infer<typeof shareSchema>).platform
+    );
     res.json({ data: result });
   } catch (err) { next(err); }
 });

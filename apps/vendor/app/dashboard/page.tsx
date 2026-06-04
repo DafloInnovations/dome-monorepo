@@ -6,9 +6,11 @@ import Header from "../../components/layout/Header";
 import StatsCard from "../../components/ui/StatsCard";
 import DataTable from "../../components/ui/DataTable";
 import StatusBadge from "../../components/ui/StatusBadge";
+import { useVendorProfile } from "../../components/layout/VendorProfileProvider";
 import { api, type AnalyticsData, type Booking } from "../../lib/api";
 
 export default function DashboardPage() {
+  const { businessName } = useVendorProfile();
   const [analytics, setAnalytics] = useState<AnalyticsData | null>(null);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -31,6 +33,13 @@ export default function DashboardPage() {
     <>
       <Header title="Dashboard" />
       <main className="flex-1 p-6 space-y-6 overflow-auto">
+        <div>
+          <p className="text-sm font-semibold uppercase tracking-wide text-muted">Dashboard</p>
+          <h2 className="mt-1 text-2xl font-black text-white">
+            Welcome back, {businessName}
+          </h2>
+        </div>
+
         {error && (
           <div className="bg-red-900/30 border border-red-700 rounded-dome px-4 py-3 text-red-400 text-sm">
             {error}

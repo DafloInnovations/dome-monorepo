@@ -30,7 +30,16 @@
     },
     "plugins": [
       "expo-router",
-      "expo-location"
+      "expo-location",
+      "expo-image-picker",
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Allow Dome to save share cards to your Photos.",
+          "savePhotosPermission": "Allow Dome to save images to your Photos.",
+          "isAccessMediaLocationEnabled": true
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

@@ -10,7 +10,7 @@ import {
   Text,
   View,
 } from "react-native";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import GameCard from "../../src/components/GameCard";
 import { useConnectActions, useGames } from "../../src/hooks/useConnect";
 import { useAuth } from "../../src/context/AuthContext";
@@ -51,7 +51,7 @@ export default function ConnectScreen() {
   const [joinedIds, setJoinedIds] = useState<Set<string>>(new Set());
 
   const gamesFilter = useMemo(() => {
-    const f: Record<string, string> = { city: "Toronto" };
+    const f: Record<string, string> = {};
     if (timeFilter === "today") f["date"] = todayStr();
     if (sportFilter) f["sport"] = sportFilter;
     return f;
@@ -59,6 +59,12 @@ export default function ConnectScreen() {
 
   const { games, isLoading, error, refetch } = useGames(gamesFilter);
   const { joinGame, isLoading: isJoining } = useConnectActions();
+
+  useFocusEffect(
+    useCallback(() => {
+      void refetch();
+    }, [refetch])
+  );
 
   const filtered = useMemo(() => {
     if (timeFilter !== "week") return games;

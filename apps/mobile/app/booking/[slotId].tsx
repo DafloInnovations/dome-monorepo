@@ -49,6 +49,8 @@ export default function BookingScreen() {
     endTime,
     priceCAD,
     facilityName,
+    facilityCity,
+    sport,
     date,
   } = useLocalSearchParams<{
     slotId: string;
@@ -58,6 +60,8 @@ export default function BookingScreen() {
     endTime: string;
     priceCAD: string;
     facilityName: string;
+    facilityCity: string;
+    sport: string;
     date: string;
   }>();
 
@@ -174,6 +178,8 @@ export default function BookingScreen() {
         params: {
           bookingId: booking.id,
           facilityName: facilityName ?? "",
+          facilityCity: facilityCity ?? "",
+          sport: sport ?? "",
           date: date ?? "",
           startTime: startTime ?? "",
           endTime: endTime ?? "",

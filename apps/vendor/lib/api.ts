@@ -13,6 +13,8 @@ export function setToken(token: string) {
 export function clearToken() {
   localStorage.removeItem("dome_vendor_token");
   localStorage.removeItem("dome_vendor_user");
+  localStorage.removeItem("dome_vendor_profile");
+  localStorage.removeItem("businessName");
 }
 
 export function getStoredUser(): VendorUser | null {
@@ -36,6 +38,14 @@ export interface VendorUser {
   lastName: string;
   role: string;
   businessName?: string;
+}
+
+export interface VendorProfile {
+  id?: string;
+  businessName: string;
+  status?: string;
+  city?: string;
+  sports?: string[];
 }
 
 export class ApiError extends Error {
@@ -94,6 +104,8 @@ export const api = {
       }),
   },
   vendor: {
+    profile: () =>
+      apiFetch<{ data: VendorProfile }>("/vendor/profile"),
     analytics: () =>
       apiFetch<{ data: AnalyticsData }>("/vendor/analytics"),
     facilities: () =>
@@ -113,8 +125,41 @@ export const api = {
         method: "POST",
         body: JSON.stringify(body),
       }),
+    deleteSlot: (slotId: string) =>
+      apiFetch<void>(`/vendor/slots/${slotId}`, { method: "DELETE" }),
+    bulkDeleteSlots: (slotIds: string[]) =>
+      apiFetch<{ data: { deleted: number; skipped: number } }>("/vendor/slots/bulk", {
+        method: "DELETE",
+        body: JSON.stringify({ slotIds }),
+      }),
+    updateSlot: (slotId: string, body: { priceCAD?: number; status?: string }) =>
+      apiFetch<{ data: Slot }>(`/vendor/slots/${slotId}`, { method: "PUT", body: JSON.stringify(body) }),
+    blockSlot: (slotId: string) =>
+      apiFetch<{ data: Slot }>(`/vendor/slots/${slotId}/block`, { method: "PUT" }),
+    unblockSlot: (slotId: string) =>
+      apiFetch<{ data: Slot }>(`/vendor/slots/${slotId}/unblock`, { method: "PUT" }),
     connectGames: () =>
       apiFetch<{ data: OpenGame[] }>("/vendor/connect/games"),
+  },
+  equipment: {
+    list: () => apiFetch<{ data: VendorEquipment[] }>("/vendor/equipment"),
+    create: (facilityId: string, body: VendorEquipmentInput) =>
+      apiFetch<{ data: VendorEquipment }>(`/vendor/facilities/${facilityId}/equipment`, { method: "POST", body: JSON.stringify(body) }),
+    update: (id: string, body: Partial<VendorEquipmentInput> & { isActive?: boolean }) =>
+      apiFetch<{ data: VendorEquipment }>(`/vendor/equipment/${id}`, { method: "PUT", body: JSON.stringify(body) }),
+    remove: (id: string) =>
+      apiFetch<void>(`/vendor/equipment/${id}`, { method: "DELETE" }),
+  },
+  reviews: {
+    list: (params?: Record<string, string>) => {
+      const qs = params ? "?" + new URLSearchParams(params).toString() : "";
+      return apiFetch<{ data: VendorReviewsResponse }>(`/reviews/vendor${qs}`);
+    },
+    reply: (reviewId: string, reply: string) =>
+      apiFetch<{ data: VendorReview }>(`/reviews/${reviewId}/reply`, {
+        method: "POST",
+        body: JSON.stringify({ reply }),
+      }),
   },
 };
 
@@ -188,4 +233,57 @@ export interface Slot {
   endTime: string;
   priceCAD: number;
   status: string;
+}
+
+export interface VendorReview {
+  id: string;
+  rating: number;
+  title: string | null;
+  body: string | null;
+  sport: string;
+  courtQuality: number | null;
+  cleanliness: number | null;
+  valueForMoney: number | null;
+  staffFriendly: number | null;
+  vendorReply: string | null;
+  vendorRepliedAt: string | null;
+  isVerified: boolean;
+  createdAt: string;
+  user: { firstName: string; lastName: string };
+  facility: { id: string; name: string };
+  booking: { slot: { date: string } };
+}
+
+export interface VendorReviewsResponse {
+  reviews: VendorReview[];
+  total: number;
+  unanswered: number;
+  page: number;
+  limit: number;
+  hasMore: boolean;
+}
+
+export interface VendorEquipmentInput {
+  name: string;
+  description?: string | null;
+  sport: string;
+  priceCAD: number;
+  quantity: number;
+  imageUrl?: string | null;
+}
+
+export interface VendorEquipment {
+  id: string;
+  facilityId: string;
+  name: string;
+  description: string | null;
+  sport: string;
+  priceCAD: number;
+  quantity: number;
+  isActive: boolean;
+  imageUrl: string | null;
+  createdAt: string;
+  updatedAt: string;
+  facility: { id: string; name: string };
+  _count: { rentals: number };
 }

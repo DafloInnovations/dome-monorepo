@@ -14,6 +14,7 @@ import { prisma } from "../lib/prisma";
 import { redis } from "../lib/redis";
 import { stripe } from "../lib/stripe";
 import { sendPushNotification, saveNotification } from "../lib/firebase";
+import { sendRecurringSeriesConfirmation } from "../lib/email";
 
 const SLOT_LOCK_TTL = 300;
 
@@ -388,11 +389,47 @@ export async function confirmRecurringSeries(userId: string, seriesId: string, p
   }
 
   // Notify user
-  const user = await prisma.user.findUnique({ where: { id: userId }, select: { deviceToken: true } });
+  const userForNotif = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { deviceToken: true, email: true, emailBookingConfirmation: true },
+  });
   const title = "Recurring booking confirmed 🔄";
   const body = `${series.totalOccurrences} sessions booked starting ${toDateStr(series.startDate)} at ${series.startTime}`;
   await saveNotification(userId, "BOOKING_CONFIRMED", title, body, { type: "recurring_confirmed", seriesId });
-  if (user?.deviceToken) await sendPushNotification(user.deviceToken, title, body, { seriesId });
+  if (userForNotif?.deviceToken) await sendPushNotification(userForNotif.deviceToken, title, body, { seriesId });
+
+  // Email
+  if (userForNotif?.email && userForNotif.emailBookingConfirmation) {
+    const facilityData = await prisma.facility.findUnique({
+      where: { id: series.facilityId },
+      select: { name: true, sport: true },
+    });
+    const court = await prisma.court.findUnique({
+      where: { id: series.courtId },
+      select: { name: true },
+    });
+    const endTime = addMins(series.startTime, series.durationMinutes);
+    const upcomingDates = series.bookings
+      .map((b) => {
+        const d = b.slot.date instanceof Date ? b.slot.date : new Date(b.slot.date);
+        return d.toLocaleDateString("en-CA", { weekday: "short", month: "short", day: "numeric", year: "numeric" });
+      })
+      .slice(0, 8);
+
+    sendRecurringSeriesConfirmation(userForNotif.email, {
+      facilityName: facilityData?.name ?? "Facility",
+      sport: facilityData?.sport ?? "",
+      courtName: court?.name ?? "Court",
+      startTime: series.startTime,
+      endTime,
+      frequency: series.frequency,
+      upcomingDates,
+      paymentModel: series.paymentModel,
+      totalCAD: series.bookings.reduce((s, b) => s + Number(b.totalCAD), 0),
+      discountPercent: series.discountPercent ?? 0,
+      totalSessions: series.totalOccurrences,
+    }).catch(() => null);
+  }
 
   return prisma.recurringSeries.findUnique({ where: { id: seriesId }, include: { bookings: { include: { slot: true } } } });
 }

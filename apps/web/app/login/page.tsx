@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { API_URL } from "../../lib/api";
 import { isAuthenticated, setToken, setStoredUser } from "../../lib/auth";
 
-export default function LoginPage() {
+function LoginContent() {
   const router = useRouter();
   const params = useSearchParams();
   const redirect = params.get("redirect") ?? "/";
@@ -139,5 +139,13 @@ export default function LoginPage() {
         </div>
       </div>
     </main>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<main className="min-h-[calc(100vh-64px)] bg-black" />}>
+      <LoginContent />
+    </Suspense>
   );
 }

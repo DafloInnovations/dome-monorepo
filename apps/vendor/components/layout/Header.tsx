@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { getToken, clearToken } from "../../lib/api";
+import { clearToken } from "../../lib/api";
+import { useVendorProfile } from "./VendorProfileProvider";
 
 interface HeaderProps {
   title: string;
@@ -10,18 +11,11 @@ interface HeaderProps {
 
 export default function Header({ title }: HeaderProps) {
   const router = useRouter();
-  const [businessName, setBusinessName] = useState("Vendor Portal");
+  const { businessName } = useVendorProfile();
 
   useEffect(() => {
-    const token = getToken();
-    if (token) {
-      try {
-        JSON.parse(atob(token.split(".")[1]!));
-        const name = localStorage.getItem("businessName");
-        if (name) setBusinessName(name);
-      } catch {}
-    }
-  }, []);
+    document.title = `${title} — ${businessName} | Dome`;
+  }, [businessName, title]);
 
   function handleLogout() {
     clearToken();
@@ -30,9 +24,13 @@ export default function Header({ title }: HeaderProps) {
 
   return (
     <header className="h-14 border-b border-[#222] bg-[#111] flex items-center justify-between px-6 shrink-0">
-      <h1 className="text-base font-semibold text-white">{title}</h1>
+      <div className="flex items-center gap-3 min-w-0">
+        <span className="text-base font-black text-white tracking-tight">DOME</span>
+        <span className="text-muted">|</span>
+        <span className="truncate text-sm font-semibold text-white">{businessName}</span>
+      </div>
       <div className="flex items-center gap-4">
-        <span className="text-sm text-muted">{businessName}</span>
+        <span className="text-sm text-muted">{title}</span>
         <button
           onClick={handleLogout}
           className="bg-primary hover:bg-primary-hover text-white text-xs font-semibold px-4 py-2 rounded-dome transition-colors"
