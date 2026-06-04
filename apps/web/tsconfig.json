@@ -2,11 +2,6 @@
   "extends": "@dome/config/typescript/nextjs.json",
   "compilerOptions": {
     "baseUrl": ".",
-    "paths": {
-      "@/*": [
-        "./src/*"
-      ]
-    },
     "noEmit": true,
     "resolveJsonModule": true,
     "isolatedModules": true
