@@ -856,10 +856,15 @@ router.get("/equipment", async (req, res, next) => {
 router.post("/facilities/:id/equipment", validate(equipmentSchema), async (req, res, next) => {
   try {
     const body = req.body as z.infer<typeof equipmentSchema>;
+    const equipmentData = {
+      ...body,
+      description: body.description ?? undefined,
+      imageUrl: body.imageUrl ?? undefined,
+    };
     const data = await createEquipment(
       req.user!.sub as string,
       param(req.params["id"]!),
-      { ...body, description: body.description ?? undefined }
+      equipmentData
     );
     res.status(201).json({ data });
   } catch (err) { next(err); }
@@ -868,10 +873,16 @@ router.post("/facilities/:id/equipment", validate(equipmentSchema), async (req, 
 // PUT /api/v1/vendor/equipment/:id
 router.put("/equipment/:id", validate(equipmentUpdateSchema), async (req, res, next) => {
   try {
+    const body = req.body as z.infer<typeof equipmentUpdateSchema>;
+    const equipmentData = {
+      ...body,
+      description: body.description ?? undefined,
+      imageUrl: body.imageUrl ?? undefined,
+    };
     const data = await updateEquipment(
       req.user!.sub as string,
       param(req.params["id"]!),
-      req.body as z.infer<typeof equipmentUpdateSchema>
+      equipmentData
     );
     res.json({ data });
   } catch (err) { next(err); }
