@@ -28,12 +28,24 @@ CREATE TYPE "GroupBookingStatus" AS ENUM ('PENDING', 'CONFIRMED', 'CANCELLED', '
 -- the enum.
 
 
-ALTER TYPE "SkillLevel" ADD VALUE 'ROOKIE';
-ALTER TYPE "SkillLevel" ADD VALUE 'PRO';
-ALTER TYPE "SkillLevel" ADD VALUE 'ELITE';
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_enum WHERE enumlabel = 'ROOKIE' AND enumtypid = 'public."SkillLevel"'::regtype) THEN
+    ALTER TYPE "SkillLevel" ADD VALUE 'ROOKIE';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_enum WHERE enumlabel = 'PRO' AND enumtypid = 'public."SkillLevel"'::regtype) THEN
+    ALTER TYPE "SkillLevel" ADD VALUE 'PRO';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_enum WHERE enumlabel = 'ELITE' AND enumtypid = 'public."SkillLevel"'::regtype) THEN
+    ALTER TYPE "SkillLevel" ADD VALUE 'ELITE';
+  END IF;
+END $$;
 
 -- AlterEnum
-ALTER TYPE "SlotStatus" ADD VALUE 'HELD';
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_enum WHERE enumlabel = 'HELD' AND enumtypid = 'public."SlotStatus"'::regtype) THEN
+    ALTER TYPE "SlotStatus" ADD VALUE 'HELD';
+  END IF;
+END $$;
 
 -- DropForeignKey
 ALTER TABLE "OpenGame" DROP CONSTRAINT "OpenGame_slotId_fkey";
