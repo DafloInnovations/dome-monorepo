@@ -167,7 +167,7 @@ export default function SlotBookingCta({ facilityId, facilityName, sport }: Prop
     try {
       const slotIds = selectedCourts.flatMap((c) => c.slots);
       const result = await apiFetch<{
-        data: { type: string; bookingId: string | null; groupId: string | null; clientSecret: string; totalCAD: number };
+        data: { type: string; bookingId: string | null; groupId: string | null; clientSecret: string; totalCAD: number; subtotalCAD: number; taxCAD: number };
       }>("/bookings/time-based", {
         method: "POST",
         body: JSON.stringify({ slotIds, facilityId }),
@@ -196,7 +196,9 @@ export default function SlotBookingCta({ facilityId, facilityName, sport }: Prop
         durationMinutes: String(duration),
         courts: courtNames,
         clientSecret,
-        totalCAD: String(totalCAD),
+        totalCAD: String(result.data.totalCAD),
+        subtotalCAD: String(result.data.subtotalCAD ?? result.data.totalCAD),
+        taxCAD: String(result.data.taxCAD ?? 0),
         ...(type === "single" && bookingId ? { bookingId } : {}),
         ...(type === "group" && groupId ? { groupId } : {}),
       });
