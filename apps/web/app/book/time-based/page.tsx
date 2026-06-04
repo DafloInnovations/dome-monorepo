@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { apiFetch } from "../../../lib/api";
@@ -14,7 +14,7 @@ function formatDisplayDate(dateStr: string): string {
   });
 }
 
-export default function TimeBasedBookingPage() {
+function BookingContent() {
   const router = useRouter();
   const search = useSearchParams();
 
@@ -31,7 +31,7 @@ export default function TimeBasedBookingPage() {
   const bookingId     = search.get("bookingId") ?? "";
   const groupId       = search.get("groupId") ?? "";
 
-  const [step, setStep]       = useState<"summary" | "processing" | "error">("summary");
+  const [step, setStep]         = useState<"summary" | "processing" | "error">("summary");
   const [errorMsg, setErrorMsg] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
@@ -100,7 +100,6 @@ export default function TimeBasedBookingPage() {
         <h1 className="text-2xl font-black text-white mt-3">Complete Booking</h1>
       </div>
 
-      {/* Booking summary */}
       <div className="bg-surface border border-border rounded-dome p-5 mb-4">
         <h2 className="text-sm font-semibold text-muted uppercase tracking-wide mb-4">Booking Summary</h2>
         <Row label="Facility" value={facilityName} />
@@ -114,7 +113,6 @@ export default function TimeBasedBookingPage() {
         </div>
       </div>
 
-      {/* Payment */}
       <div className="bg-surface border border-border rounded-dome p-5 mb-6">
         <h2 className="text-sm font-semibold text-muted uppercase tracking-wide mb-4">Payment</h2>
         <div className="bg-surface-2 border border-border rounded-dome p-4 text-center">
@@ -154,5 +152,17 @@ function Row({ label, value, muted, highlight }: {
         {value}
       </span>
     </div>
+  );
+}
+
+export default function TimeBasedBookingPage() {
+  return (
+    <Suspense fallback={
+      <main className="min-h-[calc(100vh-64px)] flex items-center justify-center">
+        <div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+      </main>
+    }>
+      <BookingContent />
+    </Suspense>
   );
 }
