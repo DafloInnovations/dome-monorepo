@@ -11,8 +11,7 @@
         "simulator": false
       },
       "env": {
-        "EXPO_PUBLIC_API_URL": "http://localhost:3001/api/v1",
-        "EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY": ""
+        "EXPO_PUBLIC_API_URL": "http://localhost:3001/api/v1"
       }
     },
     "preview": {
