@@ -33,8 +33,18 @@ function generateOtp(): string {
 
 // ─── Send OTP ─────────────────────────────────────────────────────────────────
 
+const TEST_MODE = process.env["TEST_MODE"] === "true";
+const TEST_OTP_BYPASS = "000000";
+
 export async function sendOtp(rawPhone: string): Promise<void> {
   const phone = normalizePhone(rawPhone);
+
+  // TEST_MODE: skip Twilio and rate limiting; any number works with code 000000
+  if (TEST_MODE) {
+    await redis.setex(`otp:${phone}`, OTP_TTL_SECONDS, JSON.stringify({ code: TEST_OTP_BYPASS, attempts: 0 }));
+    console.log(`[TEST_MODE] OTP bypass active — use code ${TEST_OTP_BYPASS} for ${phone}`);
+    return;
+  }
 
   // Rate limit: max 3 sends per 10 minutes per number
   const rateLimitKey = `otp_rate:${phone}`;
