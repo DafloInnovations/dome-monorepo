@@ -855,10 +855,11 @@ router.get("/equipment", async (req, res, next) => {
 // POST /api/v1/vendor/facilities/:id/equipment
 router.post("/facilities/:id/equipment", validate(equipmentSchema), async (req, res, next) => {
   try {
+    const body = req.body as z.infer<typeof equipmentSchema>;
     const data = await createEquipment(
       req.user!.sub as string,
       param(req.params["id"]!),
-      req.body as z.infer<typeof equipmentSchema>
+      { ...body, description: body.description ?? undefined }
     );
     res.status(201).json({ data });
   } catch (err) { next(err); }
