@@ -115,4 +115,4 @@ Taxes are calculated per-province at checkout. The `@dome/utils` `calculateTax` 
 
 ## Payments
 
-Stripe is used for card processing and vendor payouts. Each vendor must connect a Stripe Express account. See `apps/api/.env.example` for required keys.
+Stripe is used for card processing and vendor payouts. Each vendor must connect a Stripe Express account. See `apps/api/.env.example` for required keys..
