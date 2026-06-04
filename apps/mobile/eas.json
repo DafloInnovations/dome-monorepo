@@ -8,11 +8,14 @@
       "developmentClient": false,
       "distribution": "internal",
       "ios": {
-        "simulator": true
+        "simulator": false
       }
     },
     "preview": {
-      "distribution": "internal"
+      "distribution": "internal",
+      "ios": {
+        "simulator": false
+      }
     },
     "production": {
       "autoIncrement": true
