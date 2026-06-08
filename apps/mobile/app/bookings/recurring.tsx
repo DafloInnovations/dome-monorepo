@@ -12,13 +12,13 @@ import { useFocusEffect } from "expo-router";
 import { useRecurring, type RecurringSeries } from "../../src/hooks/useRecurring";
 
 const C = {
-  bg: "#000000", primary: "#E85068", surface: "#1C1C1E",
-  text: "#FFFFFF", muted: "#6B6B6B", chip: "#2C2C2E", green: "#22c55e",
+  bg: "#FFFFFF", primary: "#E85068", surface: "#F8F8F8",
+  text: "#0A0A0A", muted: "#9E9E9E", chip: "#EBEBEB", green: "#22c55e",
 };
 
 const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const FREQ_LABELS: Record<string, string> = { WEEKLY: "Weekly", BIWEEKLY: "Biweekly", MONTHLY: "Monthly" };
-const STATUS_COLORS: Record<string, string> = { ACTIVE: "#22c55e", PAUSED: "#f59e0b", CANCELLED: "#ef4444", COMPLETED: "#6B6B6B" };
+const STATUS_COLORS: Record<string, string> = { ACTIVE: "#22c55e", PAUSED: "#f59e0b", CANCELLED: "#ef4444", COMPLETED: "#9E9E9E" };
 
 function scheduleLabel(s: RecurringSeries): string {
   const days = s.daysOfWeek.length > 0
@@ -123,8 +123,8 @@ export default function RecurringSeriesScreen() {
                   <Text style={styles.facilityName}>{s.facility.name}</Text>
                   <Text style={styles.courtName}>{s.court.name}</Text>
                 </View>
-                <View style={[styles.statusBadge, { backgroundColor: `${STATUS_COLORS[s.status] ?? "#6B6B6B"}22`, borderColor: `${STATUS_COLORS[s.status] ?? "#6B6B6B"}66` }]}>
-                  <Text style={[styles.statusText, { color: STATUS_COLORS[s.status] ?? "#6B6B6B" }]}>{s.status}</Text>
+                <View style={[styles.statusBadge, { backgroundColor: `${STATUS_COLORS[s.status] ?? "#9E9E9E"}22`, borderColor: `${STATUS_COLORS[s.status] ?? "#9E9E9E"}66` }]}>
+                  <Text style={[styles.statusText, { color: STATUS_COLORS[s.status] ?? "#9E9E9E" }]}>{s.status}</Text>
                 </View>
               </View>
 

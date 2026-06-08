@@ -18,12 +18,12 @@ import { useShareCard } from "../../src/hooks/useShareCard";
 import { useMyProfile } from "../../src/hooks/useMyProfile";
 
 const C = {
-  bg: "#000000",
-  surface: "#1C1C1E",
+  bg: "#FFFFFF",
+  surface: "#F8F8F8",
   primary: "#E85068",
-  text: "#FFFFFF",
-  muted: "#6B6B6B",
-  border: "#2C2C2E",
+  text: "#0A0A0A",
+  muted: "#9E9E9E",
+  border: "#EBEBEB",
 };
 
 // Sport gradient themes for the selector chips (same keys as ShareCard)
@@ -103,7 +103,7 @@ export default function ShareCardScreen() {
 
   const sportBgChips = [
     { key: "sport", label: "Sport Theme", bg: SPORT_THEMES[sportKey]?.bg ?? "#1a0505", emoji: SPORT_THEMES[sportKey]?.emoji ?? "🏟️", isPhoto: false },
-    { key: "photo", label: "My Photo", bg: "#2C2C2E", emoji: "📷", isPhoto: true },
+    { key: "photo", label: "My Photo", bg: "#EBEBEB", emoji: "📷", isPhoto: true },
     ...Object.entries(SPORT_THEMES)
       .filter(([k]) => k !== sportKey)
       .map(([k, v]) => ({ key: k, label: v.label, bg: v.bg, emoji: v.emoji, isPhoto: false })),
@@ -363,7 +363,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 7,
   },
-  pointsBurstText: { color: "#000", fontSize: 16, fontWeight: "900" },
+  pointsBurstText: { color: "#FFFFFF", fontSize: 16, fontWeight: "900" },
 
   // Sections
   section: { paddingHorizontal: 16, marginTop: 20, gap: 10 },

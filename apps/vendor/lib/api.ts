@@ -1,20 +1,74 @@
 const API_URL =
   process.env["NEXT_PUBLIC_API_URL"] ?? "http://localhost:3001/api/v1";
 
+const TOKEN_KEY         = "dome_vendor_token";
+const REFRESH_TOKEN_KEY = "dome_vendor_refresh_token";
+
 export function getToken(): string | null {
   if (typeof window === "undefined") return null;
-  return localStorage.getItem("dome_vendor_token");
+  return localStorage.getItem(TOKEN_KEY);
 }
 
 export function setToken(token: string) {
-  localStorage.setItem("dome_vendor_token", token);
+  localStorage.setItem(TOKEN_KEY, token);
+}
+
+export function getRefreshToken(): string | null {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem(REFRESH_TOKEN_KEY);
+}
+
+export function setRefreshToken(token: string) {
+  localStorage.setItem(REFRESH_TOKEN_KEY, token);
 }
 
 export function clearToken() {
-  localStorage.removeItem("dome_vendor_token");
+  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(REFRESH_TOKEN_KEY);
   localStorage.removeItem("dome_vendor_user");
   localStorage.removeItem("dome_vendor_profile");
   localStorage.removeItem("businessName");
+}
+
+export function isTokenExpiringSoon(token: string): boolean {
+  try {
+    const payload = JSON.parse(atob(token.split(".")[1]!)) as { exp?: number };
+    const expiresIn = (payload.exp ?? 0) - Date.now() / 1000;
+    return expiresIn < 30 * 60; // less than 30 minutes
+  } catch {
+    return true;
+  }
+}
+
+export async function doRefreshAccessToken(): Promise<string | null> {
+  const refreshToken = getRefreshToken();
+  if (!refreshToken) {
+    clearToken();
+    if (typeof window !== "undefined" && window.location.pathname !== "/") {
+      window.location.href = "/";
+    }
+    return null;
+  }
+  try {
+    const res = await fetch(`${API_URL}/auth/refresh`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ refreshToken }),
+    });
+    if (!res.ok) {
+      clearToken();
+      if (typeof window !== "undefined" && window.location.pathname !== "/") {
+        window.location.href = "/";
+      }
+      return null;
+    }
+    const data = await res.json() as { data: { accessToken: string; refreshToken: string } };
+    setToken(data.data.accessToken);
+    setRefreshToken(data.data.refreshToken);
+    return data.data.accessToken;
+  } catch {
+    return null;
+  }
 }
 
 export function getStoredUser(): VendorUser | null {
@@ -57,29 +111,54 @@ export class ApiError extends Error {
   }
 }
 
+function buildHeaders(token: string | null, extra?: HeadersInit): HeadersInit {
+  return {
+    "Content-Type": "application/json",
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...(extra ?? {}),
+  };
+}
+
 export async function apiFetch<T>(
   path: string,
   options?: RequestInit
 ): Promise<T> {
+  const isAuthPath = path.startsWith("/auth/");
+
+  // Proactively refresh if the token expires within 30 minutes
+  if (!isAuthPath) {
+    const token = getToken();
+    if (token && isTokenExpiringSoon(token)) {
+      await doRefreshAccessToken();
+    }
+  }
+
   const token = getToken();
   const res = await fetch(`${API_URL}${path}`, {
     ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(options?.headers ?? {}),
-    },
+    headers: buildHeaders(token, options?.headers),
   });
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({})) as { message?: string };
-    if (res.status === 401 && !path.startsWith("/auth/")) {
-      clearToken();
-      if (typeof window !== "undefined" && window.location.pathname !== "/") {
-        window.location.href = "/";
+
+    if (res.status === 401 && !isAuthPath) {
+      const newToken = await doRefreshAccessToken();
+      if (!newToken) {
+        throw new ApiError("Session expired. Please sign in again.", 401);
       }
-      throw new ApiError("Session expired. Please sign in again.", res.status);
+      // Retry once with the fresh token
+      const retry = await fetch(`${API_URL}${path}`, {
+        ...options,
+        headers: buildHeaders(newToken, options?.headers),
+      });
+      if (!retry.ok) {
+        const retryBody = await retry.json().catch(() => ({})) as { message?: string };
+        throw new ApiError(retryBody.message ?? `HTTP ${retry.status}`, retry.status);
+      }
+      return retry.json() as Promise<T>;
     }
+
     throw new ApiError(body.message ?? `HTTP ${res.status}`, res.status);
   }
 

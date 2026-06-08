@@ -1,17 +1,15 @@
 import { useRef } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { COLORS } from "../theme";
 import type { Slot } from "../hooks/useSlots";
 
-const C = {
-  bg: "#000000",
-  primary: "#E85068",
-  surface: "#1C1C1E",
-  text: "#FFFFFF",
-  muted: "#6B6B6B",
-  available: "#166534",
-  unavailable: "#3f3f46",
-  past: "#1a1a1a",
-  selectedRange: "#E85068",
+// Functional state colors for the timeline cells (not sport colors)
+const CELL = {
+  available:   "#22C55E",   // green — slot is bookable
+  unavailable: "#D0D0D0",   // neutral gray — slot taken
+  past:        "#F0F0F0",   // very light — past / disabled
+  selected:    COLORS.primary,
+  noData:      COLORS.surface,
 };
 
 // 30-min buckets: 06:00 → 23:00 (34 buckets)
@@ -63,7 +61,6 @@ export default function TimelineSelector({ selectedTime, durationMinutes, slots,
   const nowMinutes = isToday ? new Date().getHours() * 60 + new Date().getMinutes() : -1;
   const scrollRef = useRef<ScrollView>(null);
 
-  // Build availability map from slots (any available slot at this time = green)
   const availMap = new Map<string, boolean>();
   for (const slot of slots) {
     if (!availMap.has(slot.startTime) || slot.status === "AVAILABLE") {
@@ -86,12 +83,19 @@ export default function TimelineSelector({ selectedTime, durationMinutes, slots,
   }
 
   function getBucketColor(time: string): string {
-    if (isBucketPast(time)) return C.past;
-    if (isBucketInRange(time)) return C.selectedRange;
+    if (isBucketPast(time)) return CELL.past;
+    if (isBucketInRange(time)) return CELL.selected;
     const isAvail = availMap.get(time);
-    if (isAvail === true) return C.available;
-    if (isAvail === false) return C.unavailable;
-    return C.surface; // no slot data yet
+    if (isAvail === true) return CELL.available;
+    if (isAvail === false) return CELL.unavailable;
+    return CELL.noData;
+  }
+
+  // Text is white on colored cells, dark on light/no-data cells
+  function getLabelColor(time: string): string {
+    const bg = getBucketColor(time);
+    if (bg === CELL.noData || bg === CELL.past) return COLORS.border;
+    return "rgba(255,255,255,0.75)";
   }
 
   const endTime = selectedTime && selectedEndMins !== null
@@ -122,8 +126,8 @@ export default function TimelineSelector({ selectedTime, durationMinutes, slots,
           const isInRange = isBucketInRange(time);
           const bgColor = getBucketColor(time);
           const showLabel = minsFromMidnight(time) % 60 === 0;
-
           const isPast = isBucketPast(time);
+
           return (
             <Pressable
               key={time}
@@ -131,11 +135,11 @@ export default function TimelineSelector({ selectedTime, durationMinutes, slots,
               onPress={() => !isPast && onSelectTime(time)}
             >
               {showLabel ? (
-                <Text style={[styles.timeLabel, (isSelected || isInRange) && styles.timeLabelActive]}>
+                <Text style={[styles.timeLabel, { color: getLabelColor(time) }, (isSelected || isInRange) && styles.timeLabelActive]}>
                   {time}
                 </Text>
               ) : (
-                <View style={styles.halfMark} />
+                <View style={[styles.halfMark, bgColor === CELL.noData || bgColor === CELL.past ? styles.halfMarkLight : styles.halfMarkDark]} />
               )}
               {isSelected && <View style={styles.startDot} />}
             </Pressable>
@@ -145,15 +149,15 @@ export default function TimelineSelector({ selectedTime, durationMinutes, slots,
 
       <View style={styles.legend}>
         <View style={styles.legendItem}>
-          <View style={[styles.legendDot, { backgroundColor: C.available }]} />
+          <View style={[styles.legendDot, { backgroundColor: CELL.available }]} />
           <Text style={styles.legendText}>Available</Text>
         </View>
         <View style={styles.legendItem}>
-          <View style={[styles.legendDot, { backgroundColor: C.unavailable }]} />
+          <View style={[styles.legendDot, { backgroundColor: CELL.unavailable }]} />
           <Text style={styles.legendText}>Booked</Text>
         </View>
         <View style={styles.legendItem}>
-          <View style={[styles.legendDot, { backgroundColor: C.selectedRange }]} />
+          <View style={[styles.legendDot, { backgroundColor: CELL.selected }]} />
           <Text style={styles.legendText}>Selected</Text>
         </View>
       </View>
@@ -162,34 +166,18 @@ export default function TimelineSelector({ selectedTime, durationMinutes, slots,
 }
 
 const styles = StyleSheet.create({
-  selectedDisplay: {
-    paddingHorizontal: 16,
-    marginBottom: 10,
-  },
+  selectedDisplay: { paddingHorizontal: 16, marginBottom: 10 },
   selectedLabel: {
-    color: "#6B6B6B",
+    color: COLORS.textMuted,
     fontSize: 10,
     fontWeight: "700",
     letterSpacing: 1.5,
     textTransform: "uppercase",
     marginBottom: 2,
   },
-  selectedTime: {
-    color: "#FFFFFF",
-    fontSize: 17,
-    fontWeight: "700",
-  },
-  hint: {
-    color: "#6B6B6B",
-    fontSize: 13,
-    paddingHorizontal: 16,
-    marginBottom: 10,
-  },
-  row: {
-    paddingHorizontal: 16,
-    gap: 2,
-    alignItems: "flex-end",
-  },
+  selectedTime: { color: COLORS.text, fontSize: 17, fontWeight: "700" },
+  hint: { color: COLORS.textMuted, fontSize: 13, paddingHorizontal: 16, marginBottom: 10 },
+  row: { paddingHorizontal: 16, gap: 2, alignItems: "flex-end" },
   cell: {
     width: CELL_W,
     height: CELL_H,
@@ -198,49 +186,19 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end",
     paddingBottom: 8,
   },
-  cellPast: {
-    opacity: 0.35,
-  },
-  timeLabel: {
-    color: "rgba(255,255,255,0.5)",
-    fontSize: 10,
-    fontWeight: "600",
-  },
-  timeLabelActive: {
-    color: "#FFFFFF",
-  },
-  halfMark: {
-    width: 1,
-    height: 8,
-    backgroundColor: "rgba(255,255,255,0.2)",
-    marginBottom: 4,
-  },
+  cellPast: { opacity: 0.4 },
+  timeLabel: { fontSize: 10, fontWeight: "600" },
+  timeLabelActive: { color: "#FFFFFF", fontWeight: "700" },
+  halfMark: { width: 1, height: 8, marginBottom: 4 },
+  halfMarkDark: { backgroundColor: "rgba(255,255,255,0.25)" },
+  halfMarkLight: { backgroundColor: COLORS.border },
   startDot: {
-    position: "absolute",
-    top: 8,
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+    position: "absolute", top: 8,
+    width: 8, height: 8, borderRadius: 4,
     backgroundColor: "#FFFFFF",
   },
-  legend: {
-    flexDirection: "row",
-    gap: 16,
-    paddingHorizontal: 16,
-    paddingTop: 10,
-  },
-  legendItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-  },
-  legendDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-  },
-  legendText: {
-    color: "#6B6B6B",
-    fontSize: 11,
-  },
+  legend: { flexDirection: "row", gap: 16, paddingHorizontal: 16, paddingTop: 10 },
+  legendItem: { flexDirection: "row", alignItems: "center", gap: 5 },
+  legendDot: { width: 10, height: 10, borderRadius: 5 },
+  legendText: { color: COLORS.textMuted, fontSize: 11 },
 });

@@ -6,10 +6,11 @@ export interface AccessTokenPayload {
   role: string;
 }
 
+const ROLE_EXPIRY: Record<string, string> = { VENDOR: "4h", ADMIN: "4h" };
+
 export function signAccessToken(payload: AccessTokenPayload): string {
-  return jwt.sign(payload, process.env["JWT_SECRET"]!, {
-    expiresIn: (process.env["JWT_EXPIRES_IN"] ?? "15m") as jwt.SignOptions["expiresIn"],
-  });
+  const expiry = (ROLE_EXPIRY[payload.role] ?? process.env["JWT_EXPIRES_IN"] ?? "15m") as jwt.SignOptions["expiresIn"];
+  return jwt.sign(payload, process.env["JWT_SECRET"]!, { expiresIn: expiry });
 }
 
 export function verifyAccessToken(token: string): AccessTokenPayload {

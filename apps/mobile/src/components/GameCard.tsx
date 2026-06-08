@@ -1,16 +1,7 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
+import { COLORS } from "../theme";
 import type { OpenGame } from "../hooks/useConnect";
-
-const C = {
-  bg: "#000000",
-  primary: "#E85068",
-  surface: "#1C1C1E",
-  text: "#FFFFFF",
-  muted: "#6B6B6B",
-  border: "#2C2C2E",
-  green: "#22C55E",
-};
 
 const SPORT_EMOJI: Record<string, string> = {
   SOCCER: "⚽", BASKETBALL: "🏀", TENNIS: "🎾", BADMINTON: "🏸",
@@ -18,9 +9,15 @@ const SPORT_EMOJI: Record<string, string> = {
   BASEBALL: "⚾", CRICKET: "🏏",
 };
 
+// Skill level colors — not sport colors, used as semantic tier indicators only
 const SKILL_COLOR: Record<string, string> = {
-  BEGINNER: "#6B6B6B", ROOKIE: "#22C55E", INTERMEDIATE: "#3B82F6",
-  ADVANCED: "#A855F7", PRO: "#F59E0B", ELITE: "#F59E0B", ANY: "#6B6B6B",
+  BEGINNER:     COLORS.textMuted,
+  ROOKIE:       COLORS.success,
+  INTERMEDIATE: "#3B82F6",
+  ADVANCED:     "#A855F7",
+  PRO:          COLORS.warning,
+  ELITE:        COLORS.warning,
+  ANY:          COLORS.textMuted,
 };
 
 function formatGameDate(dateStr: string | null): string {
@@ -42,7 +39,7 @@ export default function GameCard({ game, onJoin, joinedGameIds, currentUserId }:
   const router = useRouter();
   const sport = game.sport.toUpperCase();
   const emoji = SPORT_EMOJI[sport] ?? "🏟";
-  const skillColor = SKILL_COLOR[game.skillLevel.toUpperCase()] ?? C.muted;
+  const skillColor = SKILL_COLOR[game.skillLevel.toUpperCase()] ?? COLORS.textMuted;
   const spotsLeft = game.spotsLeft ?? 0;
   const playersNeeded = game.playersNeeded ?? 0;
   const playersConfirmed = game.playersConfirmed ?? 0;
@@ -60,6 +57,9 @@ export default function GameCard({ game, onJoin, joinedGameIds, currentUserId }:
 
   const hostName = [game.host.firstName, game.host.lastName].filter(Boolean).join(" ") || "Host";
 
+  // Use sport accent color for the sport badge border (subtle use ✅)
+  const sportColors = COLORS.sports[sport as keyof typeof COLORS.sports];
+
   return (
     <Pressable
       style={styles.card}
@@ -67,9 +67,9 @@ export default function GameCard({ game, onJoin, joinedGameIds, currentUserId }:
     >
       {/* Sport header */}
       <View style={styles.header}>
-        <View style={styles.sportRow}>
+        <View style={[styles.sportBadge, sportColors && { borderColor: sportColors.accent, backgroundColor: sportColors.bg }]}>
           <Text style={styles.sportEmoji}>{emoji}</Text>
-          <Text style={styles.sportName}>{sport}</Text>
+          <Text style={[styles.sportName, sportColors && { color: sportColors.accent }]}>{sport}</Text>
         </View>
         <View style={[styles.skillBadge, { borderColor: skillColor }]}>
           <Text style={[styles.skillText, { color: skillColor }]}>
@@ -126,7 +126,7 @@ export default function GameCard({ game, onJoin, joinedGameIds, currentUserId }:
         </View>
       ) : isFull ? (
         <View style={[styles.joinBtn, styles.joinBtnDisabled]}>
-          <Text style={[styles.joinBtnText, { color: C.muted }]}>Game Full</Text>
+          <Text style={[styles.joinBtnText, { color: COLORS.textMuted }]}>Game Full</Text>
         </View>
       ) : (
         <Pressable
@@ -145,46 +145,58 @@ export default function GameCard({ game, onJoin, joinedGameIds, currentUserId }:
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: C.surface,
+    backgroundColor: COLORS.surface,
     borderRadius: 16,
     padding: 16,
     marginHorizontal: 16,
     marginBottom: 12,
+    borderWidth: 1,
+    borderColor: COLORS.border,
   },
   header: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 10 },
-  sportRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  sportEmoji: { fontSize: 22 },
-  sportName: { color: C.text, fontSize: 15, fontWeight: "800", textTransform: "uppercase", letterSpacing: 1 },
+  sportBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 99,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    backgroundColor: COLORS.surfaceElevated,
+  },
+  sportEmoji: { fontSize: 16 },
+  sportName: { color: COLORS.textSecondary, fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.5 },
   skillBadge: { borderWidth: 1.5, borderRadius: 99, paddingHorizontal: 10, paddingVertical: 3 },
   skillText: { fontSize: 10, fontWeight: "700" },
-  facility: { color: C.text, fontSize: 15, fontWeight: "600", marginBottom: 3 },
-  datetime: { color: C.muted, fontSize: 13, marginBottom: 4 },
-  host: { color: C.muted, fontSize: 12, marginBottom: 12 },
+  facility: { color: COLORS.text, fontSize: 15, fontWeight: "600", marginBottom: 3 },
+  datetime: { color: COLORS.textMuted, fontSize: 13, marginBottom: 4 },
+  host: { color: COLORS.textMuted, fontSize: 12, marginBottom: 12 },
   playersSection: { marginBottom: 14 },
   playersRow: { flexDirection: "row", justifyContent: "space-between", marginBottom: 6 },
-  playersLabel: { color: C.muted, fontSize: 12 },
-  spotsLeft: { color: C.primary, fontSize: 12, fontWeight: "700" },
-  full: { color: C.muted, fontSize: 12, fontWeight: "700" },
-  progressTrack: { height: 5, backgroundColor: C.border, borderRadius: 3, overflow: "hidden" },
-  progressFill: { height: 5, backgroundColor: C.primary, borderRadius: 3 },
+  playersLabel: { color: COLORS.textMuted, fontSize: 12 },
+  spotsLeft: { color: COLORS.primary, fontSize: 12, fontWeight: "700" },
+  full: { color: COLORS.textMuted, fontSize: 12, fontWeight: "700" },
+  progressTrack: { height: 5, backgroundColor: COLORS.border, borderRadius: 3, overflow: "hidden" },
+  progressFill: { height: 5, backgroundColor: COLORS.primary, borderRadius: 3 },
   joinBtn: {
-    backgroundColor: C.primary,
+    backgroundColor: COLORS.primary,
     borderRadius: 10,
     paddingVertical: 11,
     alignItems: "center",
   },
-  joinBtnConfirmed: { backgroundColor: C.green + "22", borderWidth: 1, borderColor: C.green },
-  joinBtnPending: { backgroundColor: C.primary + "22", borderWidth: 1, borderColor: C.primary },
-  joinBtnDisabled: { backgroundColor: "#2A2A2A" },
-  joinBtnText: { color: C.text, fontSize: 14, fontWeight: "700" },
-  joinBtnConfirmedText: { color: C.green, fontSize: 14, fontWeight: "800" },
-  joinBtnPendingText: { color: C.primary, fontSize: 14, fontWeight: "800" },
+  joinBtnConfirmed: { backgroundColor: COLORS.success + "18", borderWidth: 1, borderColor: COLORS.success },
+  joinBtnPending: { backgroundColor: COLORS.primaryUltraLight, borderWidth: 1, borderColor: COLORS.primaryLight },
+  joinBtnDisabled: { backgroundColor: COLORS.surfaceElevated },
+  joinBtnText: { color: "#FFFFFF", fontSize: 14, fontWeight: "700" },
+  joinBtnConfirmedText: { color: COLORS.success, fontSize: 14, fontWeight: "800" },
+  joinBtnPendingText: { color: COLORS.primary, fontSize: 14, fontWeight: "800" },
   hostBadge: {
     borderRadius: 10,
     paddingVertical: 11,
     alignItems: "center",
     borderWidth: 1.5,
-    borderColor: C.primary,
+    borderColor: COLORS.primary,
   },
-  hostBadgeText: { color: C.primary, fontSize: 14, fontWeight: "700" },
+  hostBadgeText: { color: COLORS.primary, fontSize: 14, fontWeight: "700" },
 });

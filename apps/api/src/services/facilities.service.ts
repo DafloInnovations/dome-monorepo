@@ -141,6 +141,7 @@ export interface CreateFacilityInput {
 
 export type UpdateFacilityInput = Partial<CreateFacilityInput> & {
   isActive?: boolean;
+  cancellationWindowHours?: number;
 };
 
 // ─── List facilities ──────────────────────────────────────────────────────────
@@ -395,7 +396,7 @@ export async function updateFacility(
   });
   if (!existing) throw appError("Facility not found", 404);
 
-  const { address, operatingHours, images, isActive, ...rest } = input;
+  const { address, operatingHours, images, isActive, cancellationWindowHours, ...rest } = input;
 
   const updated = await prisma.facility.update({
     where: { id: facilityId },
@@ -406,6 +407,7 @@ export async function updateFacility(
       ...(rest.capacity && { capacity: rest.capacity }),
       ...(images && { images }),
       ...(isActive !== undefined && { isActive }),
+      ...(cancellationWindowHours !== undefined && { cancellationWindowHours }),
       ...(address && {
         address: {
           upsert: {
@@ -473,7 +475,8 @@ export async function getAvailableCourts(
   facilityId: string,
   date: string,
   startTime: string,
-  durationMinutes: number
+  durationMinutes: number,
+  sport?: string
 ) {
   const endTime = addMins(startTime, durationMinutes);
 
@@ -482,6 +485,7 @@ export async function getAvailableCourts(
     include: {
       courts: {
         where: { isActive: true },
+        include: { sportPricing: true },
         orderBy: { createdAt: "asc" },
       },
     },
@@ -489,10 +493,112 @@ export async function getAvailableCourts(
   if (!facility) throw appError("Facility not found", 404);
 
   const parsedDate = parseDate(date);
+  const requestedSport = sport?.toUpperCase() ?? null;
 
-  const courtData = await Promise.all(
-    facility.courts.map(async (court) => {
-      // Slots in the window for this court (across all statuses)
+  type CourtEntry = {
+    id: string;
+    name: string;
+    unitType: string;
+    unitLabel: string;
+    sport: string;
+    surface: string;
+    isShared: boolean;
+    sports: string[];
+    primarySport: string | null;
+    requestedSport: string | null;
+    totalPriceCAD: number;
+    basePriceCAD: number;
+    priceBreakdown: { basePriceCAD: number; appliedRule: string | null; finalPriceCAD: number } | null;
+    isAvailable: boolean;
+    notCovered: boolean;
+    slots: string[];
+    bookedUntil: string | null;
+    unavailableReason: string | null;
+  };
+
+  const courtEntries: CourtEntry[] = [];
+
+  for (const court of facility.courts) {
+    if (court.isShared && court.sports.length > 0) {
+      // Shared court — emit one entry per sport (filtered by requestedSport if given)
+      const sportsToShow = requestedSport
+        ? court.sports.includes(requestedSport) ? [requestedSport] : []
+        : court.sports;
+
+      for (const sportName of sportsToShow) {
+        // Fetch slots for this specific sport
+        const slots = await prisma.slot.findMany({
+          where: {
+            courtId: court.id,
+            date: parsedDate,
+            startTime: { gte: startTime },
+            endTime: { lte: endTime },
+            sport: sportName,
+          },
+          orderBy: { startTime: "asc" },
+          select: {
+            id: true, startTime: true, endTime: true,
+            priceCAD: true, status: true, blockReason: true,
+          },
+        });
+
+        let cursor = startTime;
+        let isFullyCovered = slots.length > 0;
+        for (const slot of slots) {
+          if (slot.startTime !== cursor) { isFullyCovered = false; break; }
+          cursor = slot.endTime;
+        }
+        if (cursor !== endTime) isFullyCovered = false;
+
+        const allAvailable = isFullyCovered && slots.every((s) => s.status === SlotStatus.AVAILABLE);
+        const blockedSlot = slots.find((s) => s.status !== SlotStatus.AVAILABLE);
+        const unavailableReason = blockedSlot?.blockReason ?? null;
+
+        // Use sport-specific pricing or fall back to slot price
+        const sportPriceRow = court.sportPricing.find((p) => p.sport === sportName);
+        const pricingResults = await calculatePricingForCourt(
+          court.id,
+          parsedDate,
+          slots.map((s) => ({
+            startTime: s.startTime,
+            endTime: s.endTime,
+            basePriceCAD: sportPriceRow ? Number(sportPriceRow.priceCAD) : Number(s.priceCAD),
+          }))
+        );
+
+        const totalPriceCAD = Math.round(
+          pricingResults.reduce((sum, p) => sum + p.finalPriceCAD, 0) * 100
+        ) / 100;
+        const baseTotalCAD = Math.round(
+          pricingResults.reduce((sum, p) => sum + p.basePriceCAD, 0) * 100
+        ) / 100;
+        const firstBreakdown = pricingResults[0];
+
+        courtEntries.push({
+          id: court.id,
+          name: court.name,
+          unitType: court.unitType,
+          unitLabel: court.unitLabel,
+          sport: sportName,
+          surface: facility.surface as string,
+          isShared: true,
+          sports: court.sports,
+          primarySport: court.primarySport,
+          requestedSport: sportName,
+          totalPriceCAD,
+          basePriceCAD: baseTotalCAD,
+          priceBreakdown: firstBreakdown
+            ? { basePriceCAD: firstBreakdown.basePriceCAD, appliedRule: firstBreakdown.appliedRule, finalPriceCAD: firstBreakdown.finalPriceCAD }
+            : null,
+          isAvailable: allAvailable,
+          notCovered: !isFullyCovered,
+          slots: allAvailable ? slots.map((s) => s.id) : [],
+          bookedUntil: !allAvailable && blockedSlot ? blockedSlot.endTime : null,
+          unavailableReason,
+        });
+      }
+    } else {
+      // Non-shared court — standard single-sport logic
       const slots = await prisma.slot.findMany({
         where: {
           courtId: court.id,
@@ -502,15 +608,11 @@ export async function getAvailableCourts(
         },
         orderBy: { startTime: "asc" },
         select: {
-          id: true,
-          startTime: true,
-          endTime: true,
-          priceCAD: true,
-          status: true,
+          id: true, startTime: true, endTime: true,
+          priceCAD: true, status: true, blockReason: true,
         },
       });
 
-      // Verify slots continuously cover startTime → endTime
       let cursor = startTime;
       let isFullyCovered = slots.length > 0;
       for (const slot of slots) {
@@ -520,11 +622,8 @@ export async function getAvailableCourts(
       if (cursor !== endTime) isFullyCovered = false;
 
       const allAvailable = isFullyCovered && slots.every((s) => s.status === SlotStatus.AVAILABLE);
-
-      // First non-available slot (for "booked until" display)
       const blockedSlot = slots.find((s) => s.status !== SlotStatus.AVAILABLE);
 
-      // Apply dynamic pricing to each slot in the window
       const pricingResults = await calculatePricingForCourt(
         court.id,
         parsedDate,
@@ -535,7 +634,6 @@ export async function getAvailableCourts(
         }))
       );
 
-      // Sum dynamic prices; use first slot's breakdown for priceBreakdown display
       const totalPriceCAD = Math.round(
         pricingResults.reduce((sum, p) => sum + p.finalPriceCAD, 0) * 100
       ) / 100;
@@ -544,35 +642,40 @@ export async function getAvailableCourts(
       ) / 100;
       const firstBreakdown = pricingResults[0];
 
-      return {
+      // Filter by requested sport if provided
+      const courtSport = (facility.sport as string).toUpperCase();
+      if (requestedSport && courtSport !== requestedSport) continue;
+
+      courtEntries.push({
         id: court.id,
         name: court.name,
         unitType: court.unitType,
         unitLabel: court.unitLabel,
         sport: facility.sport as string,
         surface: facility.surface as string,
+        isShared: false,
+        sports: [facility.sport as string],
+        primarySport: facility.sport as string,
+        requestedSport: requestedSport,
         totalPriceCAD,
         basePriceCAD: baseTotalCAD,
         priceBreakdown: firstBreakdown
-          ? {
-              basePriceCAD: firstBreakdown.basePriceCAD,
-              appliedRule: firstBreakdown.appliedRule,
-              finalPriceCAD: firstBreakdown.finalPriceCAD,
-            }
+          ? { basePriceCAD: firstBreakdown.basePriceCAD, appliedRule: firstBreakdown.appliedRule, finalPriceCAD: firstBreakdown.finalPriceCAD }
           : null,
         isAvailable: allAvailable,
         notCovered: !isFullyCovered,
         slots: allAvailable ? slots.map((s) => s.id) : [],
         bookedUntil: !allAvailable && blockedSlot ? blockedSlot.endTime : null,
-      };
-    })
-  );
+        unavailableReason: blockedSlot?.blockReason ?? null,
+      });
+    }
+  }
 
   return {
     date,
     startTime,
     endTime,
     durationMinutes,
-    courts: courtData,
+    courts: courtEntries,
   };
 }

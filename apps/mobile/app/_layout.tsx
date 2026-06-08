@@ -28,7 +28,7 @@ function RootNav() {
 
   if (isLoading) {
     return (
-      <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "#000" }}>
+      <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "#FFFFFF" }}>
         <ActivityIndicator size="large" color="#E85068" />
       </View>
     );
@@ -36,7 +36,7 @@ function RootNav() {
 
   return (
     <>
-      <StatusBar style="light" />
+      <StatusBar style="dark" />
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="(auth)" />
         <Stack.Screen name="(tabs)" />
@@ -46,8 +46,8 @@ function RootNav() {
             headerShown: true,
             title: "Facility",
             headerBackTitle: "Back",
-            headerStyle: { backgroundColor: "#1C1C1E" },
-            headerTintColor: "#FFFFFF",
+            headerStyle: { backgroundColor: "#FFFFFF" },
+            headerTintColor: "#0A0A0A",
             headerTitleStyle: { fontWeight: "700" },
           }}
         />
@@ -57,8 +57,8 @@ function RootNav() {
             headerShown: true,
             title: "Confirm Booking",
             headerBackTitle: "Back",
-            headerStyle: { backgroundColor: "#1C1C1E" },
-            headerTintColor: "#FFFFFF",
+            headerStyle: { backgroundColor: "#FFFFFF" },
+            headerTintColor: "#0A0A0A",
             headerTitleStyle: { fontWeight: "700" },
           }}
         />
@@ -87,8 +87,8 @@ function RootNav() {
             headerShown: true,
             title: "Open Game",
             headerBackTitle: "Back",
-            headerStyle: { backgroundColor: "#1C1C1E" },
-            headerTintColor: "#FFFFFF",
+            headerStyle: { backgroundColor: "#FFFFFF" },
+            headerTintColor: "#0A0A0A",
             headerTitleStyle: { fontWeight: "700" },
           }}
         />
@@ -104,8 +104,8 @@ function RootNav() {
             headerShown: true,
             title: "Write a Review",
             headerBackTitle: "Back",
-            headerStyle: { backgroundColor: "#1C1C1E" },
-            headerTintColor: "#FFFFFF",
+            headerStyle: { backgroundColor: "#FFFFFF" },
+            headerTintColor: "#0A0A0A",
             headerTitleStyle: { fontWeight: "700" },
           }}
         />
@@ -115,8 +115,8 @@ function RootNav() {
             headerShown: true,
             title: "Reviews",
             headerBackTitle: "Back",
-            headerStyle: { backgroundColor: "#1C1C1E" },
-            headerTintColor: "#FFFFFF",
+            headerStyle: { backgroundColor: "#FFFFFF" },
+            headerTintColor: "#0A0A0A",
             headerTitleStyle: { fontWeight: "700" },
           }}
         />

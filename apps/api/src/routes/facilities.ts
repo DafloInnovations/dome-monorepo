@@ -45,10 +45,10 @@ router.get("/:id", async (req, res, next) => {
   }
 });
 
-// GET /api/v1/facilities/:id/available-courts?date=YYYY-MM-DD&startTime=HH:mm&duration=60
+// GET /api/v1/facilities/:id/available-courts?date=YYYY-MM-DD&startTime=HH:mm&duration=60&sport=BADMINTON
 router.get("/:id/available-courts", async (req, res, next) => {
   try {
-    const { date, startTime, duration } = req.query as Record<string, string | undefined>;
+    const { date, startTime, duration, sport } = req.query as Record<string, string | undefined>;
     if (!date || !startTime || !duration) {
       res.status(400).json({ message: "date, startTime, and duration are required" });
       return;
@@ -66,7 +66,7 @@ router.get("/:id/available-courts", async (req, res, next) => {
       res.status(400).json({ message: "startTime must be HH:mm" });
       return;
     }
-    const data = await getAvailableCourts(req.params["id"]!, date, startTime, durationMins);
+    const data = await getAvailableCourts(req.params["id"]!, date, startTime, durationMins, sport);
     res.json({ data });
   } catch (err) {
     next(err);

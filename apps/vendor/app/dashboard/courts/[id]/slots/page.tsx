@@ -15,6 +15,12 @@ interface BulkForm {
   endTime: string;
   slotDurationMinutes: number;
   priceCAD: number;
+  sport?: string;
+}
+
+interface CourtInfo {
+  isShared: boolean;
+  sports: string[];
 }
 
 interface BlockForm {
@@ -133,8 +139,18 @@ function BulkPriceModal({
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
+const SPORT_EMOJI: Record<string, string> = {
+  BADMINTON: "🏸", PICKLEBALL: "🏓", TENNIS: "🎾", SQUASH: "🎾",
+  SOCCER: "⚽", BASKETBALL: "🏀", VOLLEYBALL: "🏐", HOCKEY: "🏒",
+  BASEBALL: "⚾", CRICKET: "🏏",
+};
+
 export default function SlotsPage() {
   const { id: courtId } = useParams<{ id: string }>();
+
+  // Court info (for shared court sport tabs)
+  const [courtInfo, setCourtInfo] = useState<CourtInfo | null>(null);
+  const [activeSportTab, setActiveSportTab] = useState<string | null>(null);
 
   // Slots
   const [slots, setSlots] = useState<Slot[]>([]);
@@ -168,7 +184,7 @@ export default function SlotsPage() {
     startDate: today,
     endDate: new Date(Date.now() + 7 * 24 * 3_600_000).toISOString().split("T")[0]!,
     startTime: "08:00", endTime: "22:00",
-    slotDurationMinutes: 60, priceCAD: 28,
+    slotDurationMinutes: 60, priceCAD: 28, sport: undefined,
   });
 
   // Block dates form
@@ -186,6 +202,33 @@ export default function SlotsPage() {
       .catch((e) => setError(e instanceof Error ? e.message : "Failed to load"))
       .finally(() => setIsLoading(false));
   }, [courtId, today]);
+
+  // Load court info to detect shared courts
+  useEffect(() => {
+    if (!courtId) return;
+    apiFetch<{ data: { courts: { id: string; isShared: boolean; sports: string[] }[] } }>(
+      `/vendor/facilities/any`
+    ).catch(() => null);
+    // Infer from slots: if any slot has a sport field, court is shared
+    // We detect this once slots load
+  }, [courtId]);
+
+  // Derive court info from loaded slots
+  useEffect(() => {
+    if (slots.length === 0) return;
+    const sportsInSlots = [...new Set(
+      slots
+        .map((s) => (s as Slot & { sport?: string }).sport)
+        .filter((s): s is string => !!s)
+    )];
+    if (sportsInSlots.length > 1) {
+      setCourtInfo({ isShared: true, sports: sportsInSlots });
+      if (!activeSportTab) setActiveSportTab(sportsInSlots[0]!);
+    } else if (sportsInSlots.length === 1) {
+      setCourtInfo({ isShared: true, sports: sportsInSlots });
+      if (!activeSportTab) setActiveSportTab(sportsInSlots[0]!);
+    }
+  }, [slots, activeSportTab]);
 
   useEffect(() => { loadSlots(); }, [loadSlots]);
 
@@ -389,7 +432,12 @@ export default function SlotsPage() {
 
   // ── Derived state ──────────────────────────────────────────────────────────
 
-  const byDate = slots.reduce<Record<string, Slot[]>>((acc, slot) => {
+  // Filter slots by active sport tab for shared courts
+  const visibleSlots = courtInfo?.isShared && activeSportTab
+    ? slots.filter((s) => (s as Slot & { sport?: string }).sport === activeSportTab)
+    : slots;
+
+  const byDate = visibleSlots.reduce<Record<string, Slot[]>>((acc, slot) => {
     const day = slot.date.split("T")[0]!;
     if (!acc[day]) acc[day] = [];
     acc[day]!.push(slot);
@@ -479,6 +527,24 @@ export default function SlotsPage() {
                   onChange={(e) => setForm((f) => ({ ...f, priceCAD: Number(e.target.value) }))}
                   className={inputCls} required />
               </div>
+              {courtInfo?.isShared && courtInfo.sports.length > 0 && (
+                <div>
+                  <label className="block text-xs text-muted mb-1">Generate for sport</label>
+                  <select value={form.sport ?? ""}
+                    onChange={(e) => setForm((f) => ({ ...f, sport: e.target.value || undefined }))}
+                    className={inputCls}>
+                    <option value="">All sports (linked)</option>
+                    {courtInfo.sports.map((s) => (
+                      <option key={s} value={s}>
+                        {SPORT_EMOJI[s] ?? ""} {s.charAt(0) + s.slice(1).toLowerCase()}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-muted mt-1">
+                    "All sports" generates linked slots for each sport simultaneously.
+                  </p>
+                </div>
+              )}
               {error && <p className="col-span-full text-red-400 text-sm">{error}</p>}
               <div className="col-span-full">
                 <button type="submit" disabled={isSaving}
@@ -590,6 +656,35 @@ export default function SlotsPage() {
           </div>
         )}
 
+        {/* ── Sport tabs (shared courts only) ───────────────────────── */}
+        {courtInfo?.isShared && courtInfo.sports.length > 1 && (
+          <div className="flex gap-2 items-center flex-wrap">
+            <span className="text-xs text-muted">🔄 Shared Court — Sport:</span>
+            {courtInfo.sports.map((s) => (
+              <button
+                key={s}
+                onClick={() => setActiveSportTab(s)}
+                className={[
+                  "px-3 py-1.5 text-xs font-semibold rounded-dome border transition-colors",
+                  activeSportTab === s
+                    ? "bg-primary border-primary text-white"
+                    : "bg-surface border-border text-muted hover:text-white",
+                ].join(" ")}
+              >
+                {SPORT_EMOJI[s] ?? ""} {s.charAt(0) + s.slice(1).toLowerCase()}
+              </button>
+            ))}
+            {activeSportTab && (
+              <button
+                onClick={() => setActiveSportTab(null)}
+                className="text-xs text-muted hover:text-white transition-colors px-2"
+              >
+                Show all
+              </button>
+            )}
+          </div>
+        )}
+
         {/* ── Calendar grid ──────────────────────────────────────────── */}
         {isLoading ? (
           <div className="grid gap-4">
@@ -679,6 +774,11 @@ export default function SlotsPage() {
                             <span>
                               {slot.startTime}–{slot.endTime}
                               <span className="ml-1 opacity-60">C${slot.priceCAD.toFixed(0)}</span>
+                              {(slot as Slot & { sport?: string }).sport && !courtInfo?.isShared && (
+                                <span className="ml-1 opacity-60 text-[10px]">
+                                  {SPORT_EMOJI[(slot as Slot & { sport?: string }).sport!] ?? ""}
+                                </span>
+                              )}
                               {slot.status === "BLOCKED" && <span className="ml-1">🔒</span>}
                             </span>
                           )}

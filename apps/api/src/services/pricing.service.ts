@@ -96,11 +96,11 @@ export async function calculateSlotPrice(
     }
   }
 
-  // 2. Get active pricing rules for this court
-  const rules = await prisma.pricingRule.findMany({
-    where: { courtId, isActive: true },
-    orderBy: { priority: "desc" },
-  });
+  // 2. Get active pricing rules — only when dynamic pricing is enabled
+  const court = await prisma.court.findUnique({ where: { id: courtId }, select: { dynamicPricingEnabled: true } });
+  const rules = (court?.dynamicPricingEnabled ?? false)
+    ? await prisma.pricingRule.findMany({ where: { courtId, isActive: true }, orderBy: { priority: "desc" } })
+    : [];
 
   if (rules.length === 0) {
     return { basePriceCAD, finalPriceCAD: Math.round(basePriceCAD * 100) / 100, appliedRule: null, isBlocked: false };
@@ -126,11 +126,15 @@ export async function calculatePricingForCourt(
   date: Date,
   slots: Array<{ startTime: string; endTime: string; basePriceCAD: number }>
 ): Promise<PriceBreakdown[]> {
-  // Load rules + override once
-  const [rules, override] = await Promise.all([
-    prisma.pricingRule.findMany({ where: { courtId, isActive: true }, orderBy: { priority: "desc" } }),
+  // Load court settings and date override in parallel; then conditionally fetch rules
+  const [court, override] = await Promise.all([
+    prisma.court.findUnique({ where: { id: courtId }, select: { dynamicPricingEnabled: true } }),
     prisma.dateOverride.findUnique({ where: { courtId_date: { courtId, date } } }),
   ]);
+
+  const rules = (court?.dynamicPricingEnabled ?? false)
+    ? await prisma.pricingRule.findMany({ where: { courtId, isActive: true }, orderBy: { priority: "desc" } })
+    : [];
 
   const dayOfWeek = date.getUTCDay();
 

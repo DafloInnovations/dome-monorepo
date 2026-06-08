@@ -14,8 +14,8 @@ import { isStripeConfigured } from "../../src/config/stripe";
 import { useRecurring } from "../../src/hooks/useRecurring";
 
 const C = {
-  bg: "#000000", primary: "#E85068", surface: "#1C1C1E",
-  text: "#FFFFFF", muted: "#6B6B6B", green: "#22c55e",
+  bg: "#FFFFFF", primary: "#E85068", surface: "#F8F8F8",
+  text: "#0A0A0A", muted: "#9E9E9E", green: "#22c55e",
 };
 
 const DAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -232,10 +232,10 @@ function Row({ label, value, last, valueStyle }: { label: string; value: string;
 }
 
 const rowStyles = StyleSheet.create({
-  row: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#2C2C2E" },
+  row: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#EBEBEB" },
   last: { borderBottomWidth: 0 },
-  label: { color: "#6B6B6B", fontSize: 14 },
-  value: { color: "#FFFFFF", fontSize: 14, fontWeight: "600" },
+  label: { color: "#9E9E9E", fontSize: 14 },
+  value: { color: "#0A0A0A", fontSize: 14, fontWeight: "600" },
 });
 
 const styles = StyleSheet.create({
@@ -247,7 +247,7 @@ const styles = StyleSheet.create({
   card: { backgroundColor: C.surface, borderRadius: 14, padding: 16, marginBottom: 14 },
   cardTitle: { color: C.muted, fontSize: 10, fontWeight: "700", letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 12 },
   datesWrap: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  datePill: { backgroundColor: "#2C2C2E", borderRadius: 20, paddingHorizontal: 10, paddingVertical: 5 },
+  datePill: { backgroundColor: "#EBEBEB", borderRadius: 20, paddingHorizontal: 10, paddingVertical: 5 },
   datePillText: { color: C.text, fontSize: 12, fontWeight: "600" },
   saveNote: { color: C.green, fontSize: 12, marginTop: 10, textAlign: "center" },
   errBox: { backgroundColor: "#3B0000", borderRadius: 10, padding: 12, marginBottom: 14 },
@@ -255,6 +255,6 @@ const styles = StyleSheet.create({
   cta: { backgroundColor: C.primary, borderRadius: 14, paddingVertical: 16, alignItems: "center" },
   ctaDisabled: { opacity: 0.55 },
   ctaRow: { flexDirection: "row", alignItems: "center", gap: 10 },
-  ctaText: { color: C.text, fontSize: 15, fontWeight: "800" },
+  ctaText: { color: "#FFFFFF", fontSize: 15, fontWeight: "800" },
   note: { color: C.muted, fontSize: 11, textAlign: "center", marginTop: 12, lineHeight: 17 },
 });

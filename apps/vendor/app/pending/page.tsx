@@ -2,8 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { apiFetch } from "../../lib/api";
-import { getToken } from "../../lib/api";
+import { apiFetch, clearToken, getToken } from "../../lib/api";
 
 interface ApplicationStatus {
   status: "PENDING" | "APPROVED" | "REJECTED" | "NONE";
@@ -25,7 +24,10 @@ export default function PendingPage() {
       setStatus(data);
 
       if (data.status === "APPROVED") {
-        router.replace("/dashboard");
+        // Clear the stale token — it was issued before approval and may carry
+        // an old role. Force re-login so the new JWT has the correct VENDOR role.
+        clearToken();
+        router.replace("/?approved=true");
       } else if (data.status === "REJECTED") {
         router.replace("/rejected");
       } else if (data.status === "NONE") {

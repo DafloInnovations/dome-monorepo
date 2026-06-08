@@ -212,6 +212,7 @@ model User {
   notifications          Notification[]
   recurringSeries        RecurringSeries[]
   availabilityAlerts     AvailabilityAlert[]
+  couponUsages           CouponUsage[]
 
   @@index([phone])
   @@index([email])
@@ -259,6 +260,7 @@ model Vendor {
 
   user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   facilities Facility[]
+  coupons    Coupon[]
 }
 
 // ─── Facility ─────────────────────────────────────────────────────────────────
@@ -276,7 +278,8 @@ model Facility {
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
 
-  bookingModel  BookingModel @default(SLOT_BASED)
+  bookingModel              BookingModel @default(SLOT_BASED)
+  cancellationWindowHours   Int          @default(24)
 
   vendor         Vendor                @relation(fields: [vendorId], references: [id], onDelete: Cascade)
   address        FacilityAddress?
@@ -291,6 +294,7 @@ model Facility {
   recurringSeries RecurringSeries[]
   availabilityAlerts AvailabilityAlert[]
   equipment      Equipment[]
+  coupons        Coupon[]
 
   @@index([vendorId])
   @@index([sport])
@@ -346,25 +350,44 @@ model OperatingHours {
 }
 
 model Court {
-  id          String          @id @default(cuid())
-  facilityId  String
-  name        String
-  description String?
-  isActive    Boolean         @default(true)
-  unitType    BookingUnitType @default(COURT)
-  unitLabel   String          @default("Court")
-  maxPlayers  Int?
-  createdAt   DateTime        @default(now())
-  updatedAt   DateTime        @updatedAt
+  id           String          @id @default(cuid())
+  facilityId   String
+  name         String
+  description  String?
+  isActive     Boolean         @default(true)
+  unitType     BookingUnitType @default(COURT)
+  unitLabel    String          @default("Court")
+  maxPlayers   Int?
+  // Multi-sport shared court
+  isShared     Boolean         @default(false)
+  sports       String[]        // e.g. ["BADMINTON", "PICKLEBALL"]
+  primarySport String?         // main sport shown in listings
+  // Dynamic pricing
+  dynamicPricingEnabled Boolean @default(false)
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
 
-  facility           Facility            @relation(fields: [facilityId], references: [id], onDelete: Cascade)
+  facility           Facility             @relation(fields: [facilityId], references: [id], onDelete: Cascade)
   slots              Slot[]
   pricingRules       PricingRule[]
   dateOverrides      DateOverride[]
   recurringSeries    RecurringSeries[]
   availabilityAlerts AvailabilityAlert[]
+  sportPricing       CourtSportPricing[]
 
   @@index([facilityId])
+}
+
+model CourtSportPricing {
+  id       String  @id @default(cuid())
+  courtId  String
+  sport    String
+  priceCAD Decimal @db.Decimal(10, 2)
+
+  court Court @relation(fields: [courtId], references: [id], onDelete: Cascade)
+
+  @@unique([courtId, sport])
+  @@index([courtId])
 }
 
 // ─── Dynamic Pricing ──────────────────────────────────────────────────────────
@@ -444,6 +467,10 @@ model Slot {
   priceCAD          Decimal    @db.Decimal(10, 2)
   status            SlotStatus @default(AVAILABLE)
   recurrenceGroupId String?
+  // Multi-sport shared court fields
+  sport             String?    // which sport this slot is for (null = court's facility sport)
+  linkedSlotIds     String[]   // IDs of sibling slots on same court, same time, different sport
+  blockReason       String?    // set when status=BLOCKED by a linked booking
   // Session / pass fields
   capacity          Int?       // non-null → SESSION slot; multiple bookings allowed up to this limit
   spotsBooked       Int        @default(0)
@@ -483,6 +510,11 @@ model Booking {
   paymentIntentId      String?
   recurringSeriesId    String?
   recurringSeriesIndex Int?
+  couponId             String?
+  couponCode           String?
+  discountCAD          Decimal?             @db.Decimal(10, 2)
+  creditsAppliedCAD    Decimal?             @db.Decimal(10, 2)
+  cardChargeCAD        Decimal?             @db.Decimal(10, 2)
   createdAt        DateTime             @default(now())
   updatedAt        DateTime             @updatedAt
 
@@ -496,6 +528,7 @@ model Booking {
   domeCredits      DomeCredit[]
   conversations    Conversation[]
   equipmentRentals EquipmentRental[]
+  couponUsage      CouponUsage?
 
   // One user can only hold one booking per slot (blocks double-booking for SESSION slots too)
   @@unique([slotId, userId])
@@ -822,6 +855,65 @@ model AvailabilityAlert {
   @@index([facilityId, date, status])
   @@index([userId, status])
   @@index([expiresAt, status])
+}
+
+// ─── Coupons ──────────────────────────────────────────────────────────────────
+
+enum CouponType {
+  PERCENTAGE
+  FIXED
+  FREE
+}
+
+model Coupon {
+  id                String     @id @default(cuid())
+  code              String     @unique
+  description       String?
+
+  type              CouponType
+  value             Decimal    @db.Decimal(10, 2)
+
+  vendorId          String?
+  facilityId        String?
+  sport             String?
+
+  minBookingCAD     Decimal?   @db.Decimal(10, 2)
+  maxDiscountCAD    Decimal?   @db.Decimal(10, 2)
+  usageLimit        Int?
+  usageLimitPerUser Int?       @default(1)
+  usedCount         Int        @default(0)
+
+  validFrom         DateTime
+  validUntil        DateTime
+  isActive          Boolean    @default(true)
+
+  createdBy         String
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+
+  vendor   Vendor?       @relation(fields: [vendorId], references: [id])
+  facility Facility?     @relation(fields: [facilityId], references: [id])
+  usages   CouponUsage[]
+
+  @@index([code])
+  @@index([vendorId, isActive])
+  @@index([isActive, validUntil])
+}
+
+model CouponUsage {
+  id          String   @id @default(cuid())
+  couponId    String
+  userId      String
+  bookingId   String   @unique
+  discountCAD Decimal  @db.Decimal(10, 2)
+  appliedAt   DateTime @default(now())
+
+  coupon  Coupon  @relation(fields: [couponId], references: [id])
+  user    User    @relation(fields: [userId], references: [id])
+  booking Booking @relation(fields: [bookingId], references: [id])
+
+  @@index([couponId])
+  @@index([userId])
 }
 
 // ─── Equipment ────────────────────────────────────────────────────────────────

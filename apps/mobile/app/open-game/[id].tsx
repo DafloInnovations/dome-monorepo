@@ -11,6 +11,6 @@ export default function OpenGameScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#000000", alignItems: "center", justifyContent: "center" },
-  text: { color: "#6B6B6B", fontSize: 15 },
+  container: { flex: 1, backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center" },
+  text: { color: "#9E9E9E", fontSize: 15 },
 });

@@ -13,12 +13,12 @@ import { useAuth } from "../../src/context/AuthContext";
 import { useThreads, type ChatThread } from "../../src/hooks/useChat";
 
 const C = {
-  bg: "#000000",
+  bg: "#FFFFFF",
   primary: "#E85068",
-  surface: "#1C1C1E",
-  text: "#FFFFFF",
-  muted: "#6B6B6B",
-  border: "#2C2C2E",
+  surface: "#F8F8F8",
+  text: "#0A0A0A",
+  muted: "#9E9E9E",
+  border: "#EBEBEB",
 };
 
 function formatRelativeTime(iso: string): string {
@@ -144,11 +144,11 @@ const styles = StyleSheet.create({
   title: { color: C.text, fontSize: 28, fontWeight: "800" },
 
   center: { flex: 1, alignItems: "center", justifyContent: "center", padding: 32 },
-  errorText: { color: "#ff6b6b", fontSize: 14, marginBottom: 14, textAlign: "center" },
+  errorText: { color: "#EF4444", fontSize: 14, marginBottom: 14, textAlign: "center" },
   retryBtn: {
     backgroundColor: C.primary, borderRadius: 99, paddingHorizontal: 24, paddingVertical: 10,
   },
-  retryText: { color: C.text, fontWeight: "700" },
+  retryText: { color: "#FFFFFF", fontWeight: "700" },
 
   row: {
     flexDirection: "row",

@@ -1,4 +1,11 @@
-import { getToken } from "./auth";
+import {
+  clearToken,
+  getRefreshToken,
+  getToken,
+  isTokenExpiringSoon,
+  setRefreshToken,
+  setToken,
+} from "./auth";
 
 export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001/api/v1";
 
@@ -6,20 +13,83 @@ export class ApiError extends Error {
   constructor(message: string, public status: number) { super(message); }
 }
 
+function buildHeaders(token: string | null, extra?: HeadersInit): HeadersInit {
+  return {
+    "Content-Type": "application/json",
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...(extra ?? {}),
+  };
+}
+
+export async function doRefreshAccessToken(): Promise<string | null> {
+  const refreshToken = getRefreshToken();
+  if (!refreshToken) {
+    clearToken();
+    if (typeof window !== "undefined" && window.location.pathname !== "/") {
+      window.location.href = "/";
+    }
+    return null;
+  }
+  try {
+    const res = await fetch(`${API_URL}/auth/refresh`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ refreshToken }),
+    });
+    if (!res.ok) {
+      clearToken();
+      if (typeof window !== "undefined" && window.location.pathname !== "/") {
+        window.location.href = "/";
+      }
+      return null;
+    }
+    const data = await res.json() as { data: { accessToken: string; refreshToken: string } };
+    setToken(data.data.accessToken);
+    setRefreshToken(data.data.refreshToken);
+    return data.data.accessToken;
+  } catch {
+    return null;
+  }
+}
+
 export async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
+  const isAuthPath = path.startsWith("/auth/");
+
+  if (!isAuthPath) {
+    const token = getToken();
+    if (token && isTokenExpiringSoon(token)) {
+      await doRefreshAccessToken();
+    }
+  }
+
   const token = getToken();
   const res = await fetch(`${API_URL}${path}`, {
     ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(options?.headers ?? {}),
-    },
+    headers: buildHeaders(token, options?.headers),
   });
+
   if (!res.ok) {
     const body = await res.json().catch(() => ({})) as { message?: string };
+
+    if (res.status === 401 && !isAuthPath) {
+      const newToken = await doRefreshAccessToken();
+      if (!newToken) {
+        throw new ApiError("Session expired. Please sign in again.", 401);
+      }
+      const retry = await fetch(`${API_URL}${path}`, {
+        ...options,
+        headers: buildHeaders(newToken, options?.headers),
+      });
+      if (!retry.ok) {
+        const retryBody = await retry.json().catch(() => ({})) as { message?: string };
+        throw new ApiError(retryBody.message ?? `HTTP ${retry.status}`, retry.status);
+      }
+      return retry.json() as Promise<T>;
+    }
+
     throw new ApiError(body.message ?? `HTTP ${res.status}`, res.status);
   }
+
   return res.json() as Promise<T>;
 }
 

@@ -1,22 +1,31 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Sidebar from "../../components/layout/Sidebar";
 import { VendorProfileProvider } from "../../components/layout/VendorProfileProvider";
-import { getToken } from "../../lib/api";
-import { apiFetch } from "../../lib/api";
+import { apiFetch, clearToken, doRefreshAccessToken, getToken } from "../../lib/api";
 
 interface AppStatus {
   status: "PENDING" | "APPROVED" | "REJECTED" | "NONE";
 }
 
+const INACTIVITY_TIMEOUT_MS = 4 * 60 * 60 * 1000;   // 4 hours
+const WARNING_BEFORE_MS     = 5 * 60 * 1000;          // warn 5 min before logout
+
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const router  = useRouter();
   const [ready, setReady] = useState(false);
+  const [showWarning, setShowWarning] = useState(false);
 
+  const warningTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const logoutTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const resetTimerRef   = useRef<() => void>(() => {});
+
+  // ─── Auth check on mount ──────────────────────────────────────────────────
   useEffect(() => {
-    if (!getToken()) { router.replace("/"); return; }
+    const token = getToken();
+    if (!token) { router.replace("/"); return; }
 
     apiFetch<{ data: AppStatus }>("/vendor/application-status")
       .then((r) => {
@@ -31,12 +40,57 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           router.replace("/onboarding");
         }
       })
-      .catch(() => {
-        // If the check fails (network error), allow the dashboard to render
-        // so the user isn't locked out by a transient API issue
-        setReady(true);
+      .catch((err: unknown) => {
+        const isAuthError =
+          err instanceof Error && err.message.toLowerCase().includes("session");
+        if (!isAuthError) setReady(true);
       });
   }, [router]);
+
+  // ─── Inactivity timer (only after auth passes) ────────────────────────────
+  useEffect(() => {
+    if (!ready) return;
+
+    function resetTimer() {
+      if (warningTimerRef.current) clearTimeout(warningTimerRef.current);
+      if (logoutTimerRef.current)  clearTimeout(logoutTimerRef.current);
+      setShowWarning(false);
+
+      warningTimerRef.current = setTimeout(() => {
+        setShowWarning(true);
+        logoutTimerRef.current = setTimeout(() => {
+          clearToken();
+          router.push("/?expired=true");
+        }, WARNING_BEFORE_MS);
+      }, INACTIVITY_TIMEOUT_MS - WARNING_BEFORE_MS);
+    }
+
+    resetTimerRef.current = resetTimer;
+
+    window.addEventListener("mousedown", resetTimer);
+    window.addEventListener("keydown",   resetTimer);
+    window.addEventListener("scroll",    resetTimer, { passive: true });
+    window.addEventListener("touchstart",resetTimer, { passive: true });
+
+    resetTimer();
+
+    return () => {
+      if (warningTimerRef.current) clearTimeout(warningTimerRef.current);
+      if (logoutTimerRef.current)  clearTimeout(logoutTimerRef.current);
+      window.removeEventListener("mousedown", resetTimer);
+      window.removeEventListener("keydown",   resetTimer);
+      window.removeEventListener("scroll",    resetTimer);
+      window.removeEventListener("touchstart",resetTimer);
+    };
+  }, [ready, router]);
+
+  async function stayLoggedIn() {
+    const newToken = await doRefreshAccessToken();
+    if (newToken) {
+      setShowWarning(false);
+      resetTimerRef.current();
+    }
+  }
 
   if (!ready) {
     return (
@@ -48,7 +102,20 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   return (
     <VendorProfileProvider>
-      <div className="flex min-h-screen bg-black">
+      {showWarning && (
+        <div className="fixed top-0 left-0 right-0 z-[9999] flex items-center justify-between gap-4 bg-amber-500 text-white px-6 py-3 shadow-lg">
+          <span className="text-sm font-semibold">
+            ⚠️ Your session expires in 5 minutes due to inactivity
+          </span>
+          <button
+            onClick={stayLoggedIn}
+            className="shrink-0 bg-white text-amber-600 font-bold text-sm px-4 py-1.5 rounded-lg hover:bg-amber-50 transition-colors"
+          >
+            Stay Logged In
+          </button>
+        </div>
+      )}
+      <div className={`flex min-h-screen bg-black ${showWarning ? "pt-[52px]" : ""}`}>
         <Sidebar />
         <div className="flex-1 flex flex-col min-w-0">
           {children}

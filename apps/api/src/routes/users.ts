@@ -7,11 +7,18 @@ import { prisma } from "../lib/prisma";
 
 const router = Router();
 
+const userAvatarSchema = z.string().refine(
+  (value) =>
+    /^https?:\/\//i.test(value) ||
+    /^data:image\/(png|jpe?g|webp);base64,/i.test(value),
+  "Avatar must be a URL or uploaded image"
+).refine((value) => value.length <= 3_000_000, "Avatar image must be under 3 MB");
+
 const updateUserSchema = z.object({
   firstName: z.string().min(1).optional(),
   lastName: z.string().min(1).optional(),
   phone: z.string().optional(),
-  avatarUrl: z.string().url().optional(),
+  avatarUrl: userAvatarSchema.nullable().optional(),
   province: z.string().length(2).optional(),
 });
 

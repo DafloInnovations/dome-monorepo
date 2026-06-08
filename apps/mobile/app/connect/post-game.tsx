@@ -17,13 +17,13 @@ import { useConnectActions } from "../../src/hooks/useConnect";
 const API_URL = process.env["EXPO_PUBLIC_API_URL"] ?? "http://localhost:3001/api/v1";
 
 const C = {
-  bg: "#000000",
+  bg: "#FFFFFF",
   primary: "#E85068",
-  surface: "#1C1C1E",
-  text: "#FFFFFF",
-  muted: "#6B6B6B",
-  border: "#2C2C2E",
-  inputBg: "#1C1C1E",
+  surface: "#F8F8F8",
+  text: "#0A0A0A",
+  muted: "#9E9E9E",
+  border: "#EBEBEB",
+  inputBg: "#F8F8F8",
 };
 
 const SPORTS = [
@@ -447,7 +447,7 @@ const styles = StyleSheet.create({
   },
   pillActive: { backgroundColor: C.primary, borderColor: C.primary },
   pillText: { color: C.muted, fontSize: 13, fontWeight: "600" },
-  pillTextActive: { color: C.text },
+  pillTextActive: { color: "#FFFFFF" },
   cityPillRow: { gap: 8, paddingRight: 16 },
   cityPill: {
     backgroundColor: C.surface,
@@ -461,7 +461,7 @@ const styles = StyleSheet.create({
   },
   cityPillActive: { backgroundColor: C.primary, borderColor: C.primary },
   cityPillText: { color: C.muted, fontSize: 13, fontWeight: "700" },
-  cityPillTextActive: { color: C.text },
+  cityPillTextActive: { color: "#FFFFFF" },
   input: {
     backgroundColor: C.inputBg,
     borderWidth: 1,
@@ -536,5 +536,5 @@ const styles = StyleSheet.create({
     marginTop: 32,
   },
   submitBtnDisabled: { opacity: 0.6 },
-  submitBtnText: { color: C.text, fontSize: 16, fontWeight: "800" },
+  submitBtnText: { color: "#FFFFFF", fontSize: 16, fontWeight: "800" },
 });

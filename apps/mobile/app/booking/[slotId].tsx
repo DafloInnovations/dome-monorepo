@@ -32,12 +32,12 @@ function formatDisplayDate(dateStr: string): string {
 }
 
 const C = {
-  bg: "#000000",
+  bg: "#FFFFFF",
   primary: "#E85068",
-  surface: "#1C1C1E",
-  text: "#FFFFFF",
-  muted: "#6B6B6B",
-  chip: "#2C2C2E",
+  surface: "#F8F8F8",
+  text: "#0A0A0A",
+  muted: "#9E9E9E",
+  chip: "#EBEBEB",
 };
 
 export default function BookingScreen() {
@@ -333,7 +333,7 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   hint: { color: C.muted, fontSize: 12 },
-  errorText: { color: "#ff6b6b", fontSize: 14, textAlign: "center", marginBottom: 14 },
+  errorText: { color: "#EF4444", fontSize: 14, textAlign: "center", marginBottom: 14 },
   confirmingRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -351,5 +351,5 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   payBtnDisabled: { opacity: 0.55 },
-  payBtnText: { color: C.text, fontSize: 17, fontWeight: "700" },
+  payBtnText: { color: "#FFFFFF", fontSize: 17, fontWeight: "700" },
 });

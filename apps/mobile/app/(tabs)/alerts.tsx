@@ -14,12 +14,12 @@ import { useFocusEffect } from "expo-router";
 import { useAlerts, type AvailabilityAlert, type AlertStatus } from "../../src/hooks/useAlerts";
 
 const C = {
-  bg: "#000000",
-  surface: "#1C1C1E",
+  bg:      "#FFFFFF",
+  surface: "#F8F8F8",
   primary: "#E85068",
-  text: "#FFFFFF",
-  muted: "#6B6B6B",
-  border: "#2C2C2E",
+  text:    "#0A0A0A",
+  muted:   "#9E9E9E",
+  border:  "#EBEBEB",
 };
 
 const SPORT_EMOJI: Record<string, string> = {
@@ -30,10 +30,10 @@ const SPORT_EMOJI: Record<string, string> = {
 
 function StatusBadge({ status }: { status: AlertStatus }) {
   const map: Record<AlertStatus, { label: string; color: string; bg: string }> = {
-    PENDING:   { label: "Watching for availability", color: "#fbbf24", bg: "#78350f33" },
-    TRIGGERED: { label: "Court opened! Book now →",  color: "#4ade80", bg: "#14532d33" },
-    EXPIRED:   { label: "This time has passed",      color: "#6B6B6B", bg: "#1C1C1E" },
-    CANCELLED: { label: "Cancelled",                 color: "#6B6B6B", bg: "#1C1C1E" },
+    PENDING:   { label: "Watching for availability", color: "#F59E0B", bg: "#F59E0B18" },
+    TRIGGERED: { label: "Court opened! Book now →",  color: "#22C55E", bg: "#22C55E18" },
+    EXPIRED:   { label: "This time has passed",      color: "#9E9E9E", bg: "#F0F0F0" },
+    CANCELLED: { label: "Cancelled",                 color: "#9E9E9E", bg: "#F0F0F0" },
   };
   const s = map[status];
   return (
@@ -232,7 +232,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     alignItems: "center",
     borderWidth: 1,
-    borderColor: "#3A3A3C",
+    borderColor: "#EBEBEB",
   },
   cancelText: { color: C.muted, fontSize: 13 },
 });

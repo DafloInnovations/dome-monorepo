@@ -1,4 +1,5 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
+import { COLORS } from "../theme";
 import type { AvailableCourt } from "../hooks/useAvailableCourts";
 
 const SPORT_EMOJI: Record<string, string> = {
@@ -6,6 +7,10 @@ const SPORT_EMOJI: Record<string, string> = {
   VOLLEYBALL: "🏐", HOCKEY: "🏒", SQUASH: "🎾", PICKLEBALL: "🏓",
   DEFAULT: "🏟️",
 };
+
+function sportLabel(sport: string): string {
+  return sport.charAt(0) + sport.slice(1).toLowerCase();
+}
 
 interface Props {
   court: AvailableCourt;
@@ -28,6 +33,10 @@ export default function CourtCard({ court, isSelected, onPress, alertSet, onAler
     ? Math.round((1 - breakdown!.finalPriceCAD / breakdown!.basePriceCAD) * 100)
     : null;
 
+  const otherSports = court.isShared
+    ? court.sports.filter((s) => s !== court.sport).map(sportLabel).join(", ")
+    : null;
+
   return (
     <View style={styles.wrapper}>
       <Pressable
@@ -46,7 +55,14 @@ export default function CourtCard({ court, isSelected, onPress, alertSet, onAler
           </View>
         )}
 
-        {/* Pricing badge */}
+        {/* Shared badge */}
+        {court.isShared && (
+          <View style={styles.sharedBadge}>
+            <Text style={styles.sharedBadgeText}>🔄</Text>
+          </View>
+        )}
+
+        {/* Discount / peak badge */}
         {available && hasPriceChange && (
           <View style={[styles.badge, isDiscount ? styles.badgeGreen : styles.badgeAmber]}>
             <Text style={[styles.badgeText, isDiscount ? styles.badgeGreenText : styles.badgeAmberText]}>
@@ -56,9 +72,14 @@ export default function CourtCard({ court, isSelected, onPress, alertSet, onAler
         )}
 
         <Text style={styles.emoji}>{emoji}</Text>
-        <Text style={[styles.name, !available && styles.nameUnavailable]} numberOfLines={2}>
+        <Text style={[styles.name, !available && styles.nameMuted]} numberOfLines={2}>
           {court.name}
         </Text>
+
+        {/* Sport label for shared courts */}
+        {court.isShared && (
+          <Text style={styles.sportLabel}>{sportLabel(court.sport)}</Text>
+        )}
 
         {available ? (
           <View style={styles.priceBlock}>
@@ -66,7 +87,7 @@ export default function CourtCard({ court, isSelected, onPress, alertSet, onAler
               <Text style={styles.basePrice}>C${breakdown.basePriceCAD.toFixed(2)}</Text>
             )}
             <View style={styles.priceRow}>
-              <Text style={[styles.price, isDiscount ? styles.priceGreen : isPremium ? styles.priceAmber : styles.priceDefault]}>
+              <Text style={[styles.price, isDiscount ? styles.priceGreen : isPremium ? styles.priceAmber : styles.pricePrimary]}>
                 C${court.totalPriceCAD.toFixed(2)}
               </Text>
               <Text style={styles.priceSub}>total</Text>
@@ -74,19 +95,29 @@ export default function CourtCard({ court, isSelected, onPress, alertSet, onAler
             {breakdown?.appliedRule && (
               <Text style={styles.ruleLabel} numberOfLines={1}>{breakdown.appliedRule}</Text>
             )}
+            {otherSports && (
+              <Text style={styles.alsoSupports} numberOfLines={1}>Also: {otherSports}</Text>
+            )}
           </View>
         ) : (
-          <Text style={styles.unavailableText} numberOfLines={2}>
-            {court.notCovered
-              ? "No slots for this window"
-              : court.bookedUntil
-              ? `Booked until ${court.bookedUntil}`
-              : "Unavailable"}
-          </Text>
+          <>
+            <Text style={styles.unavailableText} numberOfLines={2}>
+              {court.notCovered
+                ? "No slots for this window"
+                : court.unavailableReason
+                ? court.unavailableReason
+                : court.bookedUntil
+                ? `Booked until ${court.bookedUntil}`
+                : "Unavailable"}
+            </Text>
+            {otherSports && (
+              <Text style={styles.alsoSupports} numberOfLines={1}>Also: {otherSports}</Text>
+            )}
+          </>
         )}
       </Pressable>
 
-      {/* Alert Me button — shown only for unavailable courts */}
+      {/* Alert Me button */}
       {!available && onAlertPress && (
         <Pressable
           onPress={alertSet ? undefined : onAlertPress}
@@ -113,55 +144,55 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 14,
     borderRadius: 14,
-    borderWidth: 2,
-    borderColor: "transparent",
-    backgroundColor: "#1C1C1E",
+    borderWidth: 1.5,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.surface,
     alignItems: "center",
     position: "relative",
   },
-  cardAvailable: { borderColor: "#3A3A3C" },
-  cardSelected: { borderColor: "#E85068", backgroundColor: "#E8506814" },
+  cardAvailable: { borderColor: COLORS.border },
+  cardSelected: { borderColor: COLORS.primary, backgroundColor: COLORS.primaryUltraLight },
   cardUnavailable: { opacity: 0.5 },
   checkmark: {
     position: "absolute", top: 8, right: 8,
     width: 20, height: 20, borderRadius: 10,
-    backgroundColor: "#E85068", alignItems: "center", justifyContent: "center",
+    backgroundColor: COLORS.primary, alignItems: "center", justifyContent: "center",
   },
   checkmarkText: { color: "#FFF", fontSize: 11, fontWeight: "700" },
+  sharedBadge: { position: "absolute", top: 8, left: 8 },
+  sharedBadgeText: { fontSize: 12 },
   badge: {
-    position: "absolute", top: 8, left: 8,
+    position: "absolute", top: 8, left: 28,
     paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6,
   },
-  badgeGreen: { backgroundColor: "#14532d" },
-  badgeAmber: { backgroundColor: "#78350f" },
+  badgeGreen: { backgroundColor: COLORS.success + "22" },
+  badgeAmber: { backgroundColor: COLORS.warning + "22" },
   badgeText: { fontSize: 9, fontWeight: "800" },
-  badgeGreenText: { color: "#86efac" },
-  badgeAmberText: { color: "#fcd34d" },
-  emoji: { fontSize: 30, marginBottom: 8, marginTop: 4 },
-  name: { color: "#FFF", fontSize: 14, fontWeight: "700", textAlign: "center", marginBottom: 6 },
-  nameUnavailable: { color: "#6B6B6B" },
+  badgeGreenText: { color: COLORS.success },
+  badgeAmberText: { color: COLORS.warning },
+  emoji: { fontSize: 30, marginBottom: 4, marginTop: 4 },
+  name: { color: COLORS.text, fontSize: 14, fontWeight: "700", textAlign: "center", marginBottom: 2 },
+  nameMuted: { color: COLORS.textMuted },
+  sportLabel: { color: COLORS.primary, fontSize: 11, fontWeight: "600", marginBottom: 4 },
   priceBlock: { alignItems: "center" },
   priceRow: { flexDirection: "row", alignItems: "baseline", gap: 3 },
   price: { fontSize: 16, fontWeight: "800" },
-  priceDefault: { color: "#E85068" },
-  priceGreen: { color: "#4ade80" },
-  priceAmber: { color: "#fbbf24" },
-  priceSub: { color: "#6B6B6B", fontSize: 11 },
+  pricePrimary: { color: COLORS.primary },
+  priceGreen:   { color: COLORS.success },
+  priceAmber:   { color: COLORS.warning },
+  priceSub: { color: COLORS.textMuted, fontSize: 11 },
   basePrice: {
-    color: "#6B6B6B", fontSize: 11,
-    textDecorationLine: "line-through",
-    marginBottom: 1,
+    color: COLORS.textMuted, fontSize: 11,
+    textDecorationLine: "line-through", marginBottom: 1,
   },
-  ruleLabel: { color: "#6B6B6B", fontSize: 10, marginTop: 3, textAlign: "center" },
-  unavailableText: { color: "#6B6B6B", fontSize: 11, textAlign: "center", lineHeight: 15 },
+  ruleLabel: { color: COLORS.textMuted, fontSize: 10, marginTop: 3, textAlign: "center" },
+  alsoSupports: { color: COLORS.textMuted, fontSize: 9, marginTop: 2, textAlign: "center" },
+  unavailableText: { color: COLORS.textMuted, fontSize: 11, textAlign: "center", lineHeight: 15 },
   alertBtn: {
-    paddingVertical: 7,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: "#E85068",
-    alignItems: "center",
+    paddingVertical: 7, borderRadius: 10, borderWidth: 1,
+    borderColor: COLORS.primary, alignItems: "center",
   },
-  alertBtnSet: { borderColor: "#3A3A3C", backgroundColor: "#14532d33" },
-  alertBtnText: { color: "#E85068", fontSize: 11, fontWeight: "700" },
-  alertBtnTextSet: { color: "#4ade80" },
+  alertBtnSet: { borderColor: COLORS.border, backgroundColor: COLORS.success + "18" },
+  alertBtnText: { color: COLORS.primary, fontSize: 11, fontWeight: "700" },
+  alertBtnTextSet: { color: COLORS.success },
 });

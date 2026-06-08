@@ -6,6 +6,14 @@ import { validate } from "../middleware/validate";
 import { prisma } from "../lib/prisma";
 import { sendPushNotification, saveNotification } from "../lib/firebase";
 import { sendVendorApplicationApproved, sendVendorApplicationRejected } from "../lib/email";
+import { updateCourtShared, upsertSportPricing } from "../services/courts.service";
+import {
+  createCoupon,
+  updateCoupon,
+  deactivateCoupon,
+  listCoupons,
+  getCouponUsages,
+} from "../services/coupon.service";
 
 const router = Router();
 
@@ -460,6 +468,109 @@ router.get("/activity", async (req, res, next) => {
     events.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
     res.json({ data: events.slice(0, limit) });
+  } catch (err) { next(err); }
+});
+
+// ─── PUT /api/v1/admin/courts/:courtId/shared ────────────────────────────────
+
+// ─── Admin coupon endpoints ──────────────────────────────────────────────────
+
+const couponBodySchema = z.object({
+  code:              z.string().min(2).max(30).optional(),
+  description:       z.string().max(200).optional(),
+  type:              z.enum(["PERCENTAGE", "FIXED", "FREE"]),
+  value:             z.number().positive(),
+  vendorId:          z.string().optional().nullable(),
+  facilityId:        z.string().optional().nullable(),
+  sport:             z.string().optional().nullable(),
+  minBookingCAD:     z.number().positive().optional().nullable(),
+  maxDiscountCAD:    z.number().positive().optional().nullable(),
+  usageLimit:        z.number().int().positive().optional().nullable(),
+  usageLimitPerUser: z.number().int().positive().optional().nullable(),
+  validFrom:         z.string(),
+  validUntil:        z.string(),
+});
+
+router.get("/coupons", async (req, res, next) => {
+  try {
+    const { vendorId, isActive, type, page, limit } = req.query as Record<string, string | undefined>;
+    const result = await listCoupons({
+      vendorId: vendorId === "null" ? null : vendorId,
+      isActive: isActive !== undefined ? isActive === "true" : undefined,
+      type: type as "PERCENTAGE" | "FIXED" | "FREE" | undefined,
+      page: page ? Number(page) : 1,
+      limit: limit ? Number(limit) : 50,
+    });
+    res.json(result);
+  } catch (err) { next(err); }
+});
+
+router.post("/coupons", validate(couponBodySchema), async (req, res, next) => {
+  try {
+    const data = await createCoupon(req.body as z.infer<typeof couponBodySchema>, req.user!.sub as string);
+    res.status(201).json({ data });
+  } catch (err) { next(err); }
+});
+
+router.put("/coupons/:id", validate(couponBodySchema.partial()), async (req, res, next) => {
+  try {
+    const data = await updateCoupon(param(req.params["id"]!), req.body as z.infer<typeof couponBodySchema>);
+    res.json({ data });
+  } catch (err) { next(err); }
+});
+
+router.delete("/coupons/:id", async (req, res, next) => {
+  try {
+    const data = await deactivateCoupon(param(req.params["id"]!));
+    res.json({ data });
+  } catch (err) { next(err); }
+});
+
+router.get("/coupons/:id/usages", async (req, res, next) => {
+  try {
+    const { page, limit } = req.query as Record<string, string | undefined>;
+    const data = await getCouponUsages(param(req.params["id"]!), Number(page ?? 1), Number(limit ?? 50));
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
+// ─── Admin shared court endpoint (kept below coupon routes) ──────────────────
+
+const adminSportEnum = z.enum([
+  "SOCCER", "BASKETBALL", "TENNIS", "BADMINTON", "VOLLEYBALL",
+  "HOCKEY", "SQUASH", "PICKLEBALL", "BASEBALL", "CRICKET",
+]);
+
+const adminSharedCourtSchema = z.object({
+  isShared: z.boolean(),
+  sports: z.array(adminSportEnum).max(10).optional(),
+  primarySport: adminSportEnum.optional(),
+  sportPricing: z.array(z.object({
+    sport: adminSportEnum,
+    priceCAD: z.number().positive(),
+  })).optional(),
+});
+
+router.put("/courts/:courtId/shared", validate(adminSharedCourtSchema), async (req, res, next) => {
+  try {
+    const courtId = param(req.params["courtId"]!);
+    const body = req.body as z.infer<typeof adminSharedCourtSchema>;
+
+    // Admin can configure any court — look up owning vendor user
+    const court = await prisma.court.findUnique({
+      where: { id: courtId },
+      include: { facility: { include: { vendor: { select: { userId: true } } } } },
+    });
+    if (!court) { res.status(404).json({ message: "Court not found" }); return; }
+
+    const vendorUserId = court.facility.vendor?.userId;
+    if (!vendorUserId) { res.status(404).json({ message: "Court has no owning vendor" }); return; }
+
+    const updated = await updateCourtShared(vendorUserId, courtId, body);
+    if (body.sportPricing && body.sportPricing.length > 0) {
+      await upsertSportPricing(vendorUserId, courtId, body.sportPricing);
+    }
+    res.json({ data: updated });
   } catch (err) { next(err); }
 });
 

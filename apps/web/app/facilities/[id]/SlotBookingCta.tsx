@@ -21,6 +21,12 @@ interface AvailableCourt {
   unitLabel: string;
   sport: string;
   surface: string;
+  // Shared court fields
+  isShared: boolean;
+  sports: string[];
+  primarySport: string | null;
+  requestedSport: string | null;
+  unavailableReason: string | null;
   totalPriceCAD: number;
   basePriceCAD: number;
   priceBreakdown: PriceBreakdown | null;
@@ -106,10 +112,23 @@ export default function SlotBookingCta({ facilityId, facilityName, sport }: Prop
   const [courtsResult, setCourtsResult] = useState<AvailableCourtsResult | null>(null);
   const [courtsLoading, setCourtsLoading] = useState(false);
   const [selectedCourts, setSelectedCourts] = useState<AvailableCourt[]>([]);
+  const [selectedSport, setSelectedSport] = useState<string | null>(null);
   const [bookingLoading, setBookingLoading] = useState(false);
   const [bookingError, setBookingError] = useState("");
+
+  // Coupon state
+  const [couponInput, setCouponInput] = useState("");
+  const [couponLoading, setCouponLoading] = useState(false);
+  const [couponApplied, setCouponApplied] = useState<{ code: string; description: string | null; discountCAD: number } | null>(null);
+  const [couponError, setCouponError] = useState("");
   const [alertSet, setAlertSet] = useState(false);
   const [alertLoading, setAlertLoading] = useState(false);
+
+  // Credits state
+  const [creditBalance, setCreditBalance] = useState<number | null>(null);
+  const [useCredits, setUseCredits] = useState(false);
+  const [creditsMode, setCreditsMode] = useState<"all" | "partial">("all");
+  const [creditsPartialInput, setCreditsPartialInput] = useState("");
 
   // Equipment state
   const [equipment, setEquipment] = useState<EquipmentItem[]>([]);
@@ -132,7 +151,7 @@ export default function SlotBookingCta({ facilityId, facilityName, sport }: Prop
     return h! * 60 + m! <= nowMinutes;
   }
 
-  // Fetch available courts whenever date/time/duration changes
+  // Fetch available courts whenever date/time/duration/sport changes
   useEffect(() => {
     setAlertSet(false);
     if (startTime && isPastTime(startTime)) setStartTime(null);
@@ -140,12 +159,14 @@ export default function SlotBookingCta({ facilityId, facilityName, sport }: Prop
     setCourtsLoading(true);
     setSelectedCourts([]);
     const qs = new URLSearchParams({ date, startTime, duration: String(duration) });
+    if (selectedSport) qs.set("sport", selectedSport);
     fetch(`${API_URL}/facilities/${facilityId}/available-courts?${qs}`)
       .then((r) => r.json())
       .then((json: { data: AvailableCourtsResult }) => setCourtsResult(json.data))
       .catch(() => setCourtsResult(null))
       .finally(() => setCourtsLoading(false));
-  }, [facilityId, date, startTime, duration]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [facilityId, date, startTime, duration, selectedSport]);
 
   // Fetch equipment once when facilityId/sport is known
   useEffect(() => {
@@ -157,14 +178,39 @@ export default function SlotBookingCta({ facilityId, facilityName, sport }: Prop
       .catch(() => null);
   }, [facilityId, sport]);
 
+  // Fetch credit balance if user is logged in
+  useEffect(() => {
+    const user = getStoredUser();
+    if (!user) return;
+    const token = typeof window !== "undefined" ? localStorage.getItem("dome_token") : null;
+    if (!token) return;
+    fetch(`${API_URL}/users/me/credits`, { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => r.json())
+      .then((json: { balance?: number }) => {
+        if (typeof json.balance === "number") setCreditBalance(json.balance);
+      })
+      .catch(() => null);
+  }, []);
+
+  function courtKey(court: AvailableCourt) {
+    return court.isShared ? `${court.id}:${court.sport}` : court.id;
+  }
+
   function toggleCourt(court: AvailableCourt) {
     if (!court.isAvailable) return;
+    const key = courtKey(court);
     setSelectedCourts((prev) =>
-      prev.find((c) => c.id === court.id)
-        ? prev.filter((c) => c.id !== court.id)
+      prev.find((c) => courtKey(c) === key)
+        ? prev.filter((c) => courtKey(c) !== key)
         : [...prev, court]
     );
   }
+
+  // Derive available sports from the courts result (for shared courts sport filter)
+  const allSports = courtsResult
+    ? [...new Set(courtsResult.courts.flatMap((c) => c.isShared ? c.sports : [c.sport]))]
+    : [];
+  const hasSharedCourts = courtsResult?.courts.some((c) => c.isShared) ?? false;
 
   async function handleBook() {
     if (!selectedCourts.length || !startTime) return;
@@ -176,13 +222,42 @@ export default function SlotBookingCta({ facilityId, facilityName, sport }: Prop
     try {
       const slotIds = selectedCourts.flatMap((c) => c.slots);
       const result = await apiFetch<{
-        data: { type: string; bookingId: string | null; groupId: string | null; clientSecret: string; totalCAD: number; subtotalCAD: number; taxCAD: number };
+        data: { type: string; bookingId: string | null; groupId: string | null; fullyPaidWithCredits?: boolean; clientSecret: string | null; totalCAD: number; subtotalCAD: number; taxCAD: number; creditsAppliedCAD?: number; cardChargeCAD?: number };
       }>("/bookings/time-based", {
         method: "POST",
-        body: JSON.stringify({ slotIds, facilityId }),
+        body: JSON.stringify({
+          slotIds,
+          facilityId,
+          useCredits: useCredits && creditsAvailable > 0,
+          creditsToUse: creditsMode === "partial" && creditsPartialAmt > 0 ? creditsPartialAmt : undefined,
+          couponCode: couponApplied?.code,
+        }),
       });
 
-      const { type, bookingId, groupId, clientSecret, totalCAD } = result.data;
+      const { type, bookingId, groupId, fullyPaidWithCredits, clientSecret, totalCAD } = result.data;
+
+      // Fully paid with credits — booking already confirmed
+      if (fullyPaidWithCredits) {
+        const courtNames = selectedCourts.map((c) => c.name).join(", ");
+        const params = new URLSearchParams({
+          facilityId,
+          facilityName,
+          date,
+          startTime,
+          endTime: endTime!,
+          durationMinutes: String(duration),
+          courts: courtNames,
+          clientSecret: "credits",
+          totalCAD: String(totalCAD),
+          subtotalCAD: String(result.data.subtotalCAD ?? totalCAD),
+          taxCAD: String(result.data.taxCAD ?? 0),
+          creditsApplied: String(result.data.creditsAppliedCAD ?? 0),
+          ...(type === "single" && bookingId ? { bookingId } : {}),
+          ...(type === "group" && groupId ? { groupId } : {}),
+        });
+        router.push(`/book/time-based?${params}`);
+        return;
+      }
 
       // Add equipment if selected (updates PaymentIntent amount server-side)
       const equipItems = Object.entries(equipmentSelected)
@@ -204,7 +279,7 @@ export default function SlotBookingCta({ facilityId, facilityName, sport }: Prop
         endTime: endTime!,
         durationMinutes: String(duration),
         courts: courtNames,
-        clientSecret,
+        clientSecret: clientSecret!,
         totalCAD: String(result.data.totalCAD),
         subtotalCAD: String(result.data.subtotalCAD ?? result.data.totalCAD),
         taxCAD: String(result.data.taxCAD ?? 0),
@@ -244,12 +319,48 @@ export default function SlotBookingCta({ facilityId, facilityName, sport }: Prop
     }
   }
 
+  async function handleValidateCoupon() {
+    const code = couponInput.trim().toUpperCase();
+    if (!code) return;
+    const user = getStoredUser();
+    if (!user) { router.push("/profile"); return; }
+    setCouponLoading(true);
+    setCouponError("");
+    const courtSubtotal = selectedCourts.reduce((s, c) => s + c.totalPriceCAD, 0);
+    try {
+      const res = await apiFetch<{ data: { valid: boolean; discountCAD?: number; description?: string | null; code?: string; error?: string } }>(
+        "/coupons/validate",
+        { method: "POST", body: JSON.stringify({ code, facilityId, subtotalCAD: courtSubtotal }) }
+      );
+      if (!res.data.valid) {
+        setCouponError(res.data.error ?? "Invalid coupon");
+      } else {
+        setCouponApplied({ code: res.data.code!, description: res.data.description ?? null, discountCAD: res.data.discountCAD! });
+        setCouponInput("");
+      }
+    } catch (e) {
+      setCouponError(e instanceof Error ? e.message : "Could not validate coupon");
+    } finally {
+      setCouponLoading(false);
+    }
+  }
+
   const courtPrice = selectedCourts.reduce((s, c) => s + c.totalPriceCAD, 0);
   const equipmentTotal = Object.entries(equipmentSelected).reduce((s, [id, qty]) => {
     const eq = equipment.find((e) => e.id === id);
     return s + (eq ? eq.priceCAD * qty : 0);
   }, 0);
-  const totalPrice = courtPrice + equipmentTotal;
+  const couponDiscount = couponApplied?.discountCAD ?? 0;
+  const totalPrice = Math.max(0, courtPrice + equipmentTotal - couponDiscount);
+
+  // Credits
+  const creditsAvailable = creditBalance ?? 0;
+  const creditsPartialAmt = parseFloat(creditsPartialInput) || 0;
+  const creditsToApply = useCredits && creditsAvailable > 0
+    ? Math.min(creditsMode === "partial" ? creditsPartialAmt : creditsAvailable, totalPrice)
+    : 0;
+  const cardCharge = Math.max(0, Math.round((totalPrice - creditsToApply) * 100) / 100);
+  const fullyByCredits = cardCharge === 0 && creditsToApply > 0;
   const canBook = selectedCourts.length > 0 && !!startTime;
 
   // Recurring helpers
@@ -339,6 +450,34 @@ export default function SlotBookingCta({ facilityId, facilityName, sport }: Prop
         </div>
       </div>
 
+      {/* Sport filter (shown when shared courts detected after time selection) */}
+      {startTime && hasSharedCourts && allSports.length > 1 && (
+        <div>
+          <p className="text-xs font-semibold text-muted uppercase tracking-wide mb-2">Filter by sport</p>
+          <div className="flex gap-2 flex-wrap">
+            <button
+              onClick={() => setSelectedSport(null)}
+              className={`px-3 py-1.5 text-xs font-semibold rounded-dome border transition-colors ${
+                !selectedSport ? "bg-primary border-primary text-white" : "border-border text-muted hover:text-white"
+              }`}
+            >
+              All sports
+            </button>
+            {allSports.map((s) => (
+              <button
+                key={s}
+                onClick={() => setSelectedSport(s === selectedSport ? null : s)}
+                className={`px-3 py-1.5 text-xs font-semibold rounded-dome border transition-colors ${
+                  selectedSport === s ? "bg-primary border-primary text-white" : "border-border text-muted hover:text-white"
+                }`}
+              >
+                {SPORT_EMOJI[s.toUpperCase()] ?? ""} {s.charAt(0) + s.slice(1).toLowerCase()}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Step 3: Courts */}
       <div>
         <p className="text-xs font-semibold text-muted uppercase tracking-wide mb-3">
@@ -400,17 +539,21 @@ export default function SlotBookingCta({ facilityId, facilityName, sport }: Prop
 
             <div className="grid grid-cols-2 gap-3">
               {courtsResult.courts.map((court) => {
-                const isSelected = selectedCourts.some((c) => c.id === court.id);
+                const key = courtKey(court);
+                const isSelected = selectedCourts.some((c) => courtKey(c) === key);
                 const emoji = SPORT_EMOJI[court.sport?.toUpperCase() ?? ""] ?? "🏟️";
                 const bd = court.priceBreakdown;
                 const hasPriceChange = bd !== null && bd.finalPriceCAD !== bd.basePriceCAD;
                 const isDiscount = hasPriceChange && bd!.finalPriceCAD < bd!.basePriceCAD;
                 const isPremium  = hasPriceChange && bd!.finalPriceCAD > bd!.basePriceCAD;
                 const discountPct = isDiscount ? Math.round((1 - bd!.finalPriceCAD / bd!.basePriceCAD) * 100) : null;
+                const otherSports = court.isShared
+                  ? court.sports.filter((s) => s !== court.sport).map((s) => s.charAt(0) + s.slice(1).toLowerCase()).join(", ")
+                  : null;
 
                 return (
                   <button
-                    key={court.id}
+                    key={key}
                     onClick={() => toggleCourt(court)}
                     disabled={!court.isAvailable}
                     className={`relative flex flex-col items-center gap-1.5 p-4 rounded-dome border-2 text-center transition-colors ${
@@ -424,18 +567,26 @@ export default function SlotBookingCta({ facilityId, facilityName, sport }: Prop
                     {isSelected && (
                       <span className="absolute top-2 right-2 w-5 h-5 rounded-full bg-primary text-white text-[11px] flex items-center justify-center font-bold">✓</span>
                     )}
+                    {court.isShared && (
+                      <span className="absolute top-2 left-2 text-xs">🔄</span>
+                    )}
                     {court.isAvailable && isDiscount && (
-                      <span className="absolute top-2 left-2 text-[10px] font-black px-1.5 py-0.5 rounded bg-green-900/70 text-green-300">
+                      <span className={`absolute top-2 text-[10px] font-black px-1.5 py-0.5 rounded bg-green-900/70 text-green-300 ${court.isShared ? "left-7" : "left-2"}`}>
                         {discountPct}% OFF
                       </span>
                     )}
                     {court.isAvailable && isPremium && (
-                      <span className="absolute top-2 left-2 text-[10px] font-black px-1.5 py-0.5 rounded bg-amber-900/70 text-amber-300">Peak</span>
+                      <span className={`absolute top-2 text-[10px] font-black px-1.5 py-0.5 rounded bg-amber-900/70 text-amber-300 ${court.isShared ? "left-7" : "left-2"}`}>Peak</span>
                     )}
                     <span className="text-2xl mt-1">{emoji}</span>
                     <span className={`text-sm font-bold ${court.isAvailable ? "text-white" : "text-muted"}`}>
                       {court.name}
                     </span>
+                    {court.isShared && (
+                      <span className="text-[11px] text-primary font-semibold">
+                        {court.sport.charAt(0) + court.sport.slice(1).toLowerCase()}
+                      </span>
+                    )}
                     {court.isAvailable ? (
                       <div className="flex flex-col items-center gap-0.5">
                         {hasPriceChange && bd && (
@@ -447,10 +598,19 @@ export default function SlotBookingCta({ facilityId, facilityName, sport }: Prop
                         {bd?.appliedRule && (
                           <span className="text-muted text-[10px] truncate max-w-full">{bd.appliedRule}</span>
                         )}
+                        {otherSports && (
+                          <span className="text-muted text-[10px] mt-0.5">Also: {otherSports}</span>
+                        )}
                       </div>
                     ) : (
                       <span className="text-muted text-xs">
-                        {court.notCovered ? "No slots for window" : court.bookedUntil ? `Booked until ${court.bookedUntil}` : "Unavailable"}
+                        {court.notCovered
+                          ? "No slots for window"
+                          : court.unavailableReason
+                          ? court.unavailableReason
+                          : court.bookedUntil
+                          ? `Booked until ${court.bookedUntil}`
+                          : "Unavailable"}
                       </span>
                     )}
                   </button>
@@ -595,6 +755,107 @@ export default function SlotBookingCta({ facilityId, facilityName, sport }: Prop
         </div>
       )}
 
+      {/* Credits — shown when courts are selected and user has balance */}
+      {canBook && !recurringOn && creditsAvailable > 0 && (
+        <div className="bg-surface border border-border rounded-dome p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs font-semibold text-muted uppercase tracking-wide">💳 Dome Credits</p>
+              <p className="text-sm font-bold text-green-400 mt-0.5">C${creditsAvailable.toFixed(2)} available</p>
+            </div>
+            <button
+              onClick={() => setUseCredits((v) => !v)}
+              className={`relative w-11 h-6 rounded-full transition-colors ${useCredits ? "bg-primary" : "bg-border"}`}
+            >
+              <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform ${useCredits ? "translate-x-5" : ""}`} />
+            </button>
+          </div>
+
+          {useCredits && (
+            <>
+              {/* Mode */}
+              <div className="flex gap-2">
+                {(["all", "partial"] as const).map((m) => (
+                  <button key={m} onClick={() => setCreditsMode(m)}
+                    className={`flex-1 py-1.5 text-xs font-semibold rounded-dome border transition-colors ${creditsMode === m ? "bg-primary border-primary text-white" : "border-border text-muted hover:text-white"}`}>
+                    {m === "all" ? `Use all (C$${Math.min(creditsAvailable, totalPrice).toFixed(2)})` : "Use partial"}
+                  </button>
+                ))}
+              </div>
+
+              {creditsMode === "partial" && (
+                <div className="flex items-center gap-2">
+                  <span className="text-muted text-sm">C$</span>
+                  <input
+                    type="number"
+                    min="0.01"
+                    max={Math.min(creditsAvailable, totalPrice)}
+                    step="0.01"
+                    placeholder="Amount to use"
+                    value={creditsPartialInput}
+                    onChange={(e) => setCreditsPartialInput(e.target.value)}
+                    className="flex-1 bg-black border border-border rounded-dome px-3 py-2 text-sm text-white focus:outline-none focus:border-primary"
+                  />
+                </div>
+              )}
+
+              {/* Split preview */}
+              <div className="bg-green-950/30 border border-green-900/40 rounded-dome px-3 py-2.5 space-y-1 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-muted">💳 Credits applied</span>
+                  <span className="text-green-400 font-semibold">−C${creditsToApply.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted">{fullyByCredits ? "✅ Card charge" : "Card charge"}</span>
+                  <span className={`font-semibold ${fullyByCredits ? "text-green-400" : "text-white"}`}>
+                    C${cardCharge.toFixed(2)}
+                  </span>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Coupon input — shown when courts are selected */}
+      {canBook && !recurringOn && (
+        <div className="bg-surface border border-border rounded-dome p-4 space-y-2">
+          <p className="text-xs font-semibold text-muted uppercase tracking-wide">🎟️ Coupon</p>
+          {couponApplied ? (
+            <div className="flex items-center justify-between bg-green-950/40 border border-green-900/50 rounded-dome px-3 py-2.5">
+              <div>
+                <p className="text-sm font-bold text-green-400 font-mono">{couponApplied.code}</p>
+                {couponApplied.description && <p className="text-xs text-muted mt-0.5">{couponApplied.description}</p>}
+                <p className="text-xs text-green-400 font-semibold mt-0.5">−C${couponApplied.discountCAD.toFixed(2)} saved</p>
+              </div>
+              <button onClick={() => { setCouponApplied(null); setCouponError(""); }}
+                className="text-xs text-muted hover:text-white transition-colors ml-4">
+                ✕ Remove
+              </button>
+            </div>
+          ) : (
+            <div className="flex gap-2">
+              <input
+                type="text"
+                placeholder="Enter coupon code..."
+                value={couponInput}
+                onChange={(e) => { setCouponInput(e.target.value.toUpperCase()); setCouponError(""); }}
+                onKeyDown={(e) => { if (e.key === "Enter") void handleValidateCoupon(); }}
+                className="flex-1 bg-black border border-border rounded-dome px-3 py-2 text-sm text-white placeholder:text-muted font-mono tracking-widest focus:outline-none focus:border-primary"
+              />
+              <button
+                onClick={handleValidateCoupon}
+                disabled={!couponInput.trim() || couponLoading}
+                className="px-4 py-2 text-sm font-semibold bg-primary hover:bg-primary-hover disabled:opacity-40 text-white rounded-dome transition-colors"
+              >
+                {couponLoading ? "…" : "Apply"}
+              </button>
+            </div>
+          )}
+          {couponError && <p className="text-xs text-red-400">{couponError}</p>}
+        </div>
+      )}
+
       {/* CTA */}
       {canBook && (
         <div className="border-t border-border pt-4 space-y-2">
@@ -610,9 +871,27 @@ export default function SlotBookingCta({ facilityId, facilityName, sport }: Prop
                 <span className="text-white">C${equipmentTotal.toFixed(2)}</span>
               </div>
             )}
+            {couponDiscount > 0 && (
+              <div className="flex justify-between">
+                <span className="text-green-400">Coupon ({couponApplied?.code})</span>
+                <span className="text-green-400">−C${couponDiscount.toFixed(2)}</span>
+              </div>
+            )}
+            {creditsToApply > 0 && (
+              <div className="flex justify-between">
+                <span className="text-green-400">💳 Credits</span>
+                <span className="text-green-400">−C${creditsToApply.toFixed(2)}</span>
+              </div>
+            )}
             <div className="flex justify-between font-bold border-t border-border pt-1 mt-1">
               <span className="text-white">{recurringOn ? (recurringPayModel === "PAY_UPFRONT" ? "Total upfront" : "First session") : "Total (excl. tax)"}</span>
-              <span className="text-primary">{recurringOn ? `C$${recurringPayModel === "PAY_UPFRONT" ? recurringTotal.toFixed(2) : totalPrice.toFixed(2)}` : `C$${totalPrice.toFixed(2)}`}</span>
+              <span className="text-primary">
+                {recurringOn
+                  ? `C$${recurringPayModel === "PAY_UPFRONT" ? recurringTotal.toFixed(2) : totalPrice.toFixed(2)}`
+                  : creditsToApply > 0
+                  ? `C$${cardCharge.toFixed(2)}`
+                  : `C$${totalPrice.toFixed(2)}`}
+              </span>
             </div>
           </div>
           <button
@@ -624,6 +903,10 @@ export default function SlotBookingCta({ facilityId, facilityName, sport }: Prop
               ? "Reserving…"
               : recurringOn
               ? `🔄 Subscribe & Save — ${recurringPayModel === "PAY_UPFRONT" ? `C$${recurringTotal.toFixed(2)}` : `C$${totalPrice.toFixed(2)}/session`}`
+              : fullyByCredits
+              ? `✅ Confirm Booking — Pay C$0.00 💳`
+              : creditsToApply > 0
+              ? `Pay C$${cardCharge.toFixed(2)} by Card`
               : `Book ${selectedCourts.length} Court${selectedCourts.length !== 1 ? "s" : ""} — C$${totalPrice.toFixed(2)}`}
           </button>
           <p className="text-xs text-muted text-center">

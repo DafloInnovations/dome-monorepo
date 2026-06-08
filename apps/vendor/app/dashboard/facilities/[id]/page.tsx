@@ -6,6 +6,15 @@ import { useParams } from "next/navigation";
 import Header from "../../../../components/layout/Header";
 import { apiFetch } from "../../../../lib/api";
 
+interface Court {
+  id: string;
+  name: string;
+  isActive: boolean;
+  isShared: boolean;
+  sports: string[];
+  primarySport: string | null;
+}
+
 interface FacilityDetail {
   id: string;
   name: string;
@@ -15,10 +24,22 @@ interface FacilityDetail {
   isActive: boolean;
   capacity: number;
   images: string[];
-  courts: { id: string; name: string; isActive: boolean }[];
+  courts: Court[];
   address: { street: string; city: string; province: string; postalCode: string } | null;
   operatingHours: { day: number; openTime: string; closeTime: string; isClosed: boolean }[];
+  cancellationWindowHours: number;
 }
+
+const ALL_SPORTS = [
+  "BADMINTON", "PICKLEBALL", "TENNIS", "SQUASH",
+  "SOCCER", "BASKETBALL", "VOLLEYBALL", "HOCKEY", "BASEBALL", "CRICKET",
+] as const;
+
+const SPORT_EMOJI: Record<string, string> = {
+  BADMINTON: "🏸", PICKLEBALL: "🏓", TENNIS: "🎾", SQUASH: "🎾",
+  SOCCER: "⚽", BASKETBALL: "🏀", VOLLEYBALL: "🏐", HOCKEY: "🏒",
+  BASEBALL: "⚾", CRICKET: "🏏",
+};
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MAX_PHOTOS = 5;
@@ -49,21 +70,40 @@ export default function FacilityDetailPage() {
   // Policy state
   const [policyHours, setPolicyHours] = useState(24);
   const [savingPolicy, setSavingPolicy] = useState(false);
+  const [policySaved, setPolicySaved] = useState(false);
+  const [policyError, setPolicyError] = useState("");
+
+  // Shared court editor state (per courtId)
+  const [sharedEditing, setSharedEditing] = useState<string | null>(null);
+  const [sharedForm, setSharedForm] = useState<{
+    isShared: boolean;
+    sports: string[];
+    sportPricing: { sport: string; priceCAD: string }[];
+  }>({ isShared: false, sports: [], sportPricing: [] });
+  const [savingShared, setSavingShared] = useState(false);
+  const [sharedError, setSharedError] = useState("");
 
   useEffect(() => {
-    apiFetch<{ data: FacilityDetail }>(`/facilities/${id}`)
+    apiFetch<{ data: FacilityDetail }>(`/vendor/facilities/${id}`)
       .then((r) => {
         setFacility({
           ...r.data,
           images: r.data.images ?? [],
-          courts: r.data.courts ?? [],
+          courts: (r.data.courts ?? []).map((c) => ({
+            ...c,
+            isShared: (c as Court).isShared ?? false,
+            sports: (c as Court).sports ?? [],
+            primarySport: (c as Court).primarySport ?? null,
+          })),
           operatingHours: r.data.operatingHours ?? [],
+          cancellationWindowHours: r.data.cancellationWindowHours ?? 24,
         });
         setEditForm({
           description: r.data.description,
           capacity: r.data.capacity,
           images: r.data.images ?? [],
         });
+        setPolicyHours(r.data.cancellationWindowHours ?? 24);
       })
       .catch((e) => setError(e instanceof Error ? e.message : "Not found"))
       .finally(() => setIsLoading(false));
@@ -163,11 +203,12 @@ export default function FacilityDetailPage() {
     setCourtError("");
     setIsAddingCourt(true);
     try {
-      const res = await apiFetch<{ data: { id: string; name: string; isActive: boolean } }>(
+      const res = await apiFetch<{ data: Court }>(
         `/vendor/facilities/${id}/courts`,
         { method: "POST", body: JSON.stringify({ name: courtName.trim() }) }
       );
-      setFacility((f) => f ? { ...f, courts: [...f.courts, res.data] } : f);
+      const newCourt: Court = { ...res.data, isShared: res.data.isShared ?? false, sports: res.data.sports ?? [], primarySport: res.data.primarySport ?? null };
+      setFacility((f) => f ? { ...f, courts: [...f.courts, newCourt] } : f);
       setCourtName("");
       setShowAddCourt(false);
     } catch (err) {
@@ -177,13 +218,65 @@ export default function FacilityDetailPage() {
     }
   }
 
+  function openSharedEditor(court: Court) {
+    setSharedEditing(court.id);
+    setSharedError("");
+    setSharedForm({
+      isShared: court.isShared,
+      sports: court.sports.length > 0 ? court.sports : [court.name.toUpperCase().replace(/\s/g, "_")],
+      sportPricing: court.sports.map((s) => ({ sport: s, priceCAD: "25" })),
+    });
+  }
+
+  async function saveSharedCourt() {
+    if (!sharedEditing) return;
+    setSavingShared(true);
+    setSharedError("");
+    try {
+      const payload = {
+        isShared: sharedForm.isShared,
+        sports: sharedForm.sports,
+        sportPricing: sharedForm.sportPricing
+          .filter((p) => p.priceCAD && Number(p.priceCAD) > 0)
+          .map((p) => ({ sport: p.sport, priceCAD: Number(p.priceCAD) })),
+      };
+      await apiFetch(`/vendor/courts/${sharedEditing}/shared`, {
+        method: "PUT",
+        body: JSON.stringify(payload),
+      });
+      setFacility((f) => f ? {
+        ...f,
+        courts: f.courts.map((c) =>
+          c.id === sharedEditing
+            ? { ...c, isShared: sharedForm.isShared, sports: sharedForm.sports }
+            : c
+        ),
+      } : f);
+      setSharedEditing(null);
+    } catch (err) {
+      setSharedError(err instanceof Error ? err.message : "Save failed");
+    } finally {
+      setSavingShared(false);
+    }
+  }
+
   async function savePolicy() {
     setSavingPolicy(true);
-    await apiFetch(`/vendor/facilities/${id}`, {
-      method: "PUT",
-      body: JSON.stringify({ cancellationHours: policyHours }),
-    }).catch(() => null);
-    setSavingPolicy(false);
+    setPolicySaved(false);
+    setPolicyError("");
+    try {
+      await apiFetch(`/vendor/facilities/${id}`, {
+        method: "PUT",
+        body: JSON.stringify({ cancellationWindowHours: policyHours }),
+      });
+      setFacility((f) => f ? { ...f, cancellationWindowHours: policyHours } : f);
+      setPolicySaved(true);
+      setTimeout(() => setPolicySaved(false), 3000);
+    } catch (err) {
+      setPolicyError(err instanceof Error ? err.message : "Failed to save policy");
+    } finally {
+      setSavingPolicy(false);
+    }
   }
 
   if (isLoading) return (
@@ -352,24 +445,157 @@ export default function FacilityDetailPage() {
           {facility.courts.length === 0 ? (
             <p className="text-sm text-muted">No courts yet.</p>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="space-y-3">
               {facility.courts.map((court) => (
-                <div
-                  key={court.id}
-                  className="bg-surface border border-border rounded-dome p-4 flex items-center justify-between"
-                >
-                  <div>
-                    <p className="font-medium text-white">{court.name}</p>
-                    <p className="text-xs text-muted mt-0.5">
-                      {court.isActive ? "Active" : "Inactive"}
-                    </p>
+                <div key={court.id} className="bg-surface border border-border rounded-dome p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <div>
+                      <p className="font-medium text-white flex items-center gap-2">
+                        {court.name}
+                        {court.isShared && (
+                          <span className="text-xs bg-blue-900/40 text-blue-400 border border-blue-800 px-2 py-0.5 rounded-full">
+                            🔄 Shared Court
+                          </span>
+                        )}
+                      </p>
+                      <p className="text-xs text-muted mt-0.5">
+                        {court.isActive ? "Active" : "Inactive"}
+                        {court.isShared && court.sports.length > 0 && (
+                          <span className="ml-2">
+                            {court.sports.map((s) => `${SPORT_EMOJI[s] ?? ""} ${s.charAt(0) + s.slice(1).toLowerCase()}`).join(" · ")}
+                          </span>
+                        )}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={() => openSharedEditor(court)}
+                        className="text-xs text-muted hover:text-white border border-border hover:border-primary px-2.5 py-1 rounded-dome transition-colors"
+                      >
+                        🔄 Shared Court
+                      </button>
+                      <Link
+                        href={`/dashboard/courts/${court.id}/slots`}
+                        className="text-xs text-primary hover:underline font-medium"
+                      >
+                        Manage Slots →
+                      </Link>
+                    </div>
                   </div>
-                  <Link
-                    href={`/dashboard/courts/${court.id}/slots`}
-                    className="text-xs text-primary hover:underline font-medium"
-                  >
-                    Manage Slots →
-                  </Link>
+
+                  {/* Shared court inline editor */}
+                  {sharedEditing === court.id && (
+                    <div className="mt-3 pt-3 border-t border-border space-y-4">
+                      <div className="flex items-center gap-3">
+                        <button
+                          type="button"
+                          onClick={() => setSharedForm((f) => ({ ...f, isShared: !f.isShared }))}
+                          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                            sharedForm.isShared ? "bg-primary" : "bg-gray-700"
+                          }`}
+                        >
+                          <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                            sharedForm.isShared ? "translate-x-6" : "translate-x-1"
+                          }`} />
+                        </button>
+                        <span className="text-sm text-white font-medium">
+                          {sharedForm.isShared ? "Shared Court (ON)" : "Single Sport Court"}
+                        </span>
+                      </div>
+
+                      {sharedForm.isShared && (
+                        <>
+                          <div>
+                            <p className="text-xs text-muted mb-2">Sports supported:</p>
+                            <div className="flex flex-wrap gap-2">
+                              {ALL_SPORTS.map((sport) => {
+                                const on = sharedForm.sports.includes(sport);
+                                return (
+                                  <button
+                                    key={sport}
+                                    type="button"
+                                    onClick={() => {
+                                      setSharedForm((f) => {
+                                        const next = on
+                                          ? f.sports.filter((s) => s !== sport)
+                                          : [...f.sports, sport];
+                                        // Sync pricing rows
+                                        const pricingNext = next.map((s) => ({
+                                          sport: s,
+                                          priceCAD: f.sportPricing.find((p) => p.sport === s)?.priceCAD ?? "25",
+                                        }));
+                                        return { ...f, sports: next, sportPricing: pricingNext };
+                                      });
+                                    }}
+                                    className={`px-3 py-1 text-xs font-medium rounded-dome border transition-colors ${
+                                      on
+                                        ? "bg-primary border-primary text-white"
+                                        : "bg-surface border-border text-muted hover:text-white"
+                                    }`}
+                                  >
+                                    {SPORT_EMOJI[sport] ?? ""} {sport.charAt(0) + sport.slice(1).toLowerCase()}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+
+                          {sharedForm.sports.length > 0 && (
+                            <div>
+                              <p className="text-xs text-muted mb-2">Pricing per sport (C$/slot):</p>
+                              <div className="space-y-2">
+                                {sharedForm.sportPricing.map((row) => (
+                                  <div key={row.sport} className="flex items-center gap-3">
+                                    <span className="text-sm text-white w-28">
+                                      {SPORT_EMOJI[row.sport] ?? ""} {row.sport.charAt(0) + row.sport.slice(1).toLowerCase()}
+                                    </span>
+                                    <div className="flex items-center gap-1">
+                                      <span className="text-muted text-sm">C$</span>
+                                      <input
+                                        type="number"
+                                        min="1"
+                                        step="1"
+                                        value={row.priceCAD}
+                                        onChange={(e) => setSharedForm((f) => ({
+                                          ...f,
+                                          sportPricing: f.sportPricing.map((p) =>
+                                            p.sport === row.sport ? { ...p, priceCAD: e.target.value } : p
+                                          ),
+                                        }))}
+                                        className="w-20 bg-black border border-border rounded-dome px-2 py-1 text-sm text-white focus:outline-none focus:border-primary"
+                                      />
+                                      <span className="text-muted text-xs">/hr</span>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          <p className="text-xs text-muted">
+                            ℹ️ Booking one sport will automatically block the court for other sports at the same time.
+                          </p>
+                        </>
+                      )}
+
+                      {sharedError && <p className="text-red-400 text-xs">{sharedError}</p>}
+                      <div className="flex gap-2">
+                        <button
+                          onClick={saveSharedCourt}
+                          disabled={savingShared}
+                          className="bg-primary hover:bg-primary-hover disabled:opacity-50 text-white text-sm font-bold px-4 py-2 rounded-dome transition-colors"
+                        >
+                          {savingShared ? "Saving…" : "Save Changes"}
+                        </button>
+                        <button
+                          onClick={() => setSharedEditing(null)}
+                          className="text-sm text-muted hover:text-white px-3 py-2 transition-colors"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -436,6 +662,12 @@ export default function FacilityDetailPage() {
             Players who cancel more than {policyHours}h before their slot get a full refund.
             Late cancellations receive Dome Credits.
           </p>
+          {policySaved && (
+            <p className="text-xs text-green-400 mt-2">✓ Policy saved</p>
+          )}
+          {policyError && (
+            <p className="text-xs text-red-500 mt-2">{policyError}</p>
+          )}
         </div>
       </main>
     </>

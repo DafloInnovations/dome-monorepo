@@ -2,13 +2,13 @@ import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 
 const C = {
-  bg: "#000000",
+  bg: "#FFFFFF",
   primary: "#E85068",
-  surface: "#1C1C1E",
-  text: "#FFFFFF",
-  muted: "#6B6B6B",
+  surface: "#F8F8F8",
+  text: "#0A0A0A",
+  muted: "#9E9E9E",
   green: "#22C55E",
-  chip: "#2C2C2E",
+  chip: "#EBEBEB",
 };
 
 export default function BookingSuccessScreen() {
@@ -162,7 +162,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: 10,
     borderBottomWidth: 1,
-    borderBottomColor: "#2C2C2E",
+    borderBottomColor: "#EBEBEB",
   },
   detailLabel: { color: C.muted, fontSize: 14 },
   detailValue: { color: C.text, fontSize: 14, fontWeight: "600" },
@@ -206,9 +206,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 20,
   },
-  homeBtnText: { color: C.text, fontSize: 16, fontWeight: "700" },
+  homeBtnText: { color: "#FFFFFF", fontSize: 16, fontWeight: "700" },
   bookingId: {
-    color: "#3A3A3C",
+    color: "#EBEBEB",
     fontSize: 11,
     textAlign: "center",
     fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",

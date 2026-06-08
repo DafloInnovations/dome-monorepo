@@ -24,14 +24,51 @@ async function assertCourtOwner(courtId: string, userId: string) {
   return court;
 }
 
+// ─── PATCH /api/v1/vendor/courts/:id/pricing/toggle ──────────────────────────
+
+router.patch("/:id/pricing/toggle", async (req, res, next) => {
+  try {
+    const courtId = param(req.params["id"]!);
+    await assertCourtOwner(courtId, req.user!.sub);
+    const { enabled } = req.body as { enabled: boolean };
+    if (typeof enabled !== "boolean") {
+      res.status(400).json({ message: "enabled must be boolean" }); return;
+    }
+    const updated = await prisma.court.update({
+      where: { id: courtId },
+      data: { dynamicPricingEnabled: enabled },
+      select: { id: true, dynamicPricingEnabled: true },
+    });
+    res.json({ data: updated });
+  } catch (err) { next(err); }
+});
+
+// ─── PUT /api/v1/vendor/courts/:id/pricing/base-price ────────────────────────
+
+router.put("/:id/pricing/base-price", async (req, res, next) => {
+  try {
+    const courtId = param(req.params["id"]!);
+    await assertCourtOwner(courtId, req.user!.sub);
+    const { priceCAD } = req.body as { priceCAD: number };
+    if (typeof priceCAD !== "number" || priceCAD <= 0) {
+      res.status(400).json({ message: "priceCAD must be a positive number" }); return;
+    }
+    const result = await prisma.slot.updateMany({
+      where: { courtId, status: "AVAILABLE" },
+      data: { priceCAD },
+    });
+    res.json({ data: { updated: result.count, priceCAD } });
+  } catch (err) { next(err); }
+});
+
 // ─── GET /api/v1/vendor/courts/:id/pricing ────────────────────────────────────
 
 router.get("/:id/pricing", async (req, res, next) => {
   try {
     const courtId = param(req.params["id"]!);
-    await assertCourtOwner(courtId, req.user!.sub);
+    const court = await assertCourtOwner(courtId, req.user!.sub);
 
-    const [rules, overrides] = await Promise.all([
+    const [rules, overrides, basePriceSlot] = await Promise.all([
       prisma.pricingRule.findMany({
         where: { courtId },
         orderBy: [{ priority: "desc" }, { createdAt: "asc" }],
@@ -40,17 +77,17 @@ router.get("/:id/pricing", async (req, res, next) => {
         where: { courtId },
         orderBy: { date: "asc" },
       }),
+      prisma.slot.findFirst({
+        where: { courtId, status: "AVAILABLE" },
+        select: { priceCAD: true },
+        orderBy: { createdAt: "desc" },
+      }),
     ]);
-
-    const basePriceSlot = await prisma.slot.findFirst({
-      where: { courtId, status: "AVAILABLE" },
-      select: { priceCAD: true },
-      orderBy: { createdAt: "desc" },
-    });
 
     res.json({
       data: {
         courtId,
+        dynamicPricingEnabled: court.dynamicPricingEnabled,
         basePriceCAD: basePriceSlot ? Number(basePriceSlot.priceCAD) : null,
         rules: rules.map((r) => ({
           ...r,

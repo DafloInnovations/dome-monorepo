@@ -5,7 +5,7 @@ import {
   useState,
 } from "react";
 import {
-  ActivityIndicator,
+  Alert,
   Animated,
   FlatList,
   KeyboardAvoidingView,
@@ -16,40 +16,49 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { Stack, useLocalSearchParams, useRouter } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "../../src/context/AuthContext";
 import { useSocket } from "../../src/context/SocketContext";
 import { useChat, type ChatMessage } from "../../src/hooks/useChat";
 
+// ─── Tokens ───────────────────────────────────────────────────────────────────
+
 const C = {
-  bg: "#000000",
+  bg:      "#FFFFFF",
   primary: "#E85068",
-  surface: "#1C1C1E",
-  text: "#FFFFFF",
-  muted: "#6B6B6B",
-  border: "#2C2C2E",
-  own: "#E85068",
-  other: "#1C1C1E",
+  surface: "#F5F5F5",
+  text:    "#0A0A0A",
+  muted:   "#9E9E9E",
+  border:  "#F0F0F0",
+  own:     "#E85068",
+  other:   "#F0F0F0",
 };
 
-function formatTime(iso: string): string {
-  const d = new Date(iso);
-  return d.toLocaleTimeString("en-CA", { hour: "2-digit", minute: "2-digit" });
+const SPORT_EMOJI: Record<string, string> = {
+  BADMINTON: "🏸", PICKLEBALL: "🏓", TENNIS: "🎾", BASKETBALL: "🏀",
+  SOCCER: "⚽", CRICKET: "🏏", SQUASH: "🎯", VOLLEYBALL: "🏐",
+  HOCKEY: "🏒", BASEBALL: "⚾",
+};
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function fmtTime(iso: string): string {
+  return new Date(iso).toLocaleTimeString("en-CA", { hour: "numeric", minute: "2-digit" });
 }
 
-function formatDate(iso: string): string {
+function fmtDateLabel(iso: string): string {
   const d = new Date(iso);
-  const today = new Date();
-  const yesterday = new Date(today);
+  const today     = new Date();
+  const yesterday = new Date();
   yesterday.setDate(today.getDate() - 1);
-
-  if (d.toDateString() === today.toDateString()) return "Today";
+  if (d.toDateString() === today.toDateString())     return "Today";
   if (d.toDateString() === yesterday.toDateString()) return "Yesterday";
   return d.toLocaleDateString("en-CA", { month: "short", day: "numeric" });
 }
 
-// Parses YYYY-MM-DD as local date (avoids UTC-midnight timezone shift)
-function formatDisplayDate(dateStr: string | undefined): string {
+function fmtDisplayDate(dateStr?: string): string {
   if (!dateStr) return "";
   const parts = dateStr.split("-").map(Number);
   if (parts.length !== 3 || parts.some((n) => isNaN(n!))) return dateStr;
@@ -59,149 +68,178 @@ function formatDisplayDate(dateStr: string | undefined): string {
   });
 }
 
-const SPORT_EMOJI: Record<string, string> = {
-  BADMINTON: "🏸", PICKLEBALL: "🏓", TENNIS: "🎾", BASKETBALL: "🏀",
-  SOCCER: "⚽", CRICKET: "🏏", SQUASH: "🎯", VOLLEYBALL: "🏐",
-  HOCKEY: "🏒", BASEBALL: "⚾",
-};
-
-function getSportEmoji(sport: string): string {
-  return SPORT_EMOJI[sport.toUpperCase()] ?? "🏟️";
+function initials(first = "", last = ""): string {
+  return `${first[0] ?? ""}${last[0] ?? ""}`.toUpperCase() || "?";
 }
 
+// ─── Typing indicator ─────────────────────────────────────────────────────────
+
 function TypingIndicator() {
-  const dot1 = useRef(new Animated.Value(0)).current;
-  const dot2 = useRef(new Animated.Value(0)).current;
-  const dot3 = useRef(new Animated.Value(0)).current;
+  const d1 = useRef(new Animated.Value(0)).current;
+  const d2 = useRef(new Animated.Value(0)).current;
+  const d3 = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     const animate = (dot: Animated.Value, delay: number) =>
       Animated.loop(
         Animated.sequence([
           Animated.delay(delay),
-          Animated.timing(dot, { toValue: 1, duration: 300, useNativeDriver: true }),
-          Animated.timing(dot, { toValue: 0, duration: 300, useNativeDriver: true }),
-          Animated.delay(600 - delay),
+          Animated.timing(dot, { toValue: 1, duration: 280, useNativeDriver: true }),
+          Animated.timing(dot, { toValue: 0, duration: 280, useNativeDriver: true }),
+          Animated.delay(560 - delay),
         ])
       ).start();
+    animate(d1, 0);
+    animate(d2, 180);
+    animate(d3, 360);
+  }, [d1, d2, d3]);
 
-    animate(dot1, 0);
-    animate(dot2, 200);
-    animate(dot3, 400);
-  }, [dot1, dot2, dot3]);
-
-  const dotStyle = (dot: Animated.Value) => ({
-    opacity: dot,
-    transform: [{ translateY: dot.interpolate({ inputRange: [0, 1], outputRange: [0, -4] }) }],
+  const dotAnim = (d: Animated.Value) => ({
+    opacity: d,
+    transform: [{ translateY: d.interpolate({ inputRange: [0, 1], outputRange: [0, -4] }) }],
   });
 
   return (
-    <View style={styles.typingWrap}>
-      <View style={styles.typingBubble}>
-        <Animated.View style={[styles.typingDot, dotStyle(dot1)]} />
-        <Animated.View style={[styles.typingDot, dotStyle(dot2)]} />
-        <Animated.View style={[styles.typingDot, dotStyle(dot3)]} />
+    <View style={ty.wrap}>
+      <View style={ty.bubble}>
+        <Animated.View style={[ty.dot, dotAnim(d1)]} />
+        <Animated.View style={[ty.dot, dotAnim(d2)]} />
+        <Animated.View style={[ty.dot, dotAnim(d3)]} />
       </View>
     </View>
   );
 }
+const ty = StyleSheet.create({
+  wrap:   { paddingHorizontal: 16, paddingBottom: 4 },
+  bubble: {
+    flexDirection: "row", gap: 4,
+    backgroundColor: C.other,
+    borderRadius: 18, borderBottomLeftRadius: 4,
+    paddingHorizontal: 14, paddingVertical: 12,
+    alignSelf: "flex-start",
+  },
+  dot: { width: 7, height: 7, borderRadius: 4, backgroundColor: C.muted },
+});
+
+// ─── Message Bubble ───────────────────────────────────────────────────────────
 
 interface BubbleProps {
-  message: ChatMessage;
-  isOwn: boolean;
-  showDate: boolean;
+  message:   ChatMessage;
+  isOwn:     boolean;
+  showDate:  boolean;
   dateLabel: string;
+  showAvatar: boolean;
 }
 
-function MessageBubble({ message, isOwn, showDate, dateLabel }: BubbleProps) {
-  const senderInitials = [message.sender.firstName, message.sender.lastName]
-    .filter(Boolean)
-    .map((n) => n![0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase() || "?";
+function MessageBubble({ message, isOwn, showDate, dateLabel, showAvatar }: BubbleProps) {
+  const inis = initials(message.sender.firstName, message.sender.lastName);
 
   return (
     <View>
       {showDate && (
-        <View style={styles.dateSeparator}>
-          <Text style={styles.dateSeparatorText}>{dateLabel}</Text>
+        <View style={mb.dateSep}>
+          <View style={mb.dateLine} />
+          <Text style={mb.dateText}>{dateLabel}</Text>
+          <View style={mb.dateLine} />
         </View>
       )}
-      <View style={[styles.bubbleRow, isOwn ? styles.bubbleRowOwn : styles.bubbleRowOther]}>
-        {/* Avatar on the left for incoming messages */}
+
+      <View style={[mb.row, isOwn ? mb.rowOwn : mb.rowOther]}>
+        {/* Incoming avatar — only on first of a sequence */}
         {!isOwn && (
-          <View style={styles.senderAvatar}>
-            <Text style={styles.senderAvatarText}>{senderInitials}</Text>
+          <View style={mb.avatarSlot}>
+            {showAvatar ? (
+              <View style={mb.avatar}>
+                <Text style={mb.avatarText}>{inis}</Text>
+              </View>
+            ) : null}
           </View>
         )}
 
-        <View style={[styles.bubble, isOwn ? styles.bubbleOwn : styles.bubbleOther]}>
-          <Text style={styles.bubbleText}>{message.content}</Text>
-          <Text style={[styles.timestamp, isOwn ? styles.timestampOwn : styles.timestampOther]}>
-            {formatTime(message.createdAt)}
+        <View style={[mb.bubble, isOwn ? mb.bubbleOwn : mb.bubbleOther]}>
+          <Text style={[mb.text, isOwn ? mb.textOwn : mb.textOther]}>
+            {message.content}
+          </Text>
+          <Text style={[mb.time, isOwn ? mb.timeOwn : mb.timeOther]}>
+            {fmtTime(message.createdAt)}
+            {isOwn ? "  ✓" : ""}
           </Text>
         </View>
 
-        {/* Right-side spacer so incoming bubbles never push flush to the right edge */}
-        {!isOwn && <View style={styles.bubbleSpacer} />}
+        {/* Right spacer so incoming bubbles never reach right edge */}
+        {!isOwn && <View style={{ width: 48 }} />}
       </View>
     </View>
   );
 }
 
+const mb = StyleSheet.create({
+  dateSep: {
+    flexDirection: "row", alignItems: "center",
+    marginVertical: 14, paddingHorizontal: 16, gap: 10,
+  },
+  dateLine: { flex: 1, height: 1, backgroundColor: C.border },
+  dateText: {
+    color: C.muted, fontSize: 11, fontWeight: "600",
+    backgroundColor: C.bg, paddingHorizontal: 8,
+  },
+  row:      { flexDirection: "row", alignItems: "flex-end", marginVertical: 2, paddingHorizontal: 8 },
+  rowOwn:   { justifyContent: "flex-end" },
+  rowOther: { justifyContent: "flex-start" },
+  avatarSlot: { width: 36, marginRight: 4, alignItems: "center" },
+  avatar: {
+    width: 32, height: 32, borderRadius: 16,
+    backgroundColor: C.primary,
+    alignItems: "center", justifyContent: "center",
+  },
+  avatarText:  { color: "#fff", fontSize: 11, fontWeight: "800" },
+  bubble: {
+    maxWidth: "72%", borderRadius: 18,
+    paddingHorizontal: 14, paddingVertical: 10,
+  },
+  bubbleOwn:   { backgroundColor: C.own,   borderBottomRightRadius: 4, marginRight: 8 },
+  bubbleOther: { backgroundColor: C.other, borderBottomLeftRadius: 4 },
+  text:        { fontSize: 15, lineHeight: 21 },
+  textOwn:     { color: "#FFFFFF" },
+  textOther:   { color: C.text },
+  time:        { fontSize: 11, marginTop: 4 },
+  timeOwn:     { color: "rgba(255,255,255,0.55)", textAlign: "right" },
+  timeOther:   { color: C.muted },
+});
+
+// ─── Main Screen ──────────────────────────────────────────────────────────────
+
 export default function ChatScreen() {
   const {
-    threadId,
-    otherUserName,
-    gameId,
-    gameSport,
-    gameFacility,
-    gameDate,
-    gameStartTime,
-    gameEndTime,
+    threadId, otherUserName,
+    gameId, gameSport, gameFacility, gameDate, gameStartTime, gameEndTime,
   } = useLocalSearchParams<{
-    threadId: string;
-    otherUserName?: string;
-    gameId?: string;
-    gameSport?: string;
-    gameFacility?: string;
-    gameDate?: string;
-    gameStartTime?: string;
-    gameEndTime?: string;
+    threadId: string; otherUserName?: string;
+    gameId?: string; gameSport?: string; gameFacility?: string;
+    gameDate?: string; gameStartTime?: string; gameEndTime?: string;
   }>();
-  const router = useRouter();
+
+  const router  = useRouter();
+  const insets  = useSafeAreaInsets();
   const { user } = useAuth();
   const { isConnected, isConnecting } = useSocket();
 
   const {
-    messages,
-    isLoading,
-    isSending,
-    error,
-    hasMore,
-    typingUsers,
-    loadMore,
-    sendMessage,
-    emitTypingStart,
-    emitTypingStop,
-    markRead,
+    messages, isLoading, isSending, error,
+    hasMore, typingUsers,
+    loadMore, sendMessage, emitTypingStart, emitTypingStop, markRead,
   } = useChat(threadId!);
 
   const [inputText, setInputText] = useState("");
-  const listRef = useRef<FlatList<ChatMessage>>(null);
+  const listRef     = useRef<FlatList<ChatMessage>>(null);
   const typingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isTypingRef = useRef(false);
 
-  // Mark read when screen focuses
-  useEffect(() => {
-    markRead();
-  }, [markRead]);
+  useEffect(() => { markRead(); }, [markRead]);
 
-  // Scroll to bottom on new messages
   useEffect(() => {
     if (messages.length > 0) {
-      setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 50);
+      setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 60);
     }
   }, [messages.length]);
 
@@ -228,43 +266,54 @@ export default function ChatScreen() {
     }, 2000);
   }, [emitTypingStart, emitTypingStop]);
 
-  // Build display data with date separators
   const renderItem = useCallback(({ item, index }: { item: ChatMessage; index: number }) => {
-    const isOwn = item.senderId === user?.id;
-    const prev = messages[index - 1];
-    const showDate =
-      index === 0 ||
-      (prev != null && formatDate(item.createdAt) !== formatDate(prev.createdAt));
+    const isOwn   = item.senderId === user?.id;
+    const prev    = messages[index - 1];
+    const next    = messages[index + 1];
+    const showDate = index === 0 || (prev != null && fmtDateLabel(item.createdAt) !== fmtDateLabel(prev.createdAt));
+    // Show avatar on the first message of each incoming sequence (sender change after prev)
+    const showAvatar = !isOwn && (index === 0 || prev?.senderId !== item.senderId);
     return (
       <MessageBubble
         message={item}
         isOwn={isOwn}
         showDate={showDate}
-        dateLabel={formatDate(item.createdAt)}
+        dateLabel={fmtDateLabel(item.createdAt)}
+        showAvatar={showAvatar}
       />
     );
   }, [messages, user?.id]);
 
   const isOtherTyping = typingUsers.size > 0;
-  const hasGameContext = !!gameSport;
+  const hasText       = inputText.trim().length > 0;
+
+  const sportEmoji = gameSport ? (SPORT_EMOJI[gameSport.toUpperCase()] ?? "🏟️") : null;
+  const headerTitle = otherUserName ?? "Chat";
+  const headerInis  = headerTitle
+    .split(" ")
+    .map((n) => n[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-      keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 0}
-    >
-      {/* Rich header */}
-      <View style={styles.header}>
-        {/* Back + name row */}
-        <View style={styles.headerTop}>
-          <Pressable onPress={() => router.back()} style={styles.backBtn}>
-            <Text style={styles.backBtnText}>← Back</Text>
+    <>
+      <Stack.Screen options={{ headerShown: false }} />
+
+      <View style={[styles.screen, { paddingTop: insets.top }]}>
+
+        {/* ── Header ──────────────────────────────────────────────────────────*/}
+        <View style={styles.header}>
+          <Pressable style={styles.backBtn} onPress={() => router.back()} hitSlop={10}>
+            <Ionicons name="arrow-back" size={22} color={C.primary} />
           </Pressable>
-          <View style={styles.headerMid}>
-            <Text style={styles.headerName} numberOfLines={1}>
-              {otherUserName ?? "Chat"}
-            </Text>
+
+          <View style={styles.headerAvatar}>
+            <Text style={styles.headerAvatarText}>{headerInis}</Text>
+          </View>
+
+          <View style={styles.headerMeta}>
+            <Text style={styles.headerName} numberOfLines={1}>{headerTitle}</Text>
             <View style={styles.statusRow}>
               <View style={[styles.statusDot, isConnected ? styles.statusOnline : styles.statusOffline]} />
               <Text style={styles.statusText}>
@@ -272,246 +321,229 @@ export default function ChatScreen() {
               </Text>
             </View>
           </View>
+
+          <Pressable
+            style={styles.menuBtn}
+            onPress={() =>
+              Alert.alert(headerTitle, undefined, [
+                { text: "View Profile",       onPress: () => {} },
+                { text: "Report",             style: "destructive", onPress: () => {} },
+                { text: "Cancel",             style: "cancel" },
+              ])
+            }
+            hitSlop={8}
+          >
+            <Ionicons name="ellipsis-horizontal" size={20} color={C.muted} />
+          </Pressable>
         </View>
 
-        {/* Game context card */}
-        {hasGameContext && (
-          <View style={styles.gameCard}>
-            <Text style={styles.gameEmoji}>{getSportEmoji(gameSport!)}</Text>
+        {/* ── Game context card ────────────────────────────────────────────── */}
+        {gameSport && (
+          <Pressable
+            style={styles.gameCard}
+            onPress={gameId ? () => router.push({ pathname: "/connect/game/[gameId]", params: { gameId } }) : undefined}
+          >
+            <Text style={styles.gameEmoji}>{sportEmoji}</Text>
             <View style={styles.gameInfo}>
               <Text style={styles.gameTitle} numberOfLines={1}>
-                {gameSport!.charAt(0) + gameSport!.slice(1).toLowerCase()}
-                {gameFacility ? ` · ${gameFacility}` : ""}
+                {gameSport.charAt(0) + gameSport.slice(1).toLowerCase()}
+                {gameFacility ? `  ·  ${gameFacility}` : ""}
               </Text>
               {(gameDate || gameStartTime) ? (
                 <Text style={styles.gameTime}>
-                  {formatDisplayDate(gameDate)}
-                  {gameStartTime && gameEndTime ? ` · ${gameStartTime}–${gameEndTime}` : ""}
+                  {fmtDisplayDate(gameDate)}
+                  {gameStartTime && gameEndTime ? `  ·  ${gameStartTime} – ${gameEndTime}` : ""}
                 </Text>
               ) : null}
             </View>
-            {gameId ? (
-              <Pressable
-                onPress={() => router.push({ pathname: "/connect/game/[gameId]", params: { gameId } })}
-              >
-                <Text style={styles.viewGameLink}>View →</Text>
-              </Pressable>
-            ) : null}
-          </View>
+            {gameId ? <Text style={styles.gameLink}>View →</Text> : null}
+          </Pressable>
         )}
-      </View>
 
-      {/* Messages */}
-      {isLoading && messages.length === 0 ? (
-        <View style={styles.center}>
-          <ActivityIndicator color={C.primary} size="large" />
-        </View>
-      ) : error ? (
-        <View style={styles.center}>
-          <Text style={styles.errorText}>{error}</Text>
-        </View>
-      ) : (
-        <FlatList
-          ref={listRef}
-          data={messages}
-          keyExtractor={(m) => m.id}
-          renderItem={renderItem}
-          contentContainerStyle={styles.messageList}
-          showsVerticalScrollIndicator={false}
-          onEndReachedThreshold={0.2}
-          onEndReached={() => {}} // scroll up to load more handled by header
-          ListHeaderComponent={
-            hasMore ? (
-              <Pressable style={styles.loadMoreBtn} onPress={loadMore} disabled={isLoading}>
-                {isLoading ? (
-                  <ActivityIndicator color={C.muted} size="small" />
-                ) : (
-                  <Text style={styles.loadMoreText}>Load earlier messages</Text>
-                )}
-              </Pressable>
-            ) : null
-          }
-          ListEmptyComponent={
-            <View style={styles.center}>
-              <Text style={styles.emptyText}>No messages yet. Say hello!</Text>
-            </View>
-          }
-        />
-      )}
-
-      {/* Typing indicator */}
-      {isOtherTyping && <TypingIndicator />}
-
-      {/* Input bar */}
-      <View style={styles.inputBar}>
-        <TextInput
-          style={styles.input}
-          value={inputText}
-          onChangeText={handleTextChange}
-          placeholder="Message…"
-          placeholderTextColor={C.muted}
-          multiline
-          maxLength={2000}
-          returnKeyType="default"
-        />
-        <Pressable
-          style={[styles.sendBtn, (!inputText.trim() || isSending) && styles.sendBtnDisabled]}
-          onPress={handleSend}
-          disabled={!inputText.trim() || isSending}
+        {/* ── Messages + input ─────────────────────────────────────────────── */}
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 0}
         >
-          {isSending ? (
-            <ActivityIndicator color={C.text} size="small" />
+          {isLoading && messages.length === 0 ? (
+            <View style={styles.center}>
+              <Text style={styles.loadingText}>Loading messages…</Text>
+            </View>
+          ) : error ? (
+            <View style={styles.center}>
+              <Text style={styles.errorText}>{error}</Text>
+            </View>
           ) : (
-            <Text style={styles.sendBtnText}>↑</Text>
+            <FlatList
+              ref={listRef}
+              data={messages}
+              keyExtractor={(m) => m.id}
+              renderItem={renderItem}
+              contentContainerStyle={styles.messageList}
+              showsVerticalScrollIndicator={false}
+              ListHeaderComponent={
+                hasMore ? (
+                  <Pressable style={styles.loadMoreBtn} onPress={loadMore} disabled={isLoading}>
+                    <Text style={styles.loadMoreText}>
+                      {isLoading ? "Loading…" : "Load earlier messages"}
+                    </Text>
+                  </Pressable>
+                ) : null
+              }
+              ListEmptyComponent={
+                <View style={styles.center}>
+                  <Text style={styles.emptyText}>No messages yet. Say hello! 👋</Text>
+                </View>
+              }
+            />
           )}
-        </Pressable>
+
+          {/* Typing indicator */}
+          {isOtherTyping && <TypingIndicator />}
+
+          {/* ── Input bar ─────────────────────────────────────────────────── */}
+          <View style={[styles.inputBar, { paddingBottom: insets.bottom + 8 }]}>
+            {!hasText && (
+              <Pressable
+                style={styles.attachBtn}
+                onPress={() =>
+                  Alert.alert("Attachments", "Coming soon: Camera, Gallery, Location")
+                }
+                hitSlop={8}
+              >
+                <Ionicons name="attach" size={22} color={C.muted} />
+              </Pressable>
+            )}
+
+            <TextInput
+              style={styles.input}
+              value={inputText}
+              onChangeText={handleTextChange}
+              placeholder={`Message ${headerTitle}…`}
+              placeholderTextColor={C.muted}
+              multiline
+              maxLength={2000}
+              returnKeyType="default"
+            />
+
+            {!hasText && (
+              <Pressable
+                style={styles.emojiBtn}
+                onPress={() => {}} // emoji picker not wired
+                hitSlop={8}
+              >
+                <Text style={{ fontSize: 20 }}>😊</Text>
+              </Pressable>
+            )}
+
+            <Pressable
+              style={[styles.sendBtn, hasText && styles.sendBtnActive]}
+              onPress={handleSend}
+              disabled={!hasText || isSending}
+            >
+              {isSending ? (
+                <Text style={[styles.sendBtnIcon, hasText && styles.sendBtnIconActive]}>…</Text>
+              ) : (
+                <Ionicons
+                  name="arrow-up"
+                  size={18}
+                  color={hasText ? "#FFFFFF" : C.muted}
+                />
+              )}
+            </Pressable>
+          </View>
+        </KeyboardAvoidingView>
       </View>
-    </KeyboardAvoidingView>
+    </>
   );
 }
 
+// ─── Styles ───────────────────────────────────────────────────────────────────
+
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: C.bg },
+  screen: { flex: 1, backgroundColor: C.bg },
+  center: { flex: 1, alignItems: "center", justifyContent: "center", padding: 32 },
 
+  // Header
   header: {
-    backgroundColor: "#0A0A0A",
-    paddingTop: Platform.OS === "ios" ? 52 : 16,
-    paddingBottom: 12,
-    paddingHorizontal: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: C.surface,
+    flexDirection: "row", alignItems: "center", gap: 10,
+    paddingHorizontal: 12, paddingVertical: 10,
+    borderBottomWidth: 1, borderBottomColor: C.border,
+    backgroundColor: C.bg,
   },
-  headerTop: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    marginBottom: 10,
+  backBtn: {
+    width: 36, height: 36,
+    alignItems: "center", justifyContent: "center",
   },
-  backBtn: { padding: 2 },
-  backBtnText: { color: C.primary, fontSize: 16, fontWeight: "600" },
-  headerMid: { flex: 1 },
-  headerName: { color: C.text, fontSize: 17, fontWeight: "700" },
-  statusRow: { flexDirection: "row", alignItems: "center", gap: 5, marginTop: 2 },
-  statusDot: { width: 7, height: 7, borderRadius: 4 },
-  statusOnline: { backgroundColor: "#22C55E" },
+  headerAvatar: {
+    width: 36, height: 36, borderRadius: 18,
+    backgroundColor: C.primary,
+    alignItems: "center", justifyContent: "center",
+  },
+  headerAvatarText: { color: "#fff", fontSize: 13, fontWeight: "800" },
+  headerMeta:  { flex: 1 },
+  headerName:  { color: C.text, fontSize: 16, fontWeight: "700" },
+  statusRow:   { flexDirection: "row", alignItems: "center", gap: 5, marginTop: 2 },
+  statusDot:   { width: 7, height: 7, borderRadius: 4 },
+  statusOnline:  { backgroundColor: "#22C55E" },
   statusOffline: { backgroundColor: C.muted },
-  statusText: { color: C.muted, fontSize: 11 },
+  statusText:  { color: C.muted, fontSize: 11 },
+  menuBtn: {
+    width: 36, height: 36,
+    alignItems: "center", justifyContent: "center",
+  },
 
+  // Game context card
   gameCard: {
+    flexDirection: "row", alignItems: "center", gap: 10,
     backgroundColor: C.surface,
-    borderRadius: 12,
-    padding: 10,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
+    paddingHorizontal: 14, paddingVertical: 10,
+    borderBottomWidth: 1, borderBottomColor: C.border,
   },
   gameEmoji: { fontSize: 20 },
-  gameInfo: { flex: 1 },
-  gameTitle: { color: C.text, fontSize: 13, fontWeight: "700", letterSpacing: 0.3 },
-  gameTime: { color: C.muted, fontSize: 12, marginTop: 2 },
-  viewGameLink: { color: C.primary, fontSize: 12, fontWeight: "600" },
+  gameInfo:  { flex: 1 },
+  gameTitle: { color: C.text, fontSize: 13, fontWeight: "700" },
+  gameTime:  { color: C.muted, fontSize: 11, marginTop: 2 },
+  gameLink:  { color: C.primary, fontSize: 13, fontWeight: "600" },
 
-  center: { flex: 1, alignItems: "center", justifyContent: "center", padding: 32 },
-  errorText: { color: "#ff6b6b", fontSize: 14, textAlign: "center" },
-  emptyText: { color: C.muted, fontSize: 14, textAlign: "center" },
-
-  messageList: { paddingVertical: 16, flexGrow: 1 },
-
+  // Messages
+  messageList: { paddingVertical: 12, flexGrow: 1 },
   loadMoreBtn: { alignItems: "center", paddingVertical: 12 },
   loadMoreText: { color: C.muted, fontSize: 13 },
+  loadingText: { color: C.muted, fontSize: 14 },
+  errorText:   { color: "#EF4444", fontSize: 14, textAlign: "center" },
+  emptyText:   { color: C.muted, fontSize: 15, textAlign: "center" },
 
-  dateSeparator: { alignItems: "center", marginVertical: 12 },
-  dateSeparatorText: {
-    color: C.muted,
-    fontSize: 11,
-    fontWeight: "600",
-    backgroundColor: C.surface,
-    paddingHorizontal: 10,
-    paddingVertical: 3,
-    borderRadius: 99,
-    overflow: "hidden",
-  },
-
-  bubbleRow: {
-    flexDirection: "row",
-    alignItems: "flex-end",
-    marginVertical: 4,
-    marginHorizontal: 12,
-  },
-  bubbleRowOwn: { justifyContent: "flex-end" },
-  bubbleRowOther: { justifyContent: "flex-start" },
-
-  senderAvatar: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: C.surface,
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 8,
-    flexShrink: 0,
-  },
-  senderAvatarText: { color: C.primary, fontSize: 12, fontWeight: "700" },
-
-  bubble: {
-    maxWidth: "75%",
-    borderRadius: 18,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-  },
-  bubbleOwn: { backgroundColor: C.own, borderBottomRightRadius: 4 },
-  bubbleOther: { backgroundColor: C.other, borderBottomLeftRadius: 4 },
-  bubbleSpacer: { width: 40 },
-
-  bubbleText: { color: C.text, fontSize: 15, lineHeight: 20 },
-  timestamp: { fontSize: 11, marginTop: 4 },
-  timestampOwn: { color: "rgba(255,255,255,0.6)", textAlign: "right" },
-  timestampOther: { color: C.muted, textAlign: "left" },
-
-  typingWrap: { paddingHorizontal: 16, paddingBottom: 4 },
-  typingBubble: {
-    flexDirection: "row",
-    gap: 4,
-    backgroundColor: C.other,
-    borderRadius: 18,
-    borderBottomLeftRadius: 4,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    alignSelf: "flex-start",
-  },
-  typingDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: C.muted },
-
+  // Input bar
   inputBar: {
-    flexDirection: "row",
-    alignItems: "flex-end",
-    gap: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    paddingBottom: Platform.OS === "ios" ? 28 : 10,
-    borderTopWidth: 1,
-    borderTopColor: C.border,
-    backgroundColor: C.surface,
+    flexDirection: "row", alignItems: "flex-end", gap: 8,
+    paddingHorizontal: 12, paddingTop: 10,
+    borderTopWidth: 1, borderTopColor: C.border,
+    backgroundColor: C.bg,
+  },
+  attachBtn: {
+    width: 36, height: 36,
+    alignItems: "center", justifyContent: "center",
+    alignSelf: "flex-end",
+  },
+  emojiBtn: {
+    width: 36, height: 36,
+    alignItems: "center", justifyContent: "center",
+    alignSelf: "flex-end",
   },
   input: {
-    flex: 1,
-    backgroundColor: C.bg,
-    borderRadius: 22,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    color: C.text,
-    fontSize: 15,
-    maxHeight: 120,
-    borderWidth: 1,
-    borderColor: C.border,
+    flex: 1, backgroundColor: C.surface,
+    borderRadius: 22, paddingHorizontal: 16, paddingVertical: 10,
+    color: C.text, fontSize: 15, maxHeight: 120,
   },
   sendBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: C.primary,
-    alignItems: "center",
-    justifyContent: "center",
+    width: 38, height: 38, borderRadius: 19,
+    backgroundColor: "#D8D8D8",
+    alignItems: "center", justifyContent: "center",
+    alignSelf: "flex-end",
   },
-  sendBtnDisabled: { backgroundColor: C.border },
-  sendBtnText: { color: C.text, fontSize: 18, fontWeight: "800" },
+  sendBtnActive: { backgroundColor: C.primary },
+  sendBtnIcon:       { color: C.muted, fontSize: 18, fontWeight: "800" },
+  sendBtnIconActive: { color: "#fff" },
 });

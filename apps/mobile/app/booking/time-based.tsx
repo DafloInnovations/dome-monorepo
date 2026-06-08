@@ -5,7 +5,9 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
+  TextInput,
   View,
 } from "react-native";
 import { useLocalSearchParams, useNavigation, useRouter } from "expo-router";
@@ -14,28 +16,33 @@ import { useStripe } from "../../src/lib/stripe";
 import { useAuthToken } from "../../src/hooks/useAuthToken";
 import { isStripeConfigured } from "../../src/config/stripe";
 import { useEquipment } from "../../src/hooks/useEquipment";
+import { useCoupon } from "../../src/hooks/useCoupon";
+import { useCredits, calcCreditSplit } from "../../src/hooks/useCredits";
 import EquipmentItemRow from "../../src/components/EquipmentItem";
 
 const API_URL = process.env["EXPO_PUBLIC_API_URL"] ?? "http://localhost:3001/api/v1";
 
 const C = {
-  bg: "#000000",
+  bg: "#FFFFFF",
   primary: "#E85068",
-  surface: "#1C1C1E",
-  text: "#FFFFFF",
-  muted: "#6B6B6B",
-  chip: "#2C2C2E",
+  surface: "#F8F8F8",
+  text: "#0A0A0A",
+  muted: "#9E9E9E",
+  chip: "#EBEBEB",
 };
 
 interface TimeBookingResult {
   type: "single" | "group";
   bookingId: string | null;
   groupId: string | null;
+  fullyPaidWithCredits: boolean;
   clientSecret: string | null;
-  paymentIntentId: string;
+  paymentIntentId: string | null;
   totalCAD: number;
   subtotalCAD: number;
   taxCAD: number;
+  creditsAppliedCAD: number;
+  cardChargeCAD: number;
   lockExpiresInSeconds: number;
 }
 
@@ -98,6 +105,15 @@ export default function TimeBasedBookingScreen() {
     addToBooking: addEquipmentToBooking,
   } = useEquipment(facilityId ?? "", sport ?? "");
 
+  const courtPrice = Number(totalPrice ?? 0);
+  const subtotal = Math.round((courtPrice + (equipmentTotalCAD ?? 0)) * 100) / 100;
+
+  const coupon = useCoupon(facilityId ?? "", subtotal);
+  const credits = useCredits();
+  const [useCreditsToggle, setUseCreditsToggle] = useState(false);
+  const [creditsPartialInput, setCreditsPartialInput] = useState("");
+  const [creditsMode, setCreditsMode] = useState<"all" | "partial">("all");
+
   const [isCreating, setIsCreating] = useState(false);
   const [isConfirming, setIsConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -152,7 +168,13 @@ export default function TimeBasedBookingScreen() {
       const bookRes = await fetch(`${API_URL}/bookings/time-based`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ slotIds, facilityId }),
+        body: JSON.stringify({
+          slotIds,
+          facilityId,
+          useCredits: useCreditsToggle && creditsAvailable > 0,
+          creditsToUse: creditsMode === "partial" && creditsPartialAmt > 0 ? creditsPartialAmt : undefined,
+          couponCode: coupon.applied?.code,
+        }),
       });
       checkResponse(bookRes);
       if (!bookRes.ok) {
@@ -163,11 +185,34 @@ export default function TimeBasedBookingScreen() {
       bookingResultRef.current = bookingResult;
 
       // 2. Add equipment if selected (updates PaymentIntent amount server-side)
-      if (equipmentItems.length > 0 && bookingResult.bookingId) {
+      if (equipmentItems.length > 0 && bookingResult.bookingId && !bookingResult.fullyPaidWithCredits) {
         await addEquipmentToBooking(bookingResult.bookingId);
       }
 
-      // 3. Init Stripe payment sheet (amount already updated by equipment step)
+      // 3a. Fully paid with credits — booking already confirmed server-side
+      if (bookingResult.fullyPaidWithCredits) {
+        stripeSucceededRef.current = true;
+        setIsCreating(false);
+        credits.refetch(); // refresh balance in background
+        const confirmedId = bookingResult.bookingId ?? bookingResult.groupId ?? "";
+        router.replace({
+          pathname: "/booking/success",
+          params: {
+            bookingId: confirmedId,
+            facilityName: facilityName ?? "",
+            facilityCity: facilityCity ?? "",
+            sport: sport ?? "",
+            date: date ?? "",
+            startTime: startTime ?? "",
+            endTime: endTime ?? "",
+            totalCAD: String(bookingResult.totalCAD),
+            creditsUsed: String(bookingResult.creditsAppliedCAD),
+          },
+        } as Parameters<typeof router.replace>[0]);
+        return;
+      }
+
+      // 3b. Partial credits or no credits — show Stripe sheet for card charge
       const { error: initErr } = await initPaymentSheet({
         paymentIntentClientSecret: bookingResult.clientSecret!,
         merchantDisplayName: "Dome Sports",
@@ -177,7 +222,6 @@ export default function TimeBasedBookingScreen() {
 
       setIsCreating(false);
 
-      // 3. Present Stripe payment UI
       const { error: presentErr } = await presentPaymentSheet();
       if (presentErr) {
         if (presentErr.code === "Canceled") return;
@@ -207,6 +251,7 @@ export default function TimeBasedBookingScreen() {
         return;
       }
 
+      credits.refetch();
       const confirmData = (await confirmRes.json()) as { data?: { id?: string; slot?: { startTime?: string; endTime?: string } } };
       const confirmedId = confirmData.data?.id ?? bookingResult.bookingId ?? bookingResult.groupId ?? "";
       router.replace({
@@ -237,10 +282,21 @@ export default function TimeBasedBookingScreen() {
   const mins = durationMins % 60;
   const durationLabel = hours > 0 ? (mins > 0 ? `${hours}h ${mins}m` : `${hours}h`) : `${mins}m`;
 
-  const courtPrice = Number(totalPrice ?? 0);
-  const subtotal = Math.round((courtPrice + equipmentTotalCAD) * 100) / 100;
-  const estimatedTax = Math.round(subtotal * 0.13 * 100) / 100;
-  const estimatedTotal = Math.round((subtotal + estimatedTax) * 100) / 100;
+  const discountCAD = coupon.discountCAD;
+  const discountedSubtotal = Math.max(0, Math.round((subtotal - discountCAD) * 100) / 100);
+  const estimatedTax = Math.round(discountedSubtotal * 0.13 * 100) / 100;
+  const estimatedTotal = Math.round((discountedSubtotal + estimatedTax) * 100) / 100;
+
+  // Credits calculation
+  const creditsAvailable = credits.availableBalance;
+  const creditsPartialAmt = parseFloat(creditsPartialInput) || 0;
+  const creditsToUse = useCreditsToggle
+    ? (creditsMode === "all" ? null : creditsPartialAmt)
+    : null;
+  const { creditsApplied, cardCharge } = useCreditsToggle && creditsAvailable > 0
+    ? calcCreditSplit(estimatedTotal, creditsAvailable, creditsToUse)
+    : { creditsApplied: 0, cardCharge: estimatedTotal };
+  const fullyByCredits = cardCharge === 0 && creditsApplied > 0;
 
   function handleBack() {
     if (navigation.canGoBack()) {
@@ -318,6 +374,136 @@ export default function TimeBasedBookingScreen() {
         </View>
       )}
 
+      {/* Dome Credits — only shown when balance > 0 */}
+      {creditsAvailable > 0 && (
+        <View style={styles.card}>
+          <View style={styles.creditsHeader}>
+            <View style={styles.creditsHeaderLeft}>
+              <Text style={styles.cardTitle}>💳 Dome Credits</Text>
+              <Text style={styles.creditsBalance}>C${creditsAvailable.toFixed(2)} available</Text>
+            </View>
+            <Switch
+              value={useCreditsToggle}
+              onValueChange={(v) => {
+                setUseCreditsToggle(v);
+                if (!v) setCreditsMode("all");
+              }}
+              trackColor={{ false: C.chip, true: C.primary }}
+              thumbColor="#FFFFFF"
+            />
+          </View>
+
+          {useCreditsToggle && (
+            <>
+              {/* Mode selector */}
+              <View style={styles.creditsModeRow}>
+                <Pressable
+                  style={[styles.creditsModeBtn, creditsMode === "all" && styles.creditsModeBtnActive]}
+                  onPress={() => setCreditsMode("all")}
+                >
+                  <Text style={[styles.creditsModeBtnText, creditsMode === "all" && styles.creditsModeBtnTextActive]}>
+                    Use all (C${Math.min(creditsAvailable, estimatedTotal).toFixed(2)})
+                  </Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.creditsModeBtn, creditsMode === "partial" && styles.creditsModeBtnActive]}
+                  onPress={() => setCreditsMode("partial")}
+                >
+                  <Text style={[styles.creditsModeBtnText, creditsMode === "partial" && styles.creditsModeBtnTextActive]}>
+                    Use partial
+                  </Text>
+                </Pressable>
+              </View>
+
+              {creditsMode === "partial" && (
+                <View style={styles.couponRow}>
+                  <Text style={styles.creditsPartialLabel}>C$</Text>
+                  <TextInput
+                    style={[styles.couponInput, { flex: 1, fontFamily: undefined, letterSpacing: 0 }]}
+                    placeholder="Amount to use"
+                    placeholderTextColor={C.muted}
+                    keyboardType="decimal-pad"
+                    value={creditsPartialInput}
+                    onChangeText={setCreditsPartialInput}
+                  />
+                </View>
+              )}
+
+              {/* Result preview */}
+              <View style={styles.creditsSplit}>
+                <View style={styles.creditsSplitRow}>
+                  <Text style={styles.creditsSplitLabel}>💳 Credits applied</Text>
+                  <Text style={styles.creditsSplitGreen}>−C${creditsApplied.toFixed(2)}</Text>
+                </View>
+                <View style={styles.creditsSplitRow}>
+                  <Text style={styles.creditsSplitLabel}>
+                    {fullyByCredits ? "✅ Charge to card" : "Card charge"}
+                  </Text>
+                  <Text style={fullyByCredits ? styles.creditsSplitGreen : styles.creditsSplitValue}>
+                    C${cardCharge.toFixed(2)}
+                  </Text>
+                </View>
+              </View>
+            </>
+          )}
+
+          {credits.soonExpiring && (
+            <Text style={styles.creditsExpiry}>
+              ⚠️ C${Number(credits.soonExpiring.amountCAD).toFixed(2)} expires{" "}
+              {new Date(credits.soonExpiring.expiresAt!).toLocaleDateString("en-CA", { month: "short", day: "numeric" })}
+            </Text>
+          )}
+        </View>
+      )}
+
+      {/* Coupon */}
+      <View style={styles.card}>
+        <Text style={styles.cardTitle}>🎟️ Coupon</Text>
+
+        {coupon.applied ? (
+          <View style={styles.couponApplied}>
+            <View style={styles.couponAppliedLeft}>
+              <Text style={styles.couponCode}>{coupon.applied.code}</Text>
+              {coupon.applied.description && (
+                <Text style={styles.couponDesc}>{coupon.applied.description}</Text>
+              )}
+              <Text style={styles.couponSaving}>−C${coupon.applied.discountCAD.toFixed(2)} saved</Text>
+            </View>
+            <Pressable onPress={coupon.remove} style={styles.couponRemoveBtn} hitSlop={8}>
+              <Text style={styles.couponRemoveText}>✕ Remove</Text>
+            </Pressable>
+          </View>
+        ) : (
+          <View style={styles.couponRow}>
+            <TextInput
+              style={styles.couponInput}
+              placeholder="Enter coupon code..."
+              placeholderTextColor={C.muted}
+              value={coupon.inputCode}
+              onChangeText={coupon.setInputCode}
+              autoCapitalize="characters"
+              autoCorrect={false}
+              returnKeyType="done"
+              onSubmitEditing={coupon.validate}
+            />
+            <Pressable
+              onPress={coupon.validate}
+              disabled={!coupon.inputCode.trim() || coupon.isValidating}
+              style={[styles.couponApplyBtn, (!coupon.inputCode.trim() || coupon.isValidating) && styles.couponApplyBtnDisabled]}
+            >
+              {coupon.isValidating
+                ? <ActivityIndicator size="small" color="#FFFFFF" />
+                : <Text style={styles.couponApplyText}>Apply</Text>
+              }
+            </Pressable>
+          </View>
+        )}
+
+        {coupon.error && (
+          <Text style={styles.couponError}>{coupon.error}</Text>
+        )}
+      </View>
+
       {/* Live price breakdown */}
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Price</Text>
@@ -331,18 +517,42 @@ export default function TimeBasedBookingScreen() {
             <Text style={styles.rowValue}>C${equipmentTotalCAD.toFixed(2)}</Text>
           </View>
         )}
+        {discountCAD > 0 && (
+          <View style={styles.row}>
+            <Text style={[styles.rowLabel, { color: "#22C55E" }]}>
+              Coupon ({coupon.applied?.code})
+            </Text>
+            <Text style={[styles.rowValue, { color: "#22C55E" }]}>−C${discountCAD.toFixed(2)}</Text>
+          </View>
+        )}
         <View style={styles.row}>
           <Text style={styles.rowLabel}>Subtotal</Text>
-          <Text style={styles.rowValue}>C${subtotal.toFixed(2)}</Text>
+          <Text style={styles.rowValue}>C${discountedSubtotal.toFixed(2)}</Text>
         </View>
         <View style={styles.row}>
           <Text style={styles.rowLabel}>Tax (est.)</Text>
           <Text style={styles.rowValue}>C${estimatedTax.toFixed(2)}</Text>
         </View>
-        <View style={[styles.row, { borderBottomWidth: 0 }]}>
+        <View style={creditsApplied > 0 ? styles.row : [styles.row, { borderBottomWidth: 0 }]}>
           <Text style={styles.rowLabel}>Total</Text>
           <Text style={styles.rowValueHighlight}>C${estimatedTotal.toFixed(2)}</Text>
         </View>
+        {creditsApplied > 0 && (
+          <>
+            <View style={styles.row}>
+              <Text style={[styles.rowLabel, { color: "#22C55E" }]}>💳 Credits applied</Text>
+              <Text style={[styles.rowValue, { color: "#22C55E" }]}>−C${creditsApplied.toFixed(2)}</Text>
+            </View>
+            <View style={[styles.row, { borderBottomWidth: 0 }]}>
+              <Text style={styles.rowLabel}>
+                {fullyByCredits ? "✅ Charge to card" : "Card charge"}
+              </Text>
+              <Text style={[styles.rowValue, { fontWeight: "800", color: fullyByCredits ? "#22C55E" : C.text }]}>
+                C${cardCharge.toFixed(2)}
+              </Text>
+            </View>
+          </>
+        )}
         <Text style={styles.taxNote}>Exact tax calculated at checkout based on your province</Text>
       </View>
 
@@ -360,11 +570,19 @@ export default function TimeBasedBookingScreen() {
       >
         {isLoading ? (
           <View style={styles.loadingRow}>
-            <ActivityIndicator color="#FFFFFF" size="small" />
+            <ActivityIndicator color="#E85068" size="small" />
             <Text style={styles.payBtnText}>
               {isCreating ? "Reserving courts…" : "Confirming booking…"}
             </Text>
           </View>
+        ) : fullyByCredits ? (
+          <Text style={styles.payBtnText}>
+            Confirm Booking — Pay C$0.00 💳
+          </Text>
+        ) : creditsApplied > 0 ? (
+          <Text style={styles.payBtnText}>
+            Pay C${cardCharge.toFixed(2)} by Card
+          </Text>
         ) : (
           <Text style={styles.payBtnText}>
             Confirm & Pay — C${estimatedTotal.toFixed(2)}
@@ -415,7 +633,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingVertical: 10,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "#2C2C2E",
+    borderBottomColor: "#EBEBEB",
   },
   rowLabel: { color: C.muted, fontSize: 14 },
   rowValue: { color: C.text, fontSize: 14, fontWeight: "600" },
@@ -440,7 +658,7 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   payBtnDisabled: { opacity: 0.55 },
-  payBtnText: { color: C.text, fontSize: 16, fontWeight: "800" },
+  payBtnText: { color: "#FFFFFF", fontSize: 16, fontWeight: "800" },
   loadingRow: { flexDirection: "row", alignItems: "center", gap: 10 },
   lockNote: {
     color: C.muted,
@@ -448,4 +666,77 @@ const styles = StyleSheet.create({
     textAlign: "center",
     marginTop: 12,
   },
+  // Credits
+  creditsHeader: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 4 },
+  creditsHeaderLeft: { flex: 1 },
+  creditsBalance: { color: "#22C55E", fontSize: 15, fontWeight: "700" },
+  creditsModeRow: { flexDirection: "row", gap: 8, marginTop: 12 },
+  creditsModeBtn: {
+    flex: 1,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: C.chip,
+    alignItems: "center",
+    backgroundColor: C.bg,
+  },
+  creditsModeBtnActive: { borderColor: C.primary, backgroundColor: "#FFF5F7" },
+  creditsModeBtnText: { color: C.muted, fontSize: 13, fontWeight: "600" },
+  creditsModeBtnTextActive: { color: C.primary, fontWeight: "700" },
+  creditsPartialLabel: { color: C.muted, fontSize: 15, alignSelf: "center", marginRight: 4 },
+  creditsSplit: {
+    marginTop: 12,
+    backgroundColor: "#F1F8F1",
+    borderRadius: 10,
+    padding: 10,
+    gap: 6,
+  },
+  creditsSplitRow: { flexDirection: "row", justifyContent: "space-between" },
+  creditsSplitLabel: { color: C.muted, fontSize: 13 },
+  creditsSplitGreen: { color: "#22C55E", fontSize: 13, fontWeight: "700" },
+  creditsSplitValue: { color: C.text, fontSize: 13, fontWeight: "700" },
+  creditsExpiry: { color: "#F59E0B", fontSize: 11, marginTop: 8 },
+  // Coupon
+  couponRow: { flexDirection: "row", gap: 8 },
+  couponInput: {
+    flex: 1,
+    backgroundColor: C.bg,
+    borderWidth: 1,
+    borderColor: C.chip,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    color: C.text,
+    fontSize: 14,
+    fontFamily: "monospace",
+    letterSpacing: 1,
+  },
+  couponApplyBtn: {
+    backgroundColor: C.primary,
+    borderRadius: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    minWidth: 70,
+  },
+  couponApplyBtnDisabled: { opacity: 0.4 },
+  couponApplyText: { color: "#FFFFFF", fontSize: 14, fontWeight: "700" },
+  couponError: { color: "#EF4444", fontSize: 12, marginTop: 6 },
+  couponApplied: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "#22C55E14",
+    borderRadius: 10,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: "#22C55E33",
+  },
+  couponAppliedLeft: { flex: 1, gap: 2 },
+  couponCode: { color: "#22C55E", fontSize: 14, fontWeight: "800", fontFamily: "monospace" },
+  couponDesc: { color: C.muted, fontSize: 12 },
+  couponSaving: { color: "#22C55E", fontSize: 13, fontWeight: "700" },
+  couponRemoveBtn: { paddingLeft: 12 },
+  couponRemoveText: { color: C.muted, fontSize: 12, fontWeight: "600" },
 });

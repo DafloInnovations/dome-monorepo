@@ -14,12 +14,12 @@ import { useAuth } from "../../../src/context/AuthContext";
 import { useOpenThread } from "../../../src/hooks/useChat";
 
 const C = {
-  bg: "#000000",
+  bg: "#FFFFFF",
   primary: "#E85068",
-  surface: "#1C1C1E",
-  text: "#FFFFFF",
-  muted: "#6B6B6B",
-  border: "#2C2C2E",
+  surface: "#F8F8F8",
+  text: "#0A0A0A",
+  muted: "#9E9E9E",
+  border: "#EBEBEB",
   green: "#22C55E",
 };
 
@@ -30,8 +30,8 @@ const SPORT_EMOJI: Record<string, string> = {
 };
 
 const SKILL_COLOR: Record<string, string> = {
-  BEGINNER: "#6B6B6B", ROOKIE: "#22C55E", INTERMEDIATE: "#3B82F6",
-  ADVANCED: "#A855F7", PRO: "#F59E0B", ELITE: "#F59E0B", ANY: "#6B6B6B",
+  BEGINNER: "#9E9E9E", ROOKIE: "#22C55E", INTERMEDIATE: "#3B82F6",
+  ADVANCED: "#A855F7", PRO: "#F59E0B", ELITE: "#F59E0B", ANY: "#9E9E9E",
 };
 
 function formatGameDate(dateStr: string | null): string {
@@ -407,7 +407,7 @@ const styles = StyleSheet.create({
   },
   confirmBtnText: { color: C.green, fontSize: 12, fontWeight: "700" },
   declineBtn: {
-    backgroundColor: "#2A2A2A",
+    backgroundColor: "#F0F0F0",
     borderWidth: 1,
     borderColor: C.border,
     borderRadius: 8,
@@ -424,7 +424,7 @@ const styles = StyleSheet.create({
   },
   confirmedBadgeText: { color: C.green, fontSize: 11, fontWeight: "700" },
   declinedBadge: {
-    backgroundColor: "#2A2A2A",
+    backgroundColor: "#F0F0F0",
     borderRadius: 99,
     paddingHorizontal: 10,
     paddingVertical: 4,
@@ -442,9 +442,9 @@ const styles = StyleSheet.create({
 
   actions: { gap: 10, marginTop: 4 },
   joinBtn: { backgroundColor: C.primary, borderRadius: 14, paddingVertical: 16, alignItems: "center" },
-  joinBtnPending: { backgroundColor: "#2C2C2E", borderWidth: 1, borderColor: "#F59E0B" },
-  joinBtnDisabled: { backgroundColor: "#2A2A2A" },
-  joinBtnText: { color: C.text, fontSize: 16, fontWeight: "800" },
+  joinBtnPending: { backgroundColor: "#EBEBEB", borderWidth: 1, borderColor: "#F59E0B" },
+  joinBtnDisabled: { backgroundColor: "#F0F0F0" },
+  joinBtnText: { color: "#FFFFFF", fontSize: 16, fontWeight: "800" },
   confirmedBtn: {
     borderRadius: 14, paddingVertical: 16, alignItems: "center",
     backgroundColor: C.green + "22", borderWidth: 1.5, borderColor: C.green,
@@ -462,7 +462,7 @@ const styles = StyleSheet.create({
   messageBtnDisabled: { opacity: 0.5 },
   messageBtnText: { color: C.text, fontSize: 15, fontWeight: "600" },
 
-  errorText: { color: "#ff6b6b", fontSize: 15, marginBottom: 14, textAlign: "center" },
+  errorText: { color: "#EF4444", fontSize: 15, marginBottom: 14, textAlign: "center" },
   retryBtn: { backgroundColor: C.primary, borderRadius: 99, paddingHorizontal: 24, paddingVertical: 10 },
-  retryText: { color: C.text, fontWeight: "700" },
+  retryText: { color: "#FFFFFF", fontWeight: "700" },
 });

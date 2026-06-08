@@ -1,13 +1,6 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
+import { COLORS } from "../theme";
 import type { EquipmentItem as EquipmentItemType } from "../hooks/useEquipment";
-
-const C = {
-  surface: "#1C1C1E",
-  primary: "#E85068",
-  text: "#FFFFFF",
-  muted: "#6B6B6B",
-  border: "#2C2C2E",
-};
 
 const SPORT_EMOJI: Record<string, string> = {
   BADMINTON: "🏸", TENNIS: "🎾", BASKETBALL: "🏀", SOCCER: "⚽",
@@ -73,28 +66,28 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingVertical: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: C.border,
+    borderBottomColor: COLORS.border,
   },
   rowDisabled: { opacity: 0.45 },
   left: { flexDirection: "row", alignItems: "center", gap: 10, flex: 1 },
   emoji: { fontSize: 24 },
   info: { flex: 1, gap: 2 },
-  name: { color: C.text, fontSize: 14, fontWeight: "600" },
-  desc: { color: C.muted, fontSize: 12 },
-  price: { color: C.primary, fontSize: 12, fontWeight: "700" },
-  soldOut: { color: "#EF4444", fontSize: 12, fontWeight: "600" },
+  name: { color: COLORS.text, fontSize: 14, fontWeight: "600" },
+  desc: { color: COLORS.textMuted, fontSize: 12 },
+  price: { color: COLORS.primary, fontSize: 12, fontWeight: "700" },
+  soldOut: { color: COLORS.error, fontSize: 12, fontWeight: "600" },
   stepper: { flexDirection: "row", alignItems: "center", gap: 10, marginLeft: 12 },
   stepBtn: {
     width: 28,
     height: 28,
     borderRadius: 14,
-    backgroundColor: C.surface,
+    backgroundColor: COLORS.surface,
     borderWidth: 1,
-    borderColor: C.border,
+    borderColor: COLORS.border,
     alignItems: "center",
     justifyContent: "center",
   },
   stepBtnDisabled: { opacity: 0.35 },
-  stepBtnText: { color: C.text, fontSize: 16, fontWeight: "700", lineHeight: 20 },
-  qty: { color: C.text, fontSize: 15, fontWeight: "700", minWidth: 18, textAlign: "center" },
+  stepBtnText: { color: COLORS.text, fontSize: 16, fontWeight: "700", lineHeight: 20 },
+  qty: { color: COLORS.text, fontSize: 15, fontWeight: "700", minWidth: 18, textAlign: "center" },
 });

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { api, setToken, setStoredUser } from "../lib/api";
+import { api, setToken, setRefreshToken, setStoredUser } from "../lib/api";
 import { isAuthenticated, requireVendorAuth } from "../lib/auth";
 
 export default function LoginPage() {
@@ -12,6 +12,11 @@ export default function LoginPage() {
   const [otp, setOtp] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
+
+  // Show congratulations banner when redirected here after admin approval
+  const justApproved = typeof window !== "undefined"
+    ? new URLSearchParams(window.location.search).get("approved") === "true"
+    : false;
 
   // Redirect if already authenticated
   useEffect(() => {
@@ -46,6 +51,7 @@ export default function LoginPage() {
       const data = await response.json() as {
         data?: {
           accessToken?: string;
+          refreshToken?: string;
           vendorStatus?: "APPROVED" | "PENDING" | "REJECTED" | "NONE";
           user?: { role?: string; firstName?: string; lastName?: string; phone?: string; id?: string; businessName?: string };
           vendor?: { businessName?: string };
@@ -59,10 +65,11 @@ export default function LoginPage() {
 
       const user = data.data?.user;
       const businessName = data.data?.vendor?.businessName ?? user?.businessName;
-      const vendorStatus = data.data?.vendorStatus ?? "NONE";
+      const accessToken = data.data!.accessToken!;
 
-      // Save token + user regardless of vendor status
-      setToken(data.data!.accessToken!);
+      // Save tokens + user
+      setToken(accessToken);
+      if (data.data?.refreshToken) setRefreshToken(data.data.refreshToken);
       if (businessName) {
         localStorage.setItem("businessName", businessName);
       }
@@ -75,7 +82,24 @@ export default function LoginPage() {
         businessName,
       });
 
-      // Route based on vendor application status
+      // Always fetch live vendor status with the fresh token — never rely on
+      // what the auth endpoint cached, since approval changes status out-of-band.
+      const statusApiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001/api/v1";
+      let vendorStatus: string = "NONE";
+      try {
+        const statusRes = await fetch(`${statusApiUrl}/vendor/application-status`, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        if (statusRes.ok) {
+          const statusData = await statusRes.json() as { data?: { status?: string } };
+          vendorStatus = statusData.data?.status ?? "NONE";
+        }
+      } catch {
+        // Fall back to the auth response value if the status check fails
+        vendorStatus = data.data?.vendorStatus ?? "NONE";
+      }
+
+      // Route based on live status from DB
       if (vendorStatus === "APPROVED") {
         router.replace("/dashboard");
       } else if (vendorStatus === "PENDING") {
@@ -101,6 +125,12 @@ export default function LoginPage() {
           <h1 className="text-4xl font-black text-white tracking-tight">DOME</h1>
           <p className="text-muted text-sm mt-1">Vendor Portal</p>
         </div>
+
+        {justApproved && (
+          <div className="bg-green-900/40 border border-green-700 text-green-400 text-sm font-semibold text-center px-4 py-3 rounded-dome mb-6">
+            🎉 Your application was approved! Sign in to access your dashboard.
+          </div>
+        )}
 
         <p className="text-sm font-semibold text-muted mb-3 text-center">Already a vendor? Sign in</p>
 

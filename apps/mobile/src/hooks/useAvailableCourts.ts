@@ -15,6 +15,12 @@ export interface AvailableCourt {
   unitLabel: string;
   sport: string;
   surface: string;
+  // Shared court fields
+  isShared: boolean;
+  sports: string[];
+  primarySport: string | null;
+  requestedSport: string | null;
+  unavailableReason: string | null;
   totalPriceCAD: number;
   basePriceCAD: number;
   priceBreakdown: PriceBreakdown | null;
@@ -36,7 +42,8 @@ export function useAvailableCourts(
   facilityId: string,
   date: string,
   startTime: string,
-  durationMinutes: number
+  durationMinutes: number,
+  sport?: string
 ) {
   const [result, setResult] = useState<AvailableCourtsResult | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -51,6 +58,7 @@ export function useAvailableCourts(
         date,
         startTime,
         duration: String(durationMinutes),
+        ...(sport ? { sport } : {}),
       });
       const res = await fetch(`${API_URL}/facilities/${facilityId}/available-courts?${qs}`);
       if (!res.ok) {
@@ -64,7 +72,7 @@ export function useAvailableCourts(
     } finally {
       setIsLoading(false);
     }
-  }, [facilityId, date, startTime, durationMinutes]);
+  }, [facilityId, date, startTime, durationMinutes, sport]);
 
   useEffect(() => { fetch_(); }, [fetch_]);
 

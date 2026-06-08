@@ -14,6 +14,7 @@ import vendorRouter from "./vendor";
 import vendorsRouter from "./vendors";
 import adminRouter from "./admin";
 import alertsRouter from "./alerts";
+import couponsRouter from "./coupons";
 
 export const router = Router();
 
@@ -32,3 +33,4 @@ router.use("/notifications", notificationsRouter);
 router.use("/vendor", vendorRouter);   // pricing sub-router is mounted inside vendorRouter
 router.use("/admin", adminRouter);
 router.use("/alerts", alertsRouter);
+router.use("/coupons", couponsRouter);

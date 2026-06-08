@@ -14,12 +14,12 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useReviews } from "../../src/hooks/useReviews";
 
 const C = {
-  bg: "#000000",
-  surface: "#1C1C1E",
+  bg: "#FFFFFF",
+  surface: "#F8F8F8",
   primary: "#E85068",
-  text: "#FFFFFF",
-  muted: "#6B6B6B",
-  border: "#2C2C2E",
+  text: "#0A0A0A",
+  muted: "#9E9E9E",
+  border: "#EBEBEB",
 };
 
 const STAR_LABELS = ["", "Terrible", "Poor", "OK", "Good", "Amazing"];
@@ -220,5 +220,5 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   submitBtnDisabled: { opacity: 0.45 },
-  submitBtnText: { color: C.text, fontSize: 16, fontWeight: "700" },
+  submitBtnText: { color: "#FFFFFF", fontSize: 16, fontWeight: "700" },
 });

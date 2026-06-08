@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
+import { COLORS } from "../theme";
 import type { Slot } from "../hooks/useSlots";
 
 const API_URL = process.env["EXPO_PUBLIC_API_URL"] ?? "http://localhost:3001/api/v1";
@@ -26,17 +27,17 @@ type Props = SingleSelectProps | MultiSelectProps;
 
 function getSlotStyle(status: Slot["status"], selected: boolean) {
   if (selected) {
-    return { backgroundColor: "#E85068", borderColor: "#E85068" };
+    return { backgroundColor: COLORS.primary, borderColor: COLORS.primary };
   }
   switch (status) {
     case "AVAILABLE":
-      return { backgroundColor: "#E8506822", borderColor: "#E85068" };
+      return { backgroundColor: COLORS.primaryUltraLight, borderColor: COLORS.primaryLight };
     case "BOOKED":
-      return { backgroundColor: "#2A2A2A", borderColor: "#3A3A3C" };
+      return { backgroundColor: COLORS.surfaceElevated, borderColor: COLORS.border };
     case "HELD":
-      return { backgroundColor: "#1C1C1E", borderColor: "#2C2C2E" };
+      return { backgroundColor: COLORS.surface, borderColor: COLORS.border };
     default:
-      return { backgroundColor: "#2A2A2A", borderColor: "#3A3A3C" };
+      return { backgroundColor: COLORS.surfaceElevated, borderColor: COLORS.border };
   }
 }
 
@@ -65,7 +66,6 @@ function HeldSlotTimer({ slotId }: { slotId: string }) {
 }
 
 function SlotLabel({ slot }: { slot: Slot }) {
-  // SESSION slot: show spots remaining
   if (slot.capacity != null) {
     const remaining = slot.capacity - slot.spotsBooked;
     if (remaining <= 0) return <Text style={styles.labelMuted}>Full</Text>;
@@ -137,11 +137,11 @@ export default function SlotGrid(props: Props) {
 const styles = StyleSheet.create({
   grid: { flexDirection: "row", flexWrap: "wrap", paddingHorizontal: 16, gap: 10, paddingBottom: 8 },
   slot: { width: "29%", borderWidth: 1.5, borderRadius: 10, paddingVertical: 10, alignItems: "center", gap: 4 },
-  time: { color: "#FFFFFF", fontSize: 12, fontWeight: "700" },
-  timeMuted: { color: "#6B6B6B" },
-  label: { color: "#FFFFFF", fontSize: 10, fontWeight: "600", opacity: 0.85, textAlign: "center" },
-  labelMuted: { color: "#6B6B6B", fontSize: 10, fontWeight: "600" },
+  time: { color: COLORS.text, fontSize: 12, fontWeight: "700" },
+  timeMuted: { color: COLORS.textMuted },
+  label: { color: COLORS.text, fontSize: 10, fontWeight: "600", opacity: 0.85, textAlign: "center" },
+  labelMuted: { color: COLORS.textMuted, fontSize: 10, fontWeight: "600" },
   checkmark: { color: "#FFFFFF", fontSize: 10, fontWeight: "800", position: "absolute", top: 4, right: 6 },
   empty: { alignItems: "center", paddingVertical: 40 },
-  emptyText: { color: "#6B6B6B", fontSize: 14 },
+  emptyText: { color: COLORS.textMuted, fontSize: 14 },
 });

@@ -11,12 +11,12 @@ import { useLocalSearchParams } from "expo-router";
 import { useReviews, type FacilityReview, type ReviewSummary } from "../../../src/hooks/useReviews";
 
 const C = {
-  bg: "#000000",
-  surface: "#1C1C1E",
+  bg: "#FFFFFF",
+  surface: "#F8F8F8",
   primary: "#E85068",
-  text: "#FFFFFF",
-  muted: "#6B6B6B",
-  border: "#2C2C2E",
+  text: "#0A0A0A",
+  muted: "#9E9E9E",
+  border: "#EBEBEB",
 };
 
 const SORT_OPTS = [
@@ -29,7 +29,7 @@ function Stars({ rating, size = 14 }: { rating: number; size?: number }) {
   return (
     <View style={{ flexDirection: "row" }}>
       {[1, 2, 3, 4, 5].map((n) => (
-        <Text key={n} style={{ fontSize: size, color: n <= rating ? "#F59E0B" : "#3A3A3C" }}>★</Text>
+        <Text key={n} style={{ fontSize: size, color: n <= rating ? "#F59E0B" : "#EBEBEB" }}>★</Text>
       ))}
     </View>
   );
@@ -227,7 +227,7 @@ const styles = StyleSheet.create({
   distCount: { color: C.muted, fontSize: 11, width: 24, textAlign: "right" },
   subPills: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   subPill: {
-    backgroundColor: "#2C2C2E",
+    backgroundColor: "#EBEBEB",
     borderRadius: 99,
     paddingHorizontal: 12,
     paddingVertical: 6,
@@ -253,13 +253,13 @@ const styles = StyleSheet.create({
   reviewHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" },
   reviewerName: { color: C.text, fontSize: 14, fontWeight: "700" },
   reviewDate: { color: C.muted, fontSize: 12, marginTop: 2 },
-  sportBadge: { backgroundColor: "#2C2C2E", borderRadius: 99, paddingHorizontal: 8, paddingVertical: 2 },
+  sportBadge: { backgroundColor: "#EBEBEB", borderRadius: 99, paddingHorizontal: 8, paddingVertical: 2 },
   sportBadgeText: { color: C.muted, fontSize: 10, fontWeight: "600" },
   reviewTitle: { color: C.text, fontSize: 14, fontWeight: "600" },
   reviewBody: { color: "#ABABAB", fontSize: 13, lineHeight: 19 },
   readMore: { color: C.primary, fontSize: 12, fontWeight: "600", marginTop: 4 },
   vendorReply: {
-    backgroundColor: "#111",
+    backgroundColor: "#F6F8F7",
     borderRadius: 10,
     padding: 10,
     borderLeftWidth: 2,

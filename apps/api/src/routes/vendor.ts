@@ -13,7 +13,14 @@ import {
   deleteEquipment,
   getEquipmentRentalHistory,
 } from "../services/equipment.service";
-import { bulkCreateSlots, createCourt } from "../services/courts.service";
+import { bulkCreateSlots, createCourt, updateCourtShared, upsertSportPricing } from "../services/courts.service";
+import {
+  createCoupon,
+  updateCoupon,
+  deactivateCoupon,
+  listCoupons,
+  getCouponUsages,
+} from "../services/coupon.service";
 import { prisma } from "../lib/prisma";
 
 const router = Router();
@@ -202,12 +209,36 @@ router.get("/facilities", async (req, res, next) => {
       where: { vendorId: vendor.id },
       include: {
         address: true,
-        courts: { select: { id: true, name: true, isActive: true } },
+        courts: { select: { id: true, name: true, isActive: true, dynamicPricingEnabled: true } },
         _count: { select: { bookings: true } },
       },
       orderBy: { createdAt: "desc" },
     });
     res.json({ data: facilities });
+  } catch (err) { next(err); }
+});
+
+// ─── GET vendor's single facility ────────────────────────────────────────────
+
+router.get("/facilities/:id", async (req, res, next) => {
+  try {
+    const vendor = await prisma.vendor.findUnique({
+      where: { userId: req.user!.sub as string },
+    });
+    if (!vendor) { res.status(404).json({ message: "Vendor not found" }); return; }
+
+    const facilityId = param(req.params["id"]!);
+    const facility = await prisma.facility.findFirst({
+      where: { id: facilityId, vendorId: vendor.id },
+      include: {
+        address: true,
+        courts: { orderBy: { createdAt: "asc" } },
+        operatingHours: { orderBy: { day: "asc" } },
+      },
+    });
+    if (!facility) { res.status(404).json({ message: "Facility not found" }); return; }
+
+    res.json({ data: facility });
   } catch (err) { next(err); }
 });
 
@@ -477,9 +508,15 @@ const createFacilitySchema = z.object({
 const updateFacilitySchema = createFacilitySchema.partial().extend({
   isActive: z.boolean().optional(),
   address: addressSchema.partial().optional(),
+  cancellationWindowHours: z.number().int().refine((v) => [12, 24, 48].includes(v)).optional(),
 });
 
 // ─── Court schemas ────────────────────────────────────────────────────────────
+
+const sportEnum = z.enum([
+  "SOCCER", "BASKETBALL", "TENNIS", "BADMINTON", "VOLLEYBALL",
+  "HOCKEY", "SQUASH", "PICKLEBALL", "BASEBALL", "CRICKET",
+]);
 
 const createCourtSchema = z.object({
   name: z.string().min(1).max(80),
@@ -487,6 +524,9 @@ const createCourtSchema = z.object({
   unitType: z.nativeEnum(BookingUnitType).optional(),
   unitLabel: z.string().min(1).max(40).optional(),
   maxPlayers: z.number().int().positive().optional(),
+  isShared: z.boolean().optional(),
+  sports: z.array(sportEnum).max(10).optional(),
+  primarySport: sportEnum.optional(),
 });
 
 const bulkSlotsSchema = z.object({
@@ -497,7 +537,25 @@ const bulkSlotsSchema = z.object({
   endTime: z.string().regex(/^\d{2}:\d{2}$/, "HH:mm"),
   slotDurationMinutes: z.number().int().positive(),
   priceCAD: z.number().positive(),
+  sport: sportEnum.optional(),
   conflictStrategy: z.enum(["skip", "replace"]).optional().default("skip"),
+});
+
+const sharedCourtSchema = z.object({
+  isShared: z.boolean(),
+  sports: z.array(sportEnum).max(10).optional(),
+  primarySport: sportEnum.optional(),
+  sportPricing: z.array(z.object({
+    sport: sportEnum,
+    priceCAD: z.number().positive(),
+  })).optional(),
+});
+
+const sportPricingSchema = z.object({
+  sportPricing: z.array(z.object({
+    sport: sportEnum,
+    priceCAD: z.number().positive(),
+  })).min(1),
 });
 
 // ─── Facility routes ──────────────────────────────────────────────────────────
@@ -534,6 +592,26 @@ router.post("/facilities/:id/courts", validate(createCourtSchema), async (req, r
   } catch (err) {
     next(err);
   }
+});
+
+// PUT /api/v1/vendor/courts/:id/shared — configure shared court sports & pricing
+router.put("/courts/:id/shared", validate(sharedCourtSchema), async (req, res, next) => {
+  try {
+    const courtId = param(req.params["id"]!);
+    const body = req.body as z.infer<typeof sharedCourtSchema>;
+    const data = await updateCourtShared(req.user!.sub as string, courtId, body);
+    res.json({ data });
+  } catch (err) { next(err); }
+});
+
+// PUT /api/v1/vendor/courts/:id/sport-pricing — set per-sport pricing
+router.put("/courts/:id/sport-pricing", validate(sportPricingSchema), async (req, res, next) => {
+  try {
+    const courtId = param(req.params["id"]!);
+    const { sportPricing } = req.body as z.infer<typeof sportPricingSchema>;
+    const data = await upsertSportPricing(req.user!.sub as string, courtId, sportPricing);
+    res.json({ data });
+  } catch (err) { next(err); }
 });
 
 // POST /api/v1/vendor/courts/:id/slots/bulk
@@ -826,6 +904,122 @@ router.get("/recurring", async (req, res, next) => {
         })),
       },
     });
+  } catch (err) { next(err); }
+});
+
+// ─── Vendor coupon endpoints ──────────────────────────────────────────────────
+
+const vendorCouponBodySchema = z.object({
+  code:              z.string().min(2).max(30).optional(),
+  description:       z.string().max(200).optional(),
+  type:              z.enum(["PERCENTAGE", "FIXED", "FREE"]),
+  value:             z.number().positive(),
+  facilityId:        z.string().optional().nullable(),
+  sport:             z.string().optional().nullable(),
+  minBookingCAD:     z.number().positive().optional().nullable(),
+  maxDiscountCAD:    z.number().positive().optional().nullable(),
+  usageLimit:        z.number().int().positive().optional().nullable(),
+  usageLimitPerUser: z.number().int().positive().optional().nullable(),
+  validFrom:         z.string(),
+  validUntil:        z.string(),
+});
+
+router.get("/coupons", async (req, res, next) => {
+  try {
+    const vendor = await prisma.vendor.findUnique({
+      where: { userId: req.user!.sub as string },
+      select: { id: true },
+    });
+    if (!vendor) { res.status(404).json({ message: "Vendor not found" }); return; }
+
+    const { isActive, type, page, limit } = req.query as Record<string, string | undefined>;
+    const result = await listCoupons({
+      vendorId: vendor.id,
+      isActive: isActive !== undefined ? isActive === "true" : undefined,
+      type: type as "PERCENTAGE" | "FIXED" | "FREE" | undefined,
+      page: page ? Number(page) : 1,
+      limit: limit ? Number(limit) : 50,
+    });
+    res.json(result);
+  } catch (err) { next(err); }
+});
+
+router.post("/coupons", validate(vendorCouponBodySchema), async (req, res, next) => {
+  try {
+    const vendor = await prisma.vendor.findUnique({
+      where: { userId: req.user!.sub as string },
+      select: { id: true },
+    });
+    if (!vendor) { res.status(404).json({ message: "Vendor not found" }); return; }
+
+    const body = req.body as z.infer<typeof vendorCouponBodySchema>;
+
+    // If facilityId provided, verify ownership
+    if (body.facilityId) {
+      const facility = await prisma.facility.findFirst({
+        where: { id: body.facilityId, vendorId: vendor.id },
+        select: { id: true },
+      });
+      if (!facility) { res.status(403).json({ message: "Facility not found" }); return; }
+    }
+
+    const data = await createCoupon({ ...body, vendorId: vendor.id }, req.user!.sub as string);
+    res.status(201).json({ data });
+  } catch (err) { next(err); }
+});
+
+router.put("/coupons/:id", validate(vendorCouponBodySchema.partial()), async (req, res, next) => {
+  try {
+    const vendor = await prisma.vendor.findUnique({
+      where: { userId: req.user!.sub as string },
+      select: { id: true },
+    });
+    if (!vendor) { res.status(404).json({ message: "Vendor not found" }); return; }
+
+    const coupon = await prisma.coupon.findFirst({
+      where: { id: param(req.params["id"]!), vendorId: vendor.id },
+    });
+    if (!coupon) { res.status(404).json({ message: "Coupon not found" }); return; }
+
+    const data = await updateCoupon(coupon.id, req.body as z.infer<typeof vendorCouponBodySchema>);
+    res.json({ data });
+  } catch (err) { next(err); }
+});
+
+router.delete("/coupons/:id", async (req, res, next) => {
+  try {
+    const vendor = await prisma.vendor.findUnique({
+      where: { userId: req.user!.sub as string },
+      select: { id: true },
+    });
+    if (!vendor) { res.status(404).json({ message: "Vendor not found" }); return; }
+
+    const coupon = await prisma.coupon.findFirst({
+      where: { id: param(req.params["id"]!), vendorId: vendor.id },
+    });
+    if (!coupon) { res.status(404).json({ message: "Coupon not found" }); return; }
+
+    const data = await deactivateCoupon(coupon.id);
+    res.json({ data });
+  } catch (err) { next(err); }
+});
+
+router.get("/coupons/:id/usages", async (req, res, next) => {
+  try {
+    const vendor = await prisma.vendor.findUnique({
+      where: { userId: req.user!.sub as string },
+      select: { id: true },
+    });
+    if (!vendor) { res.status(404).json({ message: "Vendor not found" }); return; }
+
+    const coupon = await prisma.coupon.findFirst({
+      where: { id: param(req.params["id"]!), vendorId: vendor.id },
+    });
+    if (!coupon) { res.status(404).json({ message: "Coupon not found" }); return; }
+
+    const { page, limit } = req.query as Record<string, string | undefined>;
+    const data = await getCouponUsages(coupon.id, Number(page ?? 1), Number(limit ?? 50));
+    res.json(data);
   } catch (err) { next(err); }
 });
 

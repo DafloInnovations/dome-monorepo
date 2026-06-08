@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { API_URL } from "../lib/api";
-import { isAdmin, setToken, setStoredUser } from "../lib/auth";
+import { isAdmin, setRefreshToken, setToken, setStoredUser } from "../lib/auth";
 
 export default function AdminLogin() {
   const router = useRouter();
@@ -58,6 +58,8 @@ export default function AdminLogin() {
       }
 
       setToken(data.data!.accessToken!);
+      const refreshToken = (data.data as { refreshToken?: string }).refreshToken;
+      if (refreshToken) setRefreshToken(refreshToken);
       setStoredUser({
         id: user.id ?? "", phone: user.phone ?? "",
         firstName: user.firstName ?? "", lastName: user.lastName ?? "",

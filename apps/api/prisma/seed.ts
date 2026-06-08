@@ -1,4 +1,5 @@
 import {
+  CouponType,
   PrismaClient,
   Province,
   SlotStatus,
@@ -173,6 +174,67 @@ async function main() {
 
   const { count } = await prisma.slot.createMany({ data: slotRows });
   console.log(`  ✔  Slots           ${count} created  (7 days × 12 slots)`);
+
+  // ── Seed coupons ─────────────────────────────────────────────────────────────
+
+  const couponSeeds: {
+    code: string; description: string; type: CouponType; value: number;
+    vendorId?: string; maxDiscountCAD?: number; usageLimit?: number;
+    usageLimitPerUser?: number; minBookingCAD?: number; validUntil: Date;
+  }[] = [
+    {
+      code: "WELCOME20",
+      description: "20% off your first booking",
+      type: CouponType.PERCENTAGE,
+      value: 20,
+      maxDiscountCAD: 15,
+      usageLimitPerUser: 1,
+      validUntil: utcDate(90),
+    },
+    {
+      code: "DOME10",
+      description: "C$10 off any booking over C$25",
+      type: CouponType.FIXED,
+      value: 10,
+      minBookingCAD: 25,
+      usageLimit: 200,
+      validUntil: utcDate(60),
+    },
+    {
+      code: "SCARCLUB10",
+      description: "C$10 off — Scarborough Club members",
+      type: CouponType.FIXED,
+      value: 10,
+      vendorId: vendor.id,
+      minBookingCAD: 25,
+      usageLimit: 50,
+      usageLimitPerUser: 3,
+      validUntil: utcDate(30),
+    },
+  ];
+
+  for (const seed of couponSeeds) {
+    await prisma.coupon.upsert({
+      where: { code: seed.code },
+      create: {
+        code: seed.code,
+        description: seed.description,
+        type: seed.type,
+        value: seed.value,
+        vendorId: seed.vendorId ?? null,
+        maxDiscountCAD: seed.maxDiscountCAD ?? null,
+        minBookingCAD: seed.minBookingCAD ?? null,
+        usageLimit: seed.usageLimit ?? null,
+        usageLimitPerUser: seed.usageLimitPerUser ?? 1,
+        validFrom: utcDate(-1),
+        validUntil: seed.validUntil,
+        isActive: true,
+        createdBy: vendorUser.id,
+      },
+      update: {},
+    });
+  }
+  console.log(`  ✔  Coupons         ${couponSeeds.length} seeded (WELCOME20, DOME10, SCARCLUB10)`);
 
   // ── Summary ──────────────────────────────────────────────────────────────────
   console.log(`

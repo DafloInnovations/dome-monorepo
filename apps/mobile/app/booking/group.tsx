@@ -26,8 +26,8 @@ function formatDisplayDate(dateStr: string): string {
 }
 
 const C = {
-  bg: "#000000", primary: "#E85068", surface: "#1C1C1E",
-  text: "#FFFFFF", muted: "#6B6B6B", chip: "#2C2C2E",
+  bg: "#FFFFFF", primary: "#E85068", surface: "#F8F8F8",
+  text: "#0A0A0A", muted: "#9E9E9E", chip: "#EBEBEB",
 };
 
 export default function GroupBookingScreen() {
@@ -233,10 +233,10 @@ const styles = StyleSheet.create({
   totalLabel: { color: C.muted, fontSize: 16 },
   totalValue: { color: C.primary, fontSize: 22, fontWeight: "800" },
   hint: { color: C.muted, fontSize: 12, marginTop: 6 },
-  errorText: { color: "#ff6b6b", fontSize: 14, textAlign: "center", marginBottom: 14 },
+  errorText: { color: "#EF4444", fontSize: 14, textAlign: "center", marginBottom: 14 },
   confirmingRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, marginBottom: 14 },
   confirmingText: { color: C.muted, fontSize: 14 },
   payBtn: { backgroundColor: C.primary, borderRadius: 14, paddingVertical: 16, alignItems: "center", marginTop: 4 },
   payBtnDisabled: { opacity: 0.55 },
-  payBtnText: { color: C.text, fontSize: 17, fontWeight: "700" },
+  payBtnText: { color: "#FFFFFF", fontSize: 17, fontWeight: "700" },
 });

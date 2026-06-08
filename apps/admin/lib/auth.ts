@@ -1,5 +1,6 @@
-const TOKEN_KEY = "dome_admin_token";
-const USER_KEY  = "dome_admin_user";
+const TOKEN_KEY         = "dome_admin_token";
+const REFRESH_TOKEN_KEY = "dome_admin_refresh_token";
+const USER_KEY          = "dome_admin_user";
 
 export interface AdminUser {
   id: string;
@@ -16,9 +17,27 @@ export function getToken(): string | null {
 
 export function setToken(t: string) { localStorage.setItem(TOKEN_KEY, t); }
 
+export function getRefreshToken(): string | null {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem(REFRESH_TOKEN_KEY);
+}
+
+export function setRefreshToken(t: string) { localStorage.setItem(REFRESH_TOKEN_KEY, t); }
+
 export function clearToken() {
   localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(REFRESH_TOKEN_KEY);
   localStorage.removeItem(USER_KEY);
+}
+
+export function isTokenExpiringSoon(token: string): boolean {
+  try {
+    const payload = JSON.parse(atob(token.split(".")[1]!)) as { exp?: number };
+    const expiresIn = (payload.exp ?? 0) - Date.now() / 1000;
+    return expiresIn < 30 * 60;
+  } catch {
+    return true;
+  }
 }
 
 export function getStoredUser(): AdminUser | null {

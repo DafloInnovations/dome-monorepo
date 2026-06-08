@@ -15,12 +15,12 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCancellation } from "../../../src/hooks/useCancellation";
 
 const C = {
-  bg: "#000000",
+  bg: "#FFFFFF",
   primary: "#E85068",
-  surface: "#1C1C1E",
-  text: "#FFFFFF",
-  muted: "#6B6B6B",
-  border: "#2C2C2E",
+  surface: "#F8F8F8",
+  text: "#0A0A0A",
+  muted: "#9E9E9E",
+  border: "#EBEBEB",
   green: "#22C55E",
   amber: "#F59E0B",
 };
@@ -242,7 +242,7 @@ const styles = StyleSheet.create({
   creditsNote: { color: C.muted, fontSize: 12, marginTop: 4 },
 
   center: { paddingVertical: 24, alignItems: "center" },
-  errorText: { color: "#ff6b6b", fontSize: 14, textAlign: "center", marginBottom: 16 },
+  errorText: { color: "#EF4444", fontSize: 14, textAlign: "center", marginBottom: 16 },
 
   reasonLabel: {
     color: C.text,
@@ -274,7 +274,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   btnDisabled: { opacity: 0.5 },
-  confirmBtnText: { color: C.text, fontSize: 16, fontWeight: "800" },
+  confirmBtnText: { color: "#FFFFFF", fontSize: 16, fontWeight: "800" },
   keepBtn: {
     backgroundColor: C.surface,
     borderRadius: 14,

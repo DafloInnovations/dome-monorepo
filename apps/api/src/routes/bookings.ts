@@ -120,15 +120,23 @@ router.put("/:id/cancel", validate(cancelSchema), async (req, res, next) => {
 // Accepts slot IDs from GET /facilities/:id/available-courts response
 
 const timeBookingSchema = z.object({
-  slotIds: z.array(z.string().min(1)).min(1).max(20),
-  facilityId: z.string().min(1),
+  slotIds:       z.array(z.string().min(1)).min(1).max(20),
+  facilityId:    z.string().min(1),
+  couponCode:    z.string().optional(),
+  useCredits:    z.boolean().optional().default(false),
+  creditsToUse:  z.number().positive().optional(),
 });
 
 // POST /api/v1/bookings/time-based
 router.post("/time-based", validate(timeBookingSchema), async (req, res, next) => {
   try {
-    const { slotIds, facilityId } = req.body as z.infer<typeof timeBookingSchema>;
-    const result = await createTimeBooking(req.user!.sub, slotIds, facilityId);
+    const { slotIds, facilityId, couponCode, useCredits, creditsToUse } = req.body as z.infer<typeof timeBookingSchema>;
+    const result = await createTimeBooking(
+      req.user!.sub,
+      slotIds,
+      facilityId,
+      { couponCode, useCredits, creditsToUse }
+    );
     res.status(201).json({ data: result });
   } catch (err) { next(err); }
 });

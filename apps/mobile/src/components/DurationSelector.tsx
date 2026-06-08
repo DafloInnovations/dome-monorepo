@@ -1,4 +1,5 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
+import { COLORS } from "../theme";
 
 const MIN_DURATION = 30;
 const MAX_DURATION = 180;
@@ -74,9 +75,11 @@ const styles = StyleSheet.create({
   container: {
     paddingHorizontal: 16,
     paddingVertical: 14,
-    backgroundColor: "#1C1C1E",
+    backgroundColor: COLORS.surface,
     borderRadius: 14,
     marginHorizontal: 16,
+    borderWidth: 1,
+    borderColor: COLORS.border,
   },
   row: {
     flexDirection: "row",
@@ -85,14 +88,14 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   label: {
-    color: "#6B6B6B",
+    color: COLORS.textMuted,
     fontSize: 11,
     fontWeight: "700",
     letterSpacing: 1.2,
     textTransform: "uppercase",
   },
   endTime: {
-    color: "#FFFFFF",
+    color: COLORS.text,
     fontSize: 13,
     fontWeight: "600",
   },
@@ -105,33 +108,31 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: "#2C2C2E",
+    backgroundColor: COLORS.surfaceElevated,
     borderWidth: 1,
-    borderColor: "#3A3A3C",
+    borderColor: COLORS.border,
     alignItems: "center",
     justifyContent: "center",
   },
-  btnDisabled: {
-    opacity: 0.35,
-  },
+  btnDisabled: { opacity: 0.35 },
   btnText: {
-    color: "#FFFFFF",
+    color: COLORS.text,
     fontSize: 22,
     fontWeight: "300",
     lineHeight: 26,
   },
-  btnTextDisabled: {
-    color: "#6B6B6B",
-  },
+  btnTextDisabled: { color: COLORS.textMuted },
   valueBox: {
     flex: 1,
     alignItems: "center",
     paddingVertical: 8,
-    backgroundColor: "#2C2C2E",
+    backgroundColor: COLORS.primaryUltraLight,
     borderRadius: 10,
+    borderWidth: 1,
+    borderColor: COLORS.primaryLight,
   },
   valueText: {
-    color: "#FFFFFF",
+    color: COLORS.primary,
     fontSize: 20,
     fontWeight: "700",
   },

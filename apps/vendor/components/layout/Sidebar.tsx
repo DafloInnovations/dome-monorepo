@@ -12,6 +12,8 @@ const NAV = [
   { href: "/dashboard/connect",    label: "Connect Games", icon: "🤝" },
   { href: "/dashboard/membership", label: "Manage Membership", icon: "💳" },
   { href: "/dashboard/equipment",  label: "Equipment",     icon: "🎒" },
+  { href: "/dashboard/pricing",     label: "Pricing",       icon: "⚡" },
+  { href: "/dashboard/coupons",    label: "Coupons",       icon: "🎟️" },
   { href: "/dashboard/reviews",    label: "Reviews",       icon: "⭐" },
   { href: "/dashboard/recurring",  label: "Recurring",     icon: "🔄" },
   { href: "/dashboard/settings",   label: "Settings",      icon: "⚙️" },

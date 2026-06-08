@@ -142,6 +142,13 @@ export async function createBooking(
     );
   }
 
+  // Also lock all linked slots on shared courts (prevent race with another sport booking)
+  if (slot.linkedSlotIds.length > 0) {
+    for (const linkedId of slot.linkedSlotIds) {
+      await redis.set(`slot:${linkedId}:lock`, userId, "EX", SLOT_LOCK_TTL, "NX");
+    }
+  }
+
   const user = await prisma.user.findUnique({
     where: { id: userId },
     select: { province: true },
@@ -204,6 +211,11 @@ export async function releaseLock(userId: string, bookingId: string) {
     return { released: false, reason: booking.status };
   }
 
+  const slot = await prisma.slot.findUnique({
+    where: { id: booking.slotId },
+    select: { linkedSlotIds: true },
+  });
+
   await prisma.$transaction([
     prisma.booking.update({
       where: { id: bookingId },
@@ -219,7 +231,11 @@ export async function releaseLock(userId: string, bookingId: string) {
     }),
   ]);
 
-  await redis.del(`slot:${booking.slotId}:lock`);
+  const lockKeys = [`slot:${booking.slotId}:lock`];
+  if (slot?.linkedSlotIds.length) {
+    for (const linkedId of slot.linkedSlotIds) lockKeys.push(`slot:${linkedId}:lock`);
+  }
+  await redis.del(...lockKeys);
 
   return { released: true };
 }
@@ -255,7 +271,16 @@ export async function confirmBooking(
   if (pi.metadata["bookingId"] !== bookingId)
     throw appError("PaymentIntent does not belong to this booking", 400);
 
-  const [confirmed] = await prisma.$transaction([
+  // Fetch linked slot IDs for shared court blocking
+  const bookedSlot = await prisma.slot.findUnique({
+    where: { id: booking.slotId },
+    select: { linkedSlotIds: true, sport: true },
+  });
+  const linkedSlotIds = bookedSlot?.linkedSlotIds ?? [];
+  const bookedSport = bookedSlot?.sport ?? null;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const confirmOps: Prisma.PrismaPromise<any>[] = [
     prisma.booking.update({
       where: { id: bookingId },
       data: {
@@ -281,9 +306,28 @@ export async function confirmBooking(
       },
       update: { status: PaymentStatus.SUCCEEDED },
     }),
-  ]);
+  ];
 
-  await redis.del(`slot:${booking.slotId}:lock`);
+  // Block all linked slots (same court, same time, different sport)
+  if (linkedSlotIds.length > 0) {
+    const blockReason = bookedSport
+      ? `Court booked for ${bookedSport.charAt(0) + bookedSport.slice(1).toLowerCase()}`
+      : "Court booked for another sport";
+    confirmOps.push(
+      prisma.slot.updateMany({
+        where: { id: { in: linkedSlotIds }, status: SlotStatus.AVAILABLE },
+        data: { status: SlotStatus.BLOCKED, blockReason },
+      })
+    );
+  }
+
+  const [confirmed] = await prisma.$transaction(confirmOps);
+
+  const lockKeys = [`slot:${booking.slotId}:lock`];
+  if (linkedSlotIds.length) {
+    for (const id of linkedSlotIds) lockKeys.push(`slot:${id}:lock`);
+  }
+  await redis.del(...lockKeys);
 
   // Push + email: booking confirmed
   const userForNotif = await prisma.user.findUnique({
@@ -378,8 +422,13 @@ export async function cancelBooking(
   const slotStartMs = Date.UTC(y!, m! - 1, d!, sh!, sm!);
   const hoursUntil = (slotStartMs - Date.now()) / 3_600_000;
 
+  const creditsWereUsed = booking.creditsAppliedCAD !== null && Number(booking.creditsAppliedCAD) > 0;
+  const creditsToRestore = creditsWereUsed ? Number(booking.creditsAppliedCAD) : 0;
+  // Card charge may be less than totalCAD when credits were used
+  const cardChargeWas = booking.cardChargeCAD !== null ? Number(booking.cardChargeCAD) : Number(booking.totalCAD);
+
   let refundType: "full" | "credits" | "none" = "none";
-  if (booking.payment && booking.paymentStatus === BookingPaymentStatus.PAID) {
+  if (booking.payment && booking.paymentStatus === BookingPaymentStatus.PAID && cardChargeWas > 0) {
     if (hoursUntil >= FULL_REFUND_CUTOFF_HOURS) refundType = "full";
     else if (hoursUntil > 0) refundType = "credits";
   }
@@ -388,36 +437,67 @@ export async function cancelBooking(
   const ops: Prisma.PrismaPromise<unknown>[] = [];
 
   if (refundType === "full" && booking.payment) {
-    await stripe.refunds.create({ payment_intent: booking.payment.gatewayPaymentId });
+    // Only refund the card charge portion via Stripe
+    await stripe.refunds.create({
+      payment_intent: booking.payment.gatewayPaymentId,
+      amount: Math.round(cardChargeWas * 100),
+    });
     ops.push(
       prisma.payment.update({
         where: { id: booking.payment.id },
         data: {
           status: PaymentStatus.REFUNDED,
           refundedAt: new Date(),
-          refundAmountCAD: totalCAD,
+          refundAmountCAD: cardChargeWas,
         },
       })
     );
   }
 
   if (refundType === "credits") {
+    // Issue Dome Credits for the card charge portion
     ops.push(
       prisma.domeCredit.create({
         data: {
           userId,
           bookingId,
-          amountCAD: totalCAD,
+          amountCAD: cardChargeWas,
           reason: `Late cancellation credit for booking ${bookingId}`,
           expiresAt: new Date(Date.now() + 365 * 24 * 3_600_000),
         },
       }),
       prisma.user.update({
         where: { id: userId },
-        data: { creditBalanceCAD: { increment: totalCAD } },
+        data: { creditBalanceCAD: { increment: cardChargeWas } },
       })
     );
   }
+
+  // Always restore credits that were applied to this booking
+  if (creditsToRestore > 0) {
+    ops.push(
+      prisma.domeCredit.create({
+        data: {
+          userId,
+          bookingId,
+          amountCAD: creditsToRestore,
+          reason: `Credits restored — cancellation of booking ${bookingId}`,
+          expiresAt: new Date(Date.now() + 365 * 24 * 3_600_000),
+        },
+      }),
+      prisma.user.update({
+        where: { id: userId },
+        data: { creditBalanceCAD: { increment: creditsToRestore } },
+      })
+    );
+  }
+
+  // Fetch linked slot IDs to unblock on cancellation
+  const cancelledSlot = await prisma.slot.findUnique({
+    where: { id: booking.slotId },
+    select: { linkedSlotIds: true },
+  });
+  const linkedSlotIds = cancelledSlot?.linkedSlotIds ?? [];
 
   ops.push(
     prisma.booking.update({
@@ -437,8 +517,20 @@ export async function cancelBooking(
     })
   );
 
+  // Unblock all linked slots that were blocked by this booking
+  if (linkedSlotIds.length > 0) {
+    ops.push(
+      prisma.slot.updateMany({
+        where: { id: { in: linkedSlotIds }, status: SlotStatus.BLOCKED },
+        data: { status: SlotStatus.AVAILABLE, blockReason: null },
+      })
+    );
+  }
+
   await prisma.$transaction(ops);
-  await redis.del(`slot:${booking.slotId}:lock`);
+  const lockKeys = [`slot:${booking.slotId}:lock`];
+  if (linkedSlotIds.length) for (const id of linkedSlotIds) lockKeys.push(`slot:${id}:lock`);
+  await redis.del(...lockKeys);
 
   // Fire availability alerts for the now-free slot (non-blocking)
   checkAndTriggerAlerts(
@@ -724,7 +816,15 @@ export async function confirmGroupBooking(
   const slotIds = group.bookings.map((b) => b.slotId);
   const bookingIds = group.bookings.map((b) => b.id);
 
-  await prisma.$transaction([
+  // Collect linked slot IDs for shared court blocking
+  const allBookedSlots = await prisma.slot.findMany({
+    where: { id: { in: slotIds } },
+    select: { id: true, linkedSlotIds: true, sport: true },
+  });
+  const allLinkedIds = [...new Set(allBookedSlots.flatMap((s) => s.linkedSlotIds))];
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const groupOps: Prisma.PrismaPromise<any>[] = [
     prisma.bookingGroup.update({
       where: { id: groupId },
       data: { status: GroupBookingStatus.CONFIRMED, paymentStatus: PaymentStatus.SUCCEEDED },
@@ -748,10 +848,22 @@ export async function confirmGroupBooking(
         status: PaymentStatus.SUCCEEDED,
       },
     }),
-  ]);
+  ];
 
-  // Release all Redis locks
-  if (slotIds.length) await redis.del(...slotIds.map((id) => `slot:${id}:lock`));
+  if (allLinkedIds.length > 0) {
+    groupOps.push(
+      prisma.slot.updateMany({
+        where: { id: { in: allLinkedIds }, status: SlotStatus.AVAILABLE },
+        data: { status: SlotStatus.BLOCKED, blockReason: "Court booked for another sport" },
+      })
+    );
+  }
+
+  await prisma.$transaction(groupOps);
+
+  // Release all Redis locks (booked + linked)
+  const allLockIds = [...slotIds, ...allLinkedIds];
+  if (allLockIds.length) await redis.del(...allLockIds.map((id) => `slot:${id}:lock`));
 
   // Single notification for the group
   const userRecord = await prisma.user.findUnique({
@@ -825,6 +937,13 @@ export async function cancelGroupBooking(
     );
   }
 
+  // Fetch linked slots to unblock
+  const cancelGroupSlots = await prisma.slot.findMany({
+    where: { id: { in: slotIds } },
+    select: { linkedSlotIds: true },
+  });
+  const cancelLinkedIds = [...new Set(cancelGroupSlots.flatMap((s) => s.linkedSlotIds))];
+
   ops.push(
     prisma.bookingGroup.update({
       where: { id: groupId },
@@ -840,8 +959,18 @@ export async function cancelGroupBooking(
     })
   );
 
+  if (cancelLinkedIds.length > 0) {
+    ops.push(
+      prisma.slot.updateMany({
+        where: { id: { in: cancelLinkedIds }, status: SlotStatus.BLOCKED },
+        data: { status: SlotStatus.AVAILABLE, blockReason: null },
+      })
+    );
+  }
+
   await prisma.$transaction(ops);
-  if (slotIds.length) await redis.del(...slotIds.map((id) => `slot:${id}:lock`));
+  const cancelLockIds = [...slotIds, ...cancelLinkedIds];
+  if (cancelLockIds.length) await redis.del(...cancelLockIds.map((id) => `slot:${id}:lock`));
 
   return {
     refundType,
@@ -855,7 +984,12 @@ export async function cancelGroupBooking(
 export async function createTimeBooking(
   userId: string,
   slotIds: string[],
-  facilityId: string
+  facilityId: string,
+  options: {
+    couponCode?: string;
+    useCredits?: boolean;
+    creditsToUse?: number;
+  } = {}
 ) {
   if (slotIds.length === 0) throw appError("No slots provided", 400);
   if (slotIds.length > 20) throw appError("Too many slots", 400);
@@ -864,6 +998,11 @@ export async function createTimeBooking(
   const slots = await prisma.slot.findMany({
     where: { id: { in: slotIds }, facilityId },
     orderBy: { startTime: "asc" },
+    select: {
+      id: true, facilityId: true, courtId: true, date: true,
+      startTime: true, endTime: true, durationMinutes: true,
+      priceCAD: true, status: true, capacity: true, linkedSlotIds: true, sport: true,
+    },
   });
   if (slots.length !== slotIds.length) throw appError("One or more slots not found", 404);
 
@@ -884,31 +1023,90 @@ export async function createTimeBooking(
     }
   }
 
-  // Acquire Redis locks on all slots
+  // Collect all linked slot IDs for shared court locking
+  const allLinkedIds = [...new Set(slots.flatMap((s) => s.linkedSlotIds ?? []))];
+  const allLockIds = [...slots.map((s) => s.id), ...allLinkedIds];
+
+  // Acquire Redis locks on all slots (including linked siblings)
   const lockResults = await Promise.all(
-    slots.map((s) => redis.set(`slot:${s.id}:lock`, userId, "EX", SLOT_LOCK_TTL, "NX"))
+    allLockIds.map((id) => redis.set(`slot:${id}:lock`, userId, "EX", SLOT_LOCK_TTL, "NX"))
   );
   const failedIdx = lockResults.findIndex((r) => r !== "OK");
   if (failedIdx !== -1) {
     const toRelease = lockResults
-      .map((r, i) => (r === "OK" ? slots[i]!.id : null))
+      .map((r, i) => (r === "OK" ? allLockIds[i]! : null))
       .filter(Boolean) as string[];
     if (toRelease.length) await redis.del(...toRelease.map((id) => `slot:${id}:lock`));
+    const failedSlot = slots.find((s) => s.id === allLockIds[failedIdx]) ?? slots[0]!;
     throw appError(
-      `Slot ${slots[failedIdx]!.startTime}–${slots[failedIdx]!.endTime} is held by another player`,
+      `Slot ${failedSlot.startTime}–${failedSlot.endTime} is held by another player`,
       409,
       "SLOT_LOCKED"
     );
   }
 
-  const user = await prisma.user.findUnique({ where: { id: userId }, select: { province: true } });
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { province: true, creditBalanceCAD: true },
+  });
   if (!user) throw appError("User not found", 404);
 
   const subtotalCAD = slots.reduce((s, sl) => s + Number(sl.priceCAD), 0);
   const taxCAD = calculateTax(subtotalCAD, user.province as Province);
   const totalCAD = Math.round((subtotalCAD + taxCAD) * 100) / 100;
 
-  // Single slot → individual booking; multiple → group booking
+  // ── Credits calculation ────────────────────────────────────────────────────
+  const { useCredits = false, creditsToUse } = options;
+  const availableCredits = Number(user.creditBalanceCAD);
+
+  const creditsApplied = useCredits && availableCredits > 0
+    ? Math.min(
+        Math.round(Math.min(availableCredits, creditsToUse ?? totalCAD) * 100) / 100,
+        totalCAD
+      )
+    : 0;
+  const cardCharge = Math.max(0, Math.round((totalCAD - creditsApplied) * 100) / 100);
+
+  // Helper: deduct credits and write ledger entry inside a transaction array
+  function creditDeductOps(bookingId: string) {
+    if (creditsApplied <= 0) return [];
+    return [
+      prisma.user.update({
+        where: { id: userId },
+        data: { creditBalanceCAD: { decrement: creditsApplied } },
+      }),
+      prisma.domeCredit.create({
+        data: {
+          userId,
+          bookingId,
+          amountCAD: -creditsApplied,
+          reason: `Credits used for booking ${bookingId}`,
+        },
+      }),
+    ];
+  }
+
+  // Helper: confirm booking directly when fully paid by credits (no Stripe needed)
+  async function confirmWithCredits(bookingId: string) {
+    await prisma.$transaction([
+      prisma.booking.update({
+        where: { id: bookingId },
+        data: {
+          status: BookingStatus.CONFIRMED,
+          paymentStatus: BookingPaymentStatus.PAID,
+        },
+      }),
+      prisma.slot.updateMany({
+        where: { id: { in: slotIds } },
+        data: { status: SlotStatus.BOOKED },
+      }),
+      ...creditDeductOps(bookingId),
+    ]);
+    // Release Redis locks
+    await redis.del(...allLockIds.map((id) => `slot:${id}:lock`));
+  }
+
+  // ── Single slot → individual booking ──────────────────────────────────────
   if (slots.length === 1) {
     const slot = slots[0]!;
     const sub = Number(slot.priceCAD);
@@ -926,33 +1124,69 @@ export async function createTimeBooking(
         taxCAD: tax,
         totalCAD: tot,
         taxProvince: user.province,
+        ...(creditsApplied > 0 && {
+          creditsAppliedCAD: creditsApplied,
+          cardChargeCAD: cardCharge,
+        }),
       },
       include: { slot: true, facility: { include: { address: true } } },
     });
 
+    // Fully paid with credits — confirm directly, no Stripe
+    if (cardCharge === 0) {
+      await confirmWithCredits(booking.id);
+      return {
+        type: "single" as const,
+        bookingId: booking.id,
+        groupId: null,
+        fullyPaidWithCredits: true,
+        clientSecret: null,
+        paymentIntentId: null,
+        totalCAD: tot,
+        subtotalCAD: sub,
+        taxCAD: tax,
+        creditsAppliedCAD: creditsApplied,
+        cardChargeCAD: 0,
+        lockExpiresInSeconds: 0,
+      };
+    }
+
     const pi = await stripe.paymentIntents.create({
-      amount: Math.round(tot * 100),
+      amount: Math.round(cardCharge * 100),
       currency: "cad",
-      metadata: { bookingId: booking.id, userId },
+      metadata: {
+        bookingId: booking.id,
+        userId,
+        creditsApplied: String(creditsApplied),
+      },
     });
 
-    // Store PI ID so equipment can update the amount before payment
-    await prisma.booking.update({ where: { id: booking.id }, data: { paymentIntentId: pi.id } });
+    // Apply credit deduction atomically with PI ID storage
+    await prisma.$transaction([
+      prisma.booking.update({
+        where: { id: booking.id },
+        data: { paymentIntentId: pi.id },
+      }),
+      ...creditDeductOps(booking.id),
+    ]);
 
     return {
       type: "single" as const,
       bookingId: booking.id,
       groupId: null,
+      fullyPaidWithCredits: false,
       clientSecret: pi.client_secret,
       paymentIntentId: pi.id,
       totalCAD: tot,
       subtotalCAD: sub,
       taxCAD: tax,
+      creditsAppliedCAD: creditsApplied,
+      cardChargeCAD: cardCharge,
       lockExpiresInSeconds: SLOT_LOCK_TTL,
     };
   }
 
-  // Multiple slots → group booking (no minimum-2 constraint for time-based)
+  // ── Multiple slots → group booking ─────────────────────────────────────────
   const group = await prisma.bookingGroup.create({
     data: {
       userId,
@@ -982,23 +1216,104 @@ export async function createTimeBooking(
     include: { bookings: { include: { slot: true } }, facility: { include: { address: true } } },
   });
 
+  // Apply credits to all bookings in the group proportionally — simplest approach:
+  // store creditsApplied on the group-level tracking via the first booking
+  if (cardCharge === 0) {
+    // Fully credits — confirm entire group directly
+    const bookingIds = group.bookings.map((b) => b.id);
+    await prisma.$transaction([
+      prisma.bookingGroup.update({
+        where: { id: group.id },
+        data: { status: GroupBookingStatus.CONFIRMED, paymentStatus: PaymentStatus.SUCCEEDED },
+      }),
+      prisma.booking.updateMany({
+        where: { id: { in: bookingIds } },
+        data: {
+          status: BookingStatus.CONFIRMED,
+          paymentStatus: BookingPaymentStatus.PAID,
+          creditsAppliedCAD: creditsApplied,
+          cardChargeCAD: 0,
+        },
+      }),
+      prisma.slot.updateMany({
+        where: { id: { in: slotIds } },
+        data: { status: SlotStatus.BOOKED },
+      }),
+      prisma.user.update({
+        where: { id: userId },
+        data: { creditBalanceCAD: { decrement: creditsApplied } },
+      }),
+      prisma.domeCredit.create({
+        data: {
+          userId,
+          amountCAD: -creditsApplied,
+          reason: `Credits used for group booking ${group.id}`,
+        },
+      }),
+    ]);
+    await redis.del(...allLockIds.map((id) => `slot:${id}:lock`));
+    return {
+      type: "group" as const,
+      bookingId: null,
+      groupId: group.id,
+      fullyPaidWithCredits: true,
+      clientSecret: null,
+      paymentIntentId: null,
+      totalCAD,
+      subtotalCAD,
+      taxCAD,
+      creditsAppliedCAD: creditsApplied,
+      cardChargeCAD: 0,
+      lockExpiresInSeconds: 0,
+    };
+  }
+
   const pi = await stripe.paymentIntents.create({
-    amount: Math.round(totalCAD * 100),
+    amount: Math.round(cardCharge * 100),
     currency: "cad",
-    metadata: { groupId: group.id, userId, slotIds: slotIds.join(",") },
+    metadata: {
+      groupId: group.id,
+      userId,
+      slotIds: slotIds.join(","),
+      creditsApplied: String(creditsApplied),
+    },
   });
 
-  await prisma.bookingGroup.update({ where: { id: group.id }, data: { paymentIntentId: pi.id } });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const updateOps: Prisma.PrismaPromise<any>[] = [
+    prisma.bookingGroup.update({
+      where: { id: group.id },
+      data: { paymentIntentId: pi.id },
+    }),
+    prisma.booking.updateMany({
+      where: { id: { in: group.bookings.map((b) => b.id) } },
+      data: {
+        ...(creditsApplied > 0 && { creditsAppliedCAD: creditsApplied, cardChargeCAD: cardCharge }),
+      },
+    }),
+  ];
+  if (creditsApplied > 0) {
+    updateOps.push(
+      prisma.user.update({ where: { id: userId }, data: { creditBalanceCAD: { decrement: creditsApplied } } }),
+      prisma.domeCredit.create({
+        data: { userId, amountCAD: -creditsApplied, reason: `Credits used for group booking ${group.id}` },
+      })
+    );
+  }
+  await prisma.$transaction(updateOps);
 
   return {
     type: "group" as const,
     bookingId: null,
     groupId: group.id,
+    fullyPaidWithCredits: false,
     clientSecret: pi.client_secret,
     paymentIntentId: pi.id,
     totalCAD,
     subtotalCAD,
     taxCAD,
+    creditsAppliedCAD: creditsApplied,
+    cardChargeCAD: cardCharge,
     lockExpiresInSeconds: SLOT_LOCK_TTL,
   };
 }
