@@ -19,7 +19,7 @@ import * as Location from "expo-location";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useFacilities, type Facility } from "../../src/hooks/useFacilities";
+import { useFacilities, type Facility, type ActiveCoupon } from "../../src/hooks/useFacilities";
 import { useThreads } from "../../src/hooks/useChat";
 import { useNotificationsContext } from "../../src/context/NotificationsContext";
 import { COLORS } from "../../src/theme";
@@ -94,6 +94,20 @@ const SPORT_BG: Record<string, string> = {
 };
 const DEFAULT_BG = "#C73A55";
 
+function getCouponLabel(c: ActiveCoupon): string {
+  if (c.type === "PERCENTAGE") return `${c.value}% off · Use ${c.code}`;
+  if (c.type === "FIXED")      return `C$${c.value} off · Use ${c.code}`;
+  if (c.type === "FREE")       return `Free booking · Use ${c.code}`;
+  return `Use ${c.code}`;
+}
+
+function getOfferBadgeLabel(c: ActiveCoupon): string {
+  if (c.type === "PERCENTAGE") return `SAVE ${c.value}%`;
+  if (c.type === "FIXED")      return `SAVE C$${c.value}`;
+  if (c.type === "FREE")       return `FREE`;
+  return `OFFER`;
+}
+
 type SortBy = "nearest" | "rated" | "popular";
 const SORT_LABELS: Record<SortBy, string> = {
   nearest: "Nearest",
@@ -166,6 +180,7 @@ function FacilityCard({
     ? `${facility.distanceKm.toFixed(1)} km` : null;
   const addressText = facility.address
     ? `${facility.address.street}, ${facility.address.city}` : null;
+  const topCoupon   = facility.activeCoupons?.[0] ?? null;
 
   return (
     <Pressable
@@ -194,8 +209,12 @@ function FacilityCard({
           <Text style={[fc.heartIcon, saved && fc.heartIconSaved]}>{saved ? "♥" : "♡"}</Text>
         </Pressable>
 
-        {/* New / rating badge bottom-left */}
-        {!hasReviews ? (
+        {/* New badge OR offer badge bottom-left */}
+        {topCoupon ? (
+          <View style={fc.offerBadge}>
+            <Text style={fc.offerBadgeText}>🏷️ {getOfferBadgeLabel(topCoupon)}</Text>
+          </View>
+        ) : !hasReviews ? (
           <View style={fc.newBadge}>
             <Text style={fc.newBadgeText}>NEW</Text>
           </View>
@@ -216,6 +235,13 @@ function FacilityCard({
         {addressText ? (
           <Text style={fc.address} numberOfLines={1}>{addressText}</Text>
         ) : null}
+
+        {/* Offer line */}
+        {topCoupon && (
+          <View style={fc.offerLine}>
+            <Text style={fc.offerLineText}>🏷️ {getCouponLabel(topCoupon)}</Text>
+          </View>
+        )}
 
         {/* Sport pill + distance + book */}
         <View style={fc.metaRow}>
@@ -282,6 +308,19 @@ const fc = StyleSheet.create({
     borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3,
   },
   newBadgeText: { color: "#fff", fontSize: 10, fontWeight: "800" },
+  offerBadge: {
+    position: "absolute", bottom: 12, left: 12,
+    backgroundColor: C.primary,
+    borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4,
+    flexDirection: "row", alignItems: "center",
+  },
+  offerBadgeText: { color: "#fff", fontSize: 11, fontWeight: "800" },
+  offerLine: {
+    flexDirection: "row", alignItems: "center",
+    backgroundColor: "#FFF5F7", borderRadius: 6,
+    paddingHorizontal: 8, paddingVertical: 4,
+  },
+  offerLineText: { color: C.primary, fontSize: 12, fontWeight: "600" },
   body:    { padding: 14, gap: 7 },
   nameRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
   name:    { color: C.text, fontSize: 17, fontWeight: "700", flex: 1 },
@@ -574,10 +613,11 @@ export default function VenuesScreen() {
   }, [params.sport]);
 
   const { facilities, isLoading, error, refetch } = useFacilities({
-    lat:    selectedCity.lat,
-    lng:    selectedCity.lng,
-    radius: selectedCity.lat != null ? radius : undefined,
-    sport:  activeSport === "All" ? undefined : activeSport,
+    lat:       selectedCity.lat,
+    lng:       selectedCity.lng,
+    radius:    selectedCity.lat != null ? radius : undefined,
+    sport:     activeSport === "All" || activeSport === "OFFERS" ? undefined : activeSport,
+    hasOffers: activeSport === "OFFERS",
   });
 
   const displayedFacilities = useMemo(() => {
@@ -687,6 +727,25 @@ export default function VenuesScreen() {
         contentContainerStyle={styles.pillContent}
         style={styles.pillRow}
       >
+        {/* Offers pill — always first, always red-bordered */}
+        <Pressable
+          style={[
+            styles.pill,
+            activeSport === "OFFERS" ? styles.pillActive : styles.pillOffers,
+          ]}
+          onPress={() => { setActiveSport("OFFERS"); setSearch(""); }}
+        >
+          <Text style={styles.pillEmoji}>🏷️</Text>
+          <Text style={[
+            styles.pillText,
+            activeSport === "OFFERS" ? styles.pillTextActive : styles.pillTextOffers,
+          ]}>Offers</Text>
+          <View style={[
+            styles.offersDot,
+            { backgroundColor: activeSport === "OFFERS" ? "#fff" : C.primary },
+          ]} />
+        </Pressable>
+
         {SPORT_PILLS.map((sp) => {
           const active = activeSport === sp.key;
           return (
@@ -887,10 +946,13 @@ const styles = StyleSheet.create({
     backgroundColor: C.surface, borderRadius: 20,
     paddingHorizontal: 16, paddingVertical: 8,
   },
-  pillActive: { backgroundColor: C.primary },
-  pillEmoji:  { fontSize: 14 },
-  pillText:   { color: C.text, fontSize: 13, fontWeight: "500" },
-  pillTextActive: { color: "#fff", fontWeight: "700" },
+  pillActive:      { backgroundColor: C.primary },
+  pillOffers:      { backgroundColor: "#FFF5F7", borderWidth: 1.5, borderColor: C.primary },
+  pillEmoji:       { fontSize: 14 },
+  pillText:        { color: C.text, fontSize: 13, fontWeight: "500" },
+  pillTextActive:  { color: "#fff", fontWeight: "700" },
+  pillTextOffers:  { color: C.primary, fontWeight: "700" },
+  offersDot:       { width: 6, height: 6, borderRadius: 3 },
 
   // Results row
   resultsRow: {

@@ -364,6 +364,10 @@ model Court {
   primarySport String?         // main sport shown in listings
   // Dynamic pricing
   dynamicPricingEnabled Boolean @default(false)
+  // Booking duration rules
+  minBookingMinutes   Int @default(60)
+  durationStepMinutes Int @default(30)
+  maxBookingMinutes   Int @default(180)
   createdAt    DateTime        @default(now())
   updatedAt    DateTime        @updatedAt
 

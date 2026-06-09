@@ -3,6 +3,7 @@ import {
   getFacility,
   getFacilitySlots,
   getAvailableCourts,
+  getAvailableTimes,
   listFacilities,
 } from "../services/facilities.service";
 import { getFacilityEquipment } from "../services/equipment.service";
@@ -13,7 +14,7 @@ const router = Router();
 // Query: sport, lat, lng, radius, date, city, province, page, limit
 router.get("/", async (req, res, next) => {
   try {
-    const { sport, lat, lng, radius, date, city, province, page, limit, sort } =
+    const { sport, lat, lng, radius, date, city, province, page, limit, sort, hasOffers } =
       req.query as Record<string, string | undefined>;
 
     const result = await listFacilities({
@@ -27,6 +28,7 @@ router.get("/", async (req, res, next) => {
       page: page !== undefined ? Math.max(1, Number(page)) : undefined,
       limit: limit !== undefined ? Number(limit) : undefined,
       sort: sort as "distance" | "rating" | "price" | undefined,
+      hasOffers: hasOffers === "true",
     });
 
     res.json(result);
@@ -43,6 +45,19 @@ router.get("/:id", async (req, res, next) => {
   } catch (err) {
     next(err);
   }
+});
+
+// GET /api/v1/facilities/:id/available-times?date=YYYY-MM-DD&duration=60
+router.get("/:id/available-times", async (req, res, next) => {
+  try {
+    const { date, duration } = req.query as { date?: string; duration?: string };
+    if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      res.status(400).json({ message: "date is required (YYYY-MM-DD)" }); return;
+    }
+    const durationMins = duration ? Math.max(30, Number(duration)) : 60;
+    const data = await getAvailableTimes(req.params["id"]!, date, durationMins);
+    res.json({ data });
+  } catch (err) { next(err); }
 });
 
 // GET /api/v1/facilities/:id/available-courts?date=YYYY-MM-DD&startTime=HH:mm&duration=60&sport=BADMINTON

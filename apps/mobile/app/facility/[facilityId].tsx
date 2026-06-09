@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -12,7 +12,8 @@ import {
 } from "react-native";
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useSlots, type Slot } from "../../src/hooks/useSlots";
+import { useSlots } from "../../src/hooks/useSlots";
+import { useAvailableTimes, type AvailableTimeSlot } from "../../src/hooks/useAvailableTimes";
 import { useAvailableCourts, type AvailableCourt } from "../../src/hooks/useAvailableCourts";
 import { useAlerts } from "../../src/hooks/useAlerts";
 
@@ -40,14 +41,11 @@ const SPORT_EMOJI: Record<string, string> = {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-const HOURS = [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22];
-const DURATION_OPTS = [
-  { label: "30m", value: 30 },
-  { label: "1h",  value: 60 },
-  { label: "1.5h",value: 90 },
-  { label: "2h",  value: 120 },
-  { label: "3h",  value: 180 },
-];
+function fmtDuration(minutes: number): string {
+  if (minutes < 60) return `${minutes}m`;
+  if (minutes % 60 === 0) return `${minutes / 60}h`;
+  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -68,8 +66,6 @@ interface FacilityDetail {
   averageRating: number | null;
   totalReviews: number;
 }
-
-type TimeState = "available" | "booked" | "past";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -112,20 +108,12 @@ function fmtDisplayDate(d: Date): string {
   return d.toLocaleDateString("en-CA", { weekday: "short", month: "short", day: "numeric" });
 }
 
-function getTimeState(hour: number, slots: Slot[], isToday: boolean): TimeState {
-  if (isToday) {
-    const now = new Date();
-    if (hour < now.getHours() || (hour === now.getHours() && now.getMinutes() >= 30)) {
-      return "past";
-    }
-  }
-  const prefix = `${hour < 10 ? "0" : ""}${hour}:`;
-  const hourSlots = slots.filter((s) => s.startTime.startsWith(prefix));
-  if (hourSlots.length === 0) return "available";
-  const hasAvailable = hourSlots.some(
-    (s) => s.status === "AVAILABLE" || s.status === "OPEN_GAME"
-  );
-  return hasAvailable ? "available" : "booked";
+function isPastTime(time: string, date: string, todayStr: string): boolean {
+  if (date !== todayStr) return false;
+  const [h, m] = time.split(":").map(Number);
+  const slotDate = new Date();
+  slotDate.setHours(h!, m!, 0, 0);
+  return slotDate <= new Date();
 }
 
 // ─── Animation helpers ────────────────────────────────────────────────────────
@@ -381,6 +369,7 @@ export default function FacilityDetailScreen() {
   const [selectedTime, setSelectedTime]    = useState<string | null>(null);
   const [durationMinutes, setDuration]     = useState(60);
   const [selectedCourts, setSelCourts]     = useState<AvailableCourt[]>([]);
+  const activeCourt = selectedCourts[0] ?? null;
   const [alertedCourts, setAlertedCourts]  = useState<Record<string, boolean>>({});
   const [facilityAlertSet, setFAlertSet]   = useState(false);
   const [saved, setSaved]                  = useState(false);
@@ -394,17 +383,53 @@ export default function FacilityDetailScreen() {
 
   const date = formatLocalDate(days[selectedDay]!);
 
-  const { slots, refetch: refetchSlots } = useSlots(facilityId ?? "", date);
+  // Dynamic duration options driven by the selected court's rules
+  const validDurations = useMemo<number[]>(() => {
+    if (!activeCourt) return [30, 60, 90, 120, 180];
+    const durations: number[] = [];
+    let cur = activeCourt.minBookingMinutes;
+    while (cur <= activeCourt.maxBookingMinutes) {
+      durations.push(cur);
+      cur += activeCourt.durationStepMinutes;
+    }
+    return durations;
+  }, [activeCourt]);
+
+  // When a court is selected, reset duration to that court's minimum if current is invalid
+  useEffect(() => {
+    if (!activeCourt) return;
+    const isValid =
+      durationMinutes >= activeCourt.minBookingMinutes &&
+      durationMinutes <= activeCourt.maxBookingMinutes &&
+      (durationMinutes - activeCourt.minBookingMinutes) % activeCourt.durationStepMinutes === 0;
+    if (!isValid) setDuration(activeCourt.minBookingMinutes);
+  }, [activeCourt]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const { refetch: refetchSlots } = useSlots(facilityId ?? "", date);
   const { result: courtsResult, isLoading: courtsLoading } = useAvailableCourts(
     facilityId ?? "", date, selectedTime ?? "", durationMinutes
   );
+  const {
+    result: timesResult,
+    isLoading: timesLoading,
+    refetch: refetchTimes,
+  } = useAvailableTimes(facilityId ?? "", date, durationMinutes);
+
+  const todayStr = formatLocalDate(new Date());
+  const filteredTimes = useMemo<AvailableTimeSlot[]>(() => {
+    if (!timesResult) return [];
+    return timesResult.availableTimes.filter(
+      (t) => !isPastTime(t.time, date, todayStr)
+    );
+  }, [timesResult, date, todayStr]);
 
   useFocusEffect(
     useCallback(() => {
       refetchSlots();
+      refetchTimes();
       setSelectedTime(null);
       setSelCourts([]);
-    }, [refetchSlots])
+    }, [refetchSlots, refetchTimes])
   );
 
   useEffect(() => {
@@ -661,49 +686,82 @@ export default function FacilityDetailScreen() {
           <FadeIn key={selectedDay}>
             <View style={styles.section}>
               <StepLabel n={2} text="SELECT START TIME" />
-              <View style={styles.timeGrid}>
-                {HOURS.map((h) => {
-                  const time  = `${h < 10 ? "0" : ""}${h}:00`;
-                  const state = getTimeState(h, slots, selectedDay === 0);
-                  const isSel = selectedTime === time;
-                  return (
-                    <Pressable
-                      key={h}
-                      style={[
-                        styles.timePill,
-                        isSel       && styles.timePillSelected,
-                        state === "booked" && styles.timePillBooked,
-                        state === "past"   && styles.timePillPast,
-                      ]}
-                      onPress={() => {
-                        if (state !== "past" && state !== "booked") {
-                          setSelectedTime(isSel ? null : time);
-                        }
-                      }}
-                      disabled={state === "past" || state === "booked"}
-                    >
-                      <Text style={[
-                        styles.timePillText,
-                        isSel       && styles.timePillTextSelected,
-                        state === "booked" && styles.timePillTextBooked,
-                        state === "past"   && styles.timePillTextPast,
-                      ]}>
-                        {fmtHour(h)}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-              {slots.length === 0 && !courtsLoading && (
+
+              {timesLoading ? (
+                <View style={styles.timeGrid}>
+                  {[1,2,3,4,5,6,7,8].map((i) => (
+                    <View key={i} style={[styles.timePill, { backgroundColor: "#F0F0F0", borderColor: "#F0F0F0", width: 80 }]} />
+                  ))}
+                </View>
+              ) : filteredTimes.length === 0 ? (
                 <View style={styles.noSlotsMsg}>
                   <Text style={styles.noSlotsMsgEmoji}>😴</Text>
                   <Text style={styles.noSlotsMsgText}>
-                    No configured slots on {fmtDisplayDate(days[selectedDay]!)}
+                    No available times on {fmtDisplayDate(days[selectedDay]!)}
                   </Text>
-                  <Text style={styles.noSlotsMsgSub}>
-                    Pick a time to check court availability anyway
-                  </Text>
+                  {selectedDay < 6 && (
+                    <Pressable onPress={() => {
+                      setSelectedDay((d) => d + 1);
+                      setSelectedTime(null);
+                      setSelCourts([]);
+                    }}>
+                      <Text style={styles.nextDayBtn}>Try tomorrow →</Text>
+                    </Pressable>
+                  )}
                 </View>
+              ) : (
+                <>
+                  <View style={styles.timeGrid}>
+                    {filteredTimes.map((slot) => {
+                      const isSel     = selectedTime === slot.time;
+                      const isBooked  = slot.status === "BOOKED";
+                      const isPartial = slot.status === "PARTIAL";
+                      return (
+                        <Pressable
+                          key={slot.time}
+                          disabled={isBooked}
+                          style={[
+                            styles.timePill,
+                            isSel                   && styles.timePillSelected,
+                            isBooked                && styles.timePillBooked,
+                            isPartial && !isSel     && styles.timePillPartial,
+                          ]}
+                          onPress={() => setSelectedTime(isSel ? null : slot.time)}
+                        >
+                          <Text style={[
+                            styles.timePillText,
+                            isSel    && styles.timePillTextSelected,
+                            isBooked && styles.timePillTextBooked,
+                          ]}>
+                            {slot.label}
+                          </Text>
+                          {isPartial && !isSel && <View style={styles.partialDot} />}
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+
+                  {/* Operating hours */}
+                  <Text style={styles.operatingHint}>
+                    Open {filteredTimes[0]!.label} – {filteredTimes[filteredTimes.length - 1]!.label}
+                  </Text>
+
+                  {/* Legend */}
+                  <View style={styles.timeLegend}>
+                    <View style={styles.legendItem}>
+                      <View style={[styles.legendDot, { backgroundColor: C.green }]} />
+                      <Text style={styles.legendText}>Available</Text>
+                    </View>
+                    <View style={styles.legendItem}>
+                      <View style={[styles.legendDot, { backgroundColor: "#FFC107" }]} />
+                      <Text style={styles.legendText}>Limited</Text>
+                    </View>
+                    <View style={styles.legendItem}>
+                      <View style={[styles.legendDot, { backgroundColor: "#CCCCCC" }]} />
+                      <Text style={styles.legendText}>Full</Text>
+                    </View>
+                  </View>
+                </>
               )}
             </View>
           </FadeIn>
@@ -718,20 +776,20 @@ export default function FacilityDetailScreen() {
               <View style={styles.section}>
                 <StepLabel n={3} text="HOW LONG?" />
                 <View style={styles.durationRow}>
-                  {DURATION_OPTS.map((opt) => (
+                  {validDurations.map((mins) => (
                     <Pressable
-                      key={opt.value}
+                      key={mins}
                       style={[
                         styles.durationPill,
-                        durationMinutes === opt.value && styles.durationPillActive,
+                        durationMinutes === mins && styles.durationPillActive,
                       ]}
-                      onPress={() => setDuration(opt.value)}
+                      onPress={() => setDuration(mins)}
                     >
                       <Text style={[
                         styles.durationPillText,
-                        durationMinutes === opt.value && styles.durationPillTextActive,
+                        durationMinutes === mins && styles.durationPillTextActive,
                       ]}>
-                        {opt.label}
+                        {fmtDuration(mins)}
                       </Text>
                     </Pressable>
                   ))}
@@ -739,6 +797,11 @@ export default function FacilityDetailScreen() {
                 <Text style={styles.timeRangeText}>
                   {fmtTime12(selectedTime)} → {ctaEndTime}
                 </Text>
+                {activeCourt && (
+                  <Text style={styles.durationHint}>
+                    Min {fmtDuration(activeCourt.minBookingMinutes)} · extend in {fmtDuration(activeCourt.durationStepMinutes)} increments
+                  </Text>
+                )}
               </View>
 
               <View style={styles.divider} />
@@ -1031,14 +1094,28 @@ const styles = StyleSheet.create({
     paddingVertical: 10, paddingHorizontal: 14,
     borderRadius: 12, borderWidth: 1,
     borderColor: "#E8E8E8", backgroundColor: C.bg,
+    position: "relative",
   },
   timePillSelected: { backgroundColor: C.primary, borderColor: C.primary },
-  timePillBooked:   { backgroundColor: "#F5F5F5", borderColor: "#F0F0F0" },
-  timePillPast:     { backgroundColor: "#F5F5F5", borderColor: "#F0F0F0", opacity: 0.3 },
+  timePillBooked:   { backgroundColor: "#F5F5F5", borderColor: "#F0F0F0", opacity: 0.5 },
+  timePillPartial:  { borderColor: "#FFC107" },
   timePillText:     { color: C.text, fontSize: 14, fontWeight: "600" },
   timePillTextSelected: { color: "#fff", fontWeight: "700" },
   timePillTextBooked:   { color: "#CCCCCC", textDecorationLine: "line-through" },
-  timePillTextPast:     { color: "#CCCCCC" },
+  partialDot: {
+    position: "absolute", top: 5, right: 5,
+    width: 6, height: 6, borderRadius: 3, backgroundColor: "#FFC107",
+  },
+  operatingHint: {
+    color: C.muted, fontSize: 12, textAlign: "center",
+    marginTop: 10, fontWeight: "500",
+  },
+  timeLegend: {
+    flexDirection: "row", justifyContent: "center", gap: 16, marginTop: 8,
+  },
+  legendItem: { flexDirection: "row", alignItems: "center", gap: 5 },
+  legendDot:  { width: 8, height: 8, borderRadius: 4 },
+  legendText: { color: C.muted, fontSize: 11 },
 
   // No slots message
   noSlotsMsg: {
@@ -1047,6 +1124,7 @@ const styles = StyleSheet.create({
   noSlotsMsgEmoji: { fontSize: 32 },
   noSlotsMsgText:  { color: C.text, fontSize: 15, fontWeight: "600", textAlign: "center" },
   noSlotsMsgSub:   { color: C.muted, fontSize: 13, textAlign: "center" },
+  nextDayBtn:      { color: C.primary, fontSize: 13, fontWeight: "700", marginTop: 4 },
 
   // Duration pills
   durationRow: {
@@ -1062,6 +1140,9 @@ const styles = StyleSheet.create({
   timeRangeText: {
     color: C.muted, fontSize: 13, textAlign: "center",
     marginTop: 14, fontWeight: "600",
+  },
+  durationHint: {
+    color: C.muted, fontSize: 12, textAlign: "center", marginTop: 6,
   },
 
   // Recurring

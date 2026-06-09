@@ -2,6 +2,15 @@ import { useCallback, useEffect, useState } from "react";
 
 const API_URL = process.env["EXPO_PUBLIC_API_URL"] ?? "http://localhost:3001/api/v1";
 
+export interface ActiveCoupon {
+  code: string;
+  type: string;
+  value: number;
+  description: string | null;
+  validUntil: string;
+  maxDiscountCAD: number | null;
+}
+
 export interface Facility {
   id: string;
   name: string;
@@ -22,6 +31,7 @@ export interface Facility {
   averageRating: number | null;
   totalReviews: number;
   distanceKm?: number;
+  activeCoupons?: ActiveCoupon[];
 }
 
 interface UseFacilitiesOpts {
@@ -29,10 +39,11 @@ interface UseFacilitiesOpts {
   lng?: number;
   radius?: number;
   sport?: string;
+  hasOffers?: boolean;
 }
 
 export function useFacilities(opts: UseFacilitiesOpts = {}) {
-  const { lat, lng, radius = 10, sport } = opts;
+  const { lat, lng, radius = 10, sport, hasOffers } = opts;
   const [facilities, setFacilities] = useState<Facility[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -48,6 +59,7 @@ export function useFacilities(opts: UseFacilitiesOpts = {}) {
         params.set("radius", String(radius));
       }
       if (sport) params.set("sport", sport);
+      if (hasOffers) params.set("hasOffers", "true");
 
       const query = params.toString();
       const res = await fetch(`${API_URL}/facilities${query ? `?${query}` : ""}`);
@@ -59,7 +71,7 @@ export function useFacilities(opts: UseFacilitiesOpts = {}) {
     } finally {
       setIsLoading(false);
     }
-  }, [lat, lng, radius, sport]);
+  }, [lat, lng, radius, sport, hasOffers]);
 
   useEffect(() => {
     fetchFacilities();

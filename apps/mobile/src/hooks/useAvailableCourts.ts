@@ -28,6 +28,9 @@ export interface AvailableCourt {
   notCovered: boolean;
   slots: string[];
   bookedUntil: string | null;
+  minBookingMinutes: number;
+  durationStepMinutes: number;
+  maxBookingMinutes: number;
 }
 
 export interface AvailableCourtsResult {

@@ -480,6 +480,12 @@ export default function FacilityDetailPage() {
                       >
                         Manage Slots →
                       </Link>
+                      <Link
+                        href={`/dashboard/courts/${court.id}`}
+                        className="text-xs text-muted hover:text-white hover:underline font-medium"
+                      >
+                        ⚙ Booking Rules
+                      </Link>
                     </div>
                   </div>
 

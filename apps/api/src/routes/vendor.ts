@@ -17,7 +17,7 @@ import {
   deleteEquipment,
   getEquipmentRentalHistory,
 } from "../services/equipment.service";
-import { bulkCreateSlots, createCourt, updateCourtShared, upsertSportPricing } from "../services/courts.service";
+import { bulkCreateSlots, createCourt, updateCourtShared, upsertSportPricing, updateCourtDurationRules } from "../services/courts.service";
 import { prisma } from "../lib/prisma";
 
 const router = Router();
@@ -589,6 +589,44 @@ router.post("/facilities/:id/courts", validate(createCourtSchema), async (req, r
   } catch (err) {
     next(err);
   }
+});
+
+// GET /api/v1/vendor/courts/:id — fetch single court with all settings
+router.get("/courts/:id", async (req, res, next) => {
+  try {
+    const courtId = param(req.params["id"]!);
+    const vendor = await prisma.vendor.findUnique({
+      where: { userId: req.user!.sub as string },
+      select: { id: true },
+    });
+    if (!vendor) { res.status(404).json({ message: "Vendor not found" }); return; }
+
+    const court = await prisma.court.findFirst({
+      where: { id: courtId, facility: { vendorId: vendor.id } },
+      include: { facility: { select: { id: true, name: true } } },
+    });
+    if (!court) { res.status(404).json({ message: "Court not found" }); return; }
+    res.json({ data: court });
+  } catch (err) { next(err); }
+});
+
+const durationRulesSchema = z.object({
+  minBookingMinutes:   z.number().int().refine((v) => [30, 60].includes(v), "Must be 30 or 60"),
+  durationStepMinutes: z.number().int().refine((v) => [30, 60].includes(v), "Must be 30 or 60"),
+  maxBookingMinutes:   z.number().int().refine((v) => [60, 120, 180, 240].includes(v), "Must be 60, 120, 180, or 240"),
+});
+
+// PUT /api/v1/vendor/courts/:id/duration-rules
+router.put("/courts/:id/duration-rules", validate(durationRulesSchema), async (req, res, next) => {
+  try {
+    const courtId = param(req.params["id"]!);
+    const rules = req.body as z.infer<typeof durationRulesSchema>;
+    if (rules.minBookingMinutes > rules.maxBookingMinutes) {
+      res.status(422).json({ message: "Minimum must not exceed maximum" }); return;
+    }
+    const data = await updateCourtDurationRules(req.user!.sub as string, courtId, rules);
+    res.json({ data });
+  } catch (err) { next(err); }
 });
 
 // PUT /api/v1/vendor/courts/:id/shared — configure shared court sports & pricing

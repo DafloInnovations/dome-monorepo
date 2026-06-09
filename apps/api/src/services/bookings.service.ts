@@ -1023,6 +1023,25 @@ export async function createTimeBooking(
     }
   }
 
+  // Validate booking duration against court rules
+  const courtId = slots[0]!.courtId;
+  const court = courtId ? await prisma.court.findUnique({
+    where: { id: courtId },
+    select: { minBookingMinutes: true, durationStepMinutes: true, maxBookingMinutes: true },
+  }) : null;
+  if (court) {
+    const totalMinutes = slots.reduce((s, sl) => s + sl.durationMinutes, 0);
+    if (totalMinutes < court.minBookingMinutes) {
+      throw appError(`Minimum booking is ${court.minBookingMinutes} minutes`, 422, "DURATION_TOO_SHORT");
+    }
+    if (totalMinutes > court.maxBookingMinutes) {
+      throw appError(`Maximum booking is ${court.maxBookingMinutes} minutes`, 422, "DURATION_TOO_LONG");
+    }
+    if ((totalMinutes - court.minBookingMinutes) % court.durationStepMinutes !== 0) {
+      throw appError(`Booking must be in ${court.durationStepMinutes}-minute increments`, 422, "DURATION_INVALID_STEP");
+    }
+  }
+
   // Collect all linked slot IDs for shared court locking
   const allLinkedIds = [...new Set(slots.flatMap((s) => s.linkedSlotIds ?? []))];
   const allLockIds = [...slots.map((s) => s.id), ...allLinkedIds];

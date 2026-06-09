@@ -134,6 +134,7 @@ export interface ListFacilitiesParams {
   page?: number;
   limit?: number;
   sort?: "distance" | "rating" | "price";
+  hasOffers?: boolean;
 }
 
 export interface CreateFacilityInput {
@@ -177,6 +178,7 @@ export async function listFacilities(params: ListFacilitiesParams) {
     page = 1,
     limit = 20,
     sort,
+    hasOffers,
   } = params;
 
   const geoSearch = lat !== undefined && lng !== undefined;
@@ -193,16 +195,24 @@ export async function listFacilities(params: ListFacilitiesParams) {
     addressFilter.lng = { not: null, gte: bb.lngMin, lte: bb.lngMax };
   }
 
+  const now = new Date();
   const where: Prisma.FacilityWhereInput = {
     isActive: true,
     ...(sport && { sport: coerceSport(sport) }),
-    // `is:` ensures we only match facilities that have an address record
-    // satisfying every condition in addressFilter (not facilities with no address).
     ...(Object.keys(addressFilter).length > 0 && {
       address: { is: addressFilter },
     }),
     ...(date && {
       slots: { some: { date: parseDate(date), status: SlotStatus.AVAILABLE } },
+    }),
+    ...(hasOffers && {
+      coupons: {
+        some: {
+          isActive: true,
+          validFrom: { lte: now },
+          validUntil: { gte: now },
+        },
+      },
     }),
   };
 
@@ -214,7 +224,7 @@ export async function listFacilities(params: ListFacilitiesParams) {
   const [rawFacilities, total] = await Promise.all([
     prisma.facility.findMany({
       where,
-      include: facilityListInclude,
+      include: buildFacilityListInclude(),
       take: fetchLimit,
       skip: fetchSkip,
       orderBy: { createdAt: "desc" },
@@ -242,6 +252,14 @@ export async function listFacilities(params: ListFacilitiesParams) {
       geoSearch && f.address?.lat != null && f.address?.lng != null
         ? haversineKm(lat!, lng!, f.address.lat, f.address.lng)
         : undefined,
+    activeCoupons: f.coupons.map((c) => ({
+      code: c.code,
+      type: c.type as string,
+      value: Number(c.value),
+      description: c.description,
+      validUntil: c.validUntil.toISOString(),
+      maxDiscountCAD: c.maxDiscountCAD !== null ? Number(c.maxDiscountCAD) : null,
+    })),
   }));
 
   // Post-filter and sort
@@ -488,6 +506,66 @@ function addMins(time: string, mins: number): string {
   return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
 }
 
+// ─── Available start times for a date ────────────────────────────────────────
+
+export async function getAvailableTimes(
+  facilityId: string,
+  date: string,
+  durationMinutes: number
+) {
+  const parsedDate = parseDate(date);
+
+  const slots = await prisma.slot.findMany({
+    where: { facilityId, date: parsedDate },
+    select: { startTime: true, status: true, courtId: true },
+    orderBy: { startTime: "asc" },
+  });
+
+  if (slots.length === 0) {
+    return { date, duration: durationMinutes, availableTimes: [], firstAvailableTime: null, lastAvailableTime: null };
+  }
+
+  // Group by startTime → unique courts (available vs total)
+  const timeMap = new Map<string, { total: Set<string>; available: Set<string> }>();
+  for (const slot of slots) {
+    if (!timeMap.has(slot.startTime)) {
+      timeMap.set(slot.startTime, { total: new Set(), available: new Set() });
+    }
+    const entry = timeMap.get(slot.startTime)!;
+    const courtKey = slot.courtId ?? "__none__";
+    entry.total.add(courtKey);
+    if (slot.status === SlotStatus.AVAILABLE) entry.available.add(courtKey);
+  }
+
+  type TimeEntry = {
+    time: string; label: string;
+    availableCourts: number; totalCourts: number;
+    status: "AVAILABLE" | "PARTIAL" | "BOOKED";
+  };
+
+  const availableTimes: TimeEntry[] = [];
+  for (const [time, counts] of timeMap) {
+    const total     = counts.total.size;
+    const available = counts.available.size;
+    const status: TimeEntry["status"] =
+      available === 0 ? "BOOKED" : available < total ? "PARTIAL" : "AVAILABLE";
+
+    const [h, m] = time.split(":").map(Number);
+    const hr12   = h! % 12 || 12;
+    const label  = `${hr12}:${String(m).padStart(2, "0")} ${h! >= 12 ? "PM" : "AM"}`;
+
+    availableTimes.push({ time, label, availableCourts: available, totalCourts: total, status });
+  }
+
+  return {
+    date,
+    duration: durationMinutes,
+    availableTimes,
+    firstAvailableTime: availableTimes.find((t) => t.status !== "BOOKED")?.time ?? null,
+    lastAvailableTime:  availableTimes[availableTimes.length - 1]?.time ?? null,
+  };
+}
+
 // ─── Available courts for a time window ──────────────────────────────────────
 
 export async function getAvailableCourts(
@@ -533,6 +611,9 @@ export async function getAvailableCourts(
     slots: string[];
     bookedUntil: string | null;
     unavailableReason: string | null;
+    minBookingMinutes: number;
+    durationStepMinutes: number;
+    maxBookingMinutes: number;
   };
 
   const courtEntries: CourtEntry[] = [];
@@ -614,6 +695,9 @@ export async function getAvailableCourts(
           slots: allAvailable ? slots.map((s) => s.id) : [],
           bookedUntil: !allAvailable && blockedSlot ? blockedSlot.endTime : null,
           unavailableReason,
+          minBookingMinutes:   court.minBookingMinutes,
+          durationStepMinutes: court.durationStepMinutes,
+          maxBookingMinutes:   court.maxBookingMinutes,
         });
       }
     } else {
@@ -686,6 +770,9 @@ export async function getAvailableCourts(
         slots: allAvailable ? slots.map((s) => s.id) : [],
         bookedUntil: !allAvailable && blockedSlot ? blockedSlot.endTime : null,
         unavailableReason: blockedSlot?.blockReason ?? null,
+        minBookingMinutes:   court.minBookingMinutes,
+        durationStepMinutes: court.durationStepMinutes,
+        maxBookingMinutes:   court.maxBookingMinutes,
       });
     }
   }

@@ -341,3 +341,42 @@ export async function bulkCreateSlots(userId: string, courtId: string, input: Bu
     total: totalCreated + totalSkipped,
   };
 }
+
+// ─── Booking duration rules ───────────────────────────────────────────────────
+
+export interface DurationRules {
+  minBookingMinutes:   number;
+  durationStepMinutes: number;
+  maxBookingMinutes:   number;
+}
+
+export function getValidDurations(rules: DurationRules): number[] {
+  const durations: number[] = [];
+  let current = rules.minBookingMinutes;
+  while (current <= rules.maxBookingMinutes) {
+    durations.push(current);
+    current += rules.durationStepMinutes;
+  }
+  return durations;
+}
+
+export async function updateCourtDurationRules(
+  userId: string,
+  courtId: string,
+  rules: DurationRules
+) {
+  const court = await prisma.court.findFirst({
+    where: { id: courtId, facility: { vendor: { userId } } },
+    select: { id: true },
+  });
+  if (!court) throw appError("Court not found", 404);
+
+  return prisma.court.update({
+    where: { id: courtId },
+    data: {
+      minBookingMinutes:   rules.minBookingMinutes,
+      durationStepMinutes: rules.durationStepMinutes,
+      maxBookingMinutes:   rules.maxBookingMinutes,
+    },
+  });
+}
