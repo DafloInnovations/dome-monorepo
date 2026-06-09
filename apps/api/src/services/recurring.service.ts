@@ -334,7 +334,7 @@ export async function confirmRecurringSeries(userId: string, seriesId: string, p
   if (series.paymentModel === RecurringPaymentModel.PAY_UPFRONT) {
     // Confirm all pending bookings
     const bookingIds = series.bookings.map((b) => b.id);
-    const slotIds = [...new Set(series.bookings.map((b) => b.slotId))];
+    const slotIds = [...new Set(series.bookings.map((b) => b.slotId).filter((id): id is string => id !== null))];
 
     await prisma.$transaction([
       prisma.booking.updateMany({ where: { id: { in: bookingIds } }, data: { status: BookingStatus.CONFIRMED, paymentStatus: BookingPaymentStatus.PAID } }),
@@ -362,7 +362,7 @@ export async function confirmRecurringSeries(userId: string, seriesId: string, p
 
     await prisma.$transaction([
       prisma.booking.update({ where: { id: firstBooking.id }, data: { status: BookingStatus.CONFIRMED, paymentStatus: BookingPaymentStatus.PAID } }),
-      prisma.slot.update({ where: { id: firstBooking.slotId }, data: { status: SlotStatus.BOOKED } }),
+      prisma.slot.update({ where: { id: firstBooking.slotId! }, data: { status: SlotStatus.BOOKED } }),
       prisma.recurringSeries.update({
         where: { id: seriesId },
         data: { stripePaymentMethodId: paymentMethod ?? null },
@@ -411,7 +411,7 @@ export async function confirmRecurringSeries(userId: string, seriesId: string, p
     const endTime = addMins(series.startTime, series.durationMinutes);
     const upcomingDates = series.bookings
       .map((b) => {
-        const d = b.slot.date instanceof Date ? b.slot.date : new Date(b.slot.date);
+        const d = b.slot!.date instanceof Date ? b.slot!.date : new Date(b.slot!.date);
         return d.toLocaleDateString("en-CA", { weekday: "short", month: "short", day: "numeric", year: "numeric" });
       })
       .slice(0, 8);
@@ -450,10 +450,10 @@ export async function cancelRecurringSeries(userId: string, seriesId: string, ca
 
   const futurePending = series.bookings.filter((b) =>
     (b.status === BookingStatus.PENDING || b.status === BookingStatus.CONFIRMED) &&
-    new Date(b.slot.date) >= cutoff
+    new Date(b.slot!.date) >= cutoff
   );
 
-  const slotIds = futurePending.map((b) => b.slotId);
+  const slotIds = futurePending.map((b) => b.slotId).filter((id): id is string => id !== null);
   const bookingIds = futurePending.map((b) => b.id);
 
   let refundedCAD = 0;
@@ -522,15 +522,15 @@ export async function getMyRecurringSeries(userId: string) {
   });
 
   return series.map((s) => {
-    const future = s.bookings.filter((b) => b.status === BookingStatus.CONFIRMED && new Date(b.slot.date) >= new Date());
+    const future = s.bookings.filter((b) => b.status === BookingStatus.CONFIRMED && new Date(b.slot!.date) >= new Date());
     const next = future[0];
     return {
       ...s,
       pricePerSessionCAD: Number(s.pricePerSessionCAD),
-      nextOccurrence: next ? toDateStr(next.slot.date) : null,
+      nextOccurrence: next ? toDateStr(next.slot!.date) : null,
       remainingSessions: future.length,
       totalPaidCAD: s.bookings.filter((b) => b.paymentStatus === BookingPaymentStatus.PAID).reduce((sum, b) => sum + Number(b.totalCAD), 0),
-      bookings: s.bookings.map((b) => ({ ...b, totalCAD: Number(b.totalCAD), slot: { ...b.slot, priceCAD: Number(b.slot.priceCAD) } })),
+      bookings: s.bookings.map((b) => ({ ...b, totalCAD: Number(b.totalCAD), slot: { ...b.slot, priceCAD: Number(b.slot!.priceCAD) } })),
     };
   });
 }

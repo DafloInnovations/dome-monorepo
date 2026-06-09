@@ -35,7 +35,7 @@ export async function createReview(
     throw appError("Only confirmed bookings can be reviewed", 400, "BOOKING_NOT_CONFIRMED");
 
   // Booking date must have passed
-  const slotDateStr = booking.slot.date.toISOString().split("T")[0]!;
+  const slotDateStr = booking.slot!.date.toISOString().split("T")[0]!;
   const today = new Date().toISOString().split("T")[0]!;
   if (slotDateStr >= today)
     throw appError("You can only review after your session has taken place", 400, "BOOKING_IN_FUTURE");

@@ -101,7 +101,7 @@ export async function addEquipmentToBooking(
   }
 
   // Availability check per item
-  const slotDate = booking.slot.date instanceof Date ? booking.slot.date : new Date(booking.slot.date);
+  const slotDate = booking.slot!.date instanceof Date ? booking.slot!.date : new Date(booking.slot!.date);
   for (const item of items) {
     const available = await checkEquipmentAvailability(item.equipmentId, slotDate, item.quantity);
     if (available < item.quantity) {

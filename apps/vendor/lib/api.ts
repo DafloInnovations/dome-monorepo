@@ -240,6 +240,19 @@ export const api = {
         body: JSON.stringify({ reply }),
       }),
   },
+  walkin: {
+    price: (params: { courtId: string; date: string; startTime: string; durationMinutes: number; sport: string }) =>
+      apiFetch<{ data: WalkinPrice }>(`/vendor/walkin/price?${new URLSearchParams({ ...params, durationMinutes: String(params.durationMinutes) }).toString()}`),
+    create: (body: WalkinCreateBody) =>
+      apiFetch<{ data: WalkinCreated }>("/vendor/walkin", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    status: (bookingId: string) =>
+      apiFetch<{ data: { status: "PENDING" | "PAID" | "EXPIRED" } }>(`/vendor/walkin/${bookingId}/status`),
+    history: () =>
+      apiFetch<{ data: WalkinHistory }>("/vendor/walkin/history"),
+  },
 };
 
 // ─── Domain types ─────────────────────────────────────────────────────────────
@@ -284,7 +297,7 @@ export interface Facility {
   name: string;
   sport: string;
   isActive: boolean;
-  courts: { id: string; name: string; isActive: boolean }[];
+  courts: { id: string; name: string; isActive: boolean; sports: string[]; primarySport: string | null }[];
   address: { city: string; street: string; province: string } | null;
   _count: { bookings: number };
 }
@@ -365,4 +378,65 @@ export interface VendorEquipment {
   updatedAt: string;
   facility: { id: string; name: string };
   _count: { rentals: number };
+}
+
+export interface WalkinPrice {
+  basePriceCAD: number;
+  subtotalCAD: number;
+  taxCAD: number;
+  totalCAD: number;
+  appliedRule: string | null;
+  taxRate: number;
+  province: string;
+}
+
+export interface WalkinCreateBody {
+  courtId: string;
+  facilityId: string;
+  date: string;
+  startTime: string;
+  durationMinutes: number;
+  sport: string;
+  playerName?: string;
+  playerPhone?: string;
+}
+
+export interface WalkinCreated {
+  bookingId: string;
+  paymentLinkUrl: string;
+  qrCodeDataUrl: string;
+  totalCAD: number;
+  subtotalCAD: number;
+  taxCAD: number;
+  sport: string;
+  courtName: string;
+  facilityName: string;
+  startTime: string;
+  endTime: string;
+  date: string;
+  playerName: string;
+  expiresAt: string;
+}
+
+export interface WalkinBookingSummary {
+  id: string;
+  notes: string | null;
+  totalCAD: number;
+  status: string;
+  paymentStatus: string;
+  createdAt: string;
+}
+
+export interface WalkinHistory {
+  bookings: WalkinBookingSummary[];
+  totalRevenue: number;
+  count: number;
+}
+
+export interface CourtWithSports {
+  id: string;
+  name: string;
+  isActive: boolean;
+  sports: string[];
+  primarySport: string | null;
 }

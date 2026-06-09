@@ -86,7 +86,7 @@ router.get("/me/profile", authenticate, async (req, res, next) => {
 
     const totalGames = confirmedBookings.length;
     const totalMinutes = confirmedBookings.reduce(
-      (sum, b) => sum + b.slot.durationMinutes,
+      (sum, b) => sum + b.slot!.durationMinutes,
       0
     );
     const totalHours = Math.round((totalMinutes / 60) * 10) / 10;
@@ -97,7 +97,7 @@ router.get("/me/profile", authenticate, async (req, res, next) => {
     for (const b of confirmedBookings) {
       const sport = b.facility.sport.toLowerCase();
       sportBreakdown[sport] = (sportBreakdown[sport] ?? 0) + 1;
-      bookingDates.push(b.slot.date.toISOString().split("T")[0]!);
+      bookingDates.push(b.slot!.date.toISOString().split("T")[0]!);
     }
 
     const uniqueDates = [...new Set(bookingDates)].sort().reverse();

@@ -79,11 +79,30 @@ function parseDate(s: string): Date {
 
 // ─── Shared Prisma include shape ──────────────────────────────────────────────
 
-const facilityListInclude = {
-  address: true,
-  amenities: { include: { amenity: true } },
-  _count: { select: { reviews: true } },
-} satisfies Prisma.FacilityInclude;
+function buildFacilityListInclude() {
+  const now = new Date();
+  return {
+    address: true,
+    amenities: { include: { amenity: true } },
+    _count: { select: { reviews: true } },
+    coupons: {
+      where: {
+        isActive: true,
+        validFrom: { lte: now },
+        validUntil: { gte: now },
+      },
+      select: {
+        code: true,
+        type: true,
+        value: true,
+        description: true,
+        validUntil: true,
+        maxDiscountCAD: true,
+      },
+      take: 3,
+    },
+  } satisfies Prisma.FacilityInclude;
+}
 
 const facilityDetailInclude = {
   address: true,

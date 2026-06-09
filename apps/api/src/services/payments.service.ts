@@ -18,6 +18,13 @@ type StripePaymentIntentMeta = {
   metadata: Record<string, string>;
   last_payment_error?: { message?: string } | null;
 };
+type StripeCheckoutSession = {
+  id: string;
+  payment_intent: string | { id: string } | null;
+  payment_link: string | { id: string } | null;
+  amount_total: number | null;
+  metadata: Record<string, string> | null;
+};
 
 function appError(msg: string, status = 500, code?: string) {
   return Object.assign(new Error(msg), { status, code });
@@ -61,7 +68,7 @@ export async function createPaymentIntent(userId: string, bookingId: string) {
     metadata: {
       bookingId: booking.id,
       userId,
-      slotId: booking.slotId,
+      slotId: booking.slotId!,
       facilityId: booking.facilityId,
     },
   });
@@ -139,11 +146,11 @@ export async function handleWebhook(rawBody: Buffer, signature: string) {
       if (bookingWithDetails) {
         const sport = bookingWithDetails.facility.sport.charAt(0) +
           bookingWithDetails.facility.sport.slice(1).toLowerCase();
-        const slotDate = bookingWithDetails.slot.date instanceof Date
-          ? bookingWithDetails.slot.date.toLocaleDateString("en-CA", { month: "short", day: "numeric" })
-          : String(bookingWithDetails.slot.date).split("T")[0];
+        const slotDate = bookingWithDetails.slot!.date instanceof Date
+          ? bookingWithDetails.slot!.date.toLocaleDateString("en-CA", { month: "short", day: "numeric" })
+          : String(bookingWithDetails.slot!.date).split("T")[0];
         const wTitle = "Booking Confirmed ✅";
-        const wBody = `${sport} at ${bookingWithDetails.facility.name} on ${slotDate} at ${bookingWithDetails.slot.startTime}`;
+        const wBody = `${sport} at ${bookingWithDetails.facility.name} on ${slotDate} at ${bookingWithDetails.slot!.startTime}`;
         const wData = { type: "booking_confirmed", bookingId };
         await saveNotification(userId, "BOOKING_CONFIRMED", wTitle, wBody, wData);
         if (userForToken?.deviceToken) {
@@ -172,6 +179,78 @@ export async function handleWebhook(rawBody: Buffer, signature: string) {
       ]);
 
       await redis.del(`slot:${slotId}:lock`);
+      break;
+    }
+
+    case "checkout.session.completed": {
+      const session = event.data.object as unknown as StripeCheckoutSession;
+      const paymentLinkId =
+        typeof session.payment_link === "string"
+          ? session.payment_link
+          : (session.payment_link as { id: string } | null)?.id;
+
+      if (!paymentLinkId) break;
+
+      const meta = session.metadata ?? {};
+      const { bookingId, type, playerName, playerPhone } = meta;
+
+      if (type !== "WALKIN" || !bookingId) break;
+
+      const booking = await prisma.booking.findFirst({
+        where: { id: bookingId, paymentIntentId: paymentLinkId },
+        select: { id: true, userId: true, totalCAD: true },
+      });
+      if (!booking) break;
+
+      const paymentIntentId =
+        typeof session.payment_intent === "string"
+          ? session.payment_intent
+          : (session.payment_intent as { id: string } | null)?.id;
+
+      await prisma.$transaction([
+        prisma.booking.update({
+          where: { id: bookingId },
+          data: {
+            status: BookingStatus.CONFIRMED,
+            paymentStatus: BookingPaymentStatus.PAID,
+          },
+        }),
+        ...(paymentIntentId
+          ? [
+              prisma.payment.upsert({
+                where: { gatewayPaymentId: paymentIntentId },
+                create: {
+                  bookingId,
+                  userId: booking.userId,
+                  amountCAD: (session.amount_total ?? 0) / 100,
+                  taxCAD: 0,
+                  method: PaymentMethod.CARD,
+                  gatewayPaymentId: paymentIntentId,
+                  status: PaymentStatus.SUCCEEDED,
+                },
+                update: { status: PaymentStatus.SUCCEEDED },
+              }),
+            ]
+          : []),
+      ]);
+
+      // Notify vendor via push
+      const vendorUser = await prisma.user.findUnique({
+        where: { id: booking.userId },
+        select: { deviceToken: true },
+      });
+      if (vendorUser?.deviceToken) {
+        const total = `C$${Number(booking.totalCAD).toFixed(2)}`;
+        await sendPushNotification(
+          vendorUser.deviceToken,
+          "Walk-in payment received ✅",
+          total,
+          { type: "walkin_payment", bookingId }
+        );
+      }
+
+      // TODO: SMS to player when Twilio is configured
+      void playerName; void playerPhone;
       break;
     }
 

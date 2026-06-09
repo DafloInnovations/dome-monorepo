@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import Header from "../../../../../components/layout/Header";
@@ -16,7 +16,23 @@ interface BulkForm {
   slotDurationMinutes: number;
   priceCAD: number;
   sport?: string;
+  weekdays?: number[];
 }
+
+interface QuickForm {
+  startDate: string;
+  endDate: string;
+  slotDurationMinutes: number;
+  sport?: string;
+  wdStartTime: string;
+  wdEndTime: string;
+  wdPrice: number;
+  weStartTime: string;
+  weEndTime: string;
+  wePrice: number;
+}
+
+type GenTab = "quick" | "weekday" | "weekend" | "custom";
 
 interface CourtInfo {
   isShared: boolean;
@@ -46,7 +62,47 @@ const STATUS_STYLE: Record<string, string> = {
   OPEN_GAME: "bg-blue-900/40 text-blue-400 border-blue-800",
 };
 
+const SPORT_EMOJI: Record<string, string> = {
+  BADMINTON: "🏸", PICKLEBALL: "🏓", TENNIS: "🎾", SQUASH: "🎾",
+  SOCCER: "⚽", BASKETBALL: "🏀", VOLLEYBALL: "🏐", HOCKEY: "🏒",
+  BASEBALL: "⚾", CRICKET: "🏏",
+};
+
+const DAY_LABELS: { day: number; label: string }[] = [
+  { day: 1, label: "Mon" }, { day: 2, label: "Tue" }, { day: 3, label: "Wed" },
+  { day: 4, label: "Thu" }, { day: 5, label: "Fri" }, { day: 6, label: "Sat" },
+  { day: 0, label: "Sun" },
+];
+
+const DURATIONS = [30, 60, 90, 120];
+
 const CAN_ACT = (status: string) => status !== "BOOKED" && status !== "HELD";
+
+// ─── Utils ────────────────────────────────────────────────────────────────────
+
+function calcPreview(
+  startDate: string, endDate: string,
+  startTime: string, endTime: string,
+  durationMinutes: number, priceCAD: number,
+  weekdays?: number[]
+): { days: number; slotsPerDay: number; total: number; revenue: number } | null {
+  if (!startDate || !endDate || !startTime || !endTime || durationMinutes <= 0) return null;
+  const [sh, sm] = startTime.split(":").map(Number);
+  const [eh, em] = endTime.split(":").map(Number);
+  const windowMins = (eh! * 60 + em!) - (sh! * 60 + sm!);
+  if (windowMins <= 0) return null;
+  const slotsPerDay = Math.floor(windowMins / durationMinutes);
+  if (slotsPerDay <= 0) return null;
+  let days = 0;
+  const cur = new Date(startDate + "T00:00:00");
+  const end = new Date(endDate + "T00:00:00");
+  while (cur <= end) {
+    const d = cur.getDay();
+    if (!weekdays || weekdays.includes(d)) days++;
+    cur.setDate(cur.getDate() + 1);
+  }
+  return { days, slotsPerDay, total: days * slotsPerDay, revenue: Math.round(days * slotsPerDay * priceCAD * 100) / 100 };
+}
 
 // ─── DateInput ────────────────────────────────────────────────────────────────
 
@@ -139,12 +195,6 @@ function BulkPriceModal({
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-const SPORT_EMOJI: Record<string, string> = {
-  BADMINTON: "🏸", PICKLEBALL: "🏓", TENNIS: "🎾", SQUASH: "🎾",
-  SOCCER: "⚽", BASKETBALL: "🏀", VOLLEYBALL: "🏐", HOCKEY: "🏒",
-  BASEBALL: "⚾", CRICKET: "🏏",
-};
-
 export default function SlotsPage() {
   const { id: courtId } = useParams<{ id: string }>();
 
@@ -167,7 +217,7 @@ export default function SlotsPage() {
   const [ctxMenu, setCtxMenu] = useState<CtxMenu | null>(null);
 
   // Confirm modals
-  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null); // single slotId
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
   const [bulkBlockConfirm, setBulkBlockConfirm] = useState(false);
   const [bulkPriceModal, setBulkPriceModal] = useState(false);
@@ -177,15 +227,40 @@ export default function SlotsPage() {
 
   // Generate form
   const [showBulkForm, setShowBulkForm] = useState(false);
+  const [genTab, setGenTab] = useState<GenTab>("quick");
   const [isSaving, setIsSaving] = useState(false);
   const [generateConflict, setGenerateConflict] = useState<{ existed: number; pending: BulkForm } | null>(null);
+
   const today = new Date().toISOString().split("T")[0]!;
-  const [form, setForm] = useState<BulkForm>({
-    startDate: today,
-    endDate: new Date(Date.now() + 7 * 24 * 3_600_000).toISOString().split("T")[0]!,
-    startTime: "08:00", endTime: "22:00",
-    slotDurationMinutes: 60, priceCAD: 28, sport: undefined,
+  const defaultEnd = new Date(Date.now() + 30 * 24 * 3_600_000).toISOString().split("T")[0]!;
+
+  const [quickForm, setQuickForm] = useState<QuickForm>({
+    startDate: today, endDate: defaultEnd,
+    slotDurationMinutes: 60,
+    wdStartTime: "06:00", wdEndTime: "23:00", wdPrice: 25,
+    weStartTime: "08:00", weEndTime: "22:00", wePrice: 35,
   });
+
+  const [wdForm, setWdForm] = useState<BulkForm>({
+    startDate: today, endDate: defaultEnd,
+    startTime: "06:00", endTime: "23:00",
+    slotDurationMinutes: 60, priceCAD: 25,
+    weekdays: [1, 2, 3, 4, 5],
+  });
+
+  const [weForm, setWeForm] = useState<BulkForm>({
+    startDate: today, endDate: defaultEnd,
+    startTime: "08:00", endTime: "22:00",
+    slotDurationMinutes: 60, priceCAD: 35,
+    weekdays: [0, 6],
+  });
+
+  const [customForm, setCustomForm] = useState<BulkForm>({
+    startDate: today, endDate: defaultEnd,
+    startTime: "08:00", endTime: "22:00",
+    slotDurationMinutes: 60, priceCAD: 30,
+  });
+  const [customDays, setCustomDays] = useState<number[]>([1, 2, 3, 4, 5]);
 
   // Block dates form
   const [showBlockForm, setShowBlockForm] = useState(false);
@@ -203,17 +278,13 @@ export default function SlotsPage() {
       .finally(() => setIsLoading(false));
   }, [courtId, today]);
 
-  // Load court info to detect shared courts
   useEffect(() => {
     if (!courtId) return;
     apiFetch<{ data: { courts: { id: string; isShared: boolean; sports: string[] }[] } }>(
       `/vendor/facilities/any`
     ).catch(() => null);
-    // Infer from slots: if any slot has a sport field, court is shared
-    // We detect this once slots load
   }, [courtId]);
 
-  // Derive court info from loaded slots
   useEffect(() => {
     if (slots.length === 0) return;
     const sportsInSlots = [...new Set(
@@ -221,10 +292,7 @@ export default function SlotsPage() {
         .map((s) => (s as Slot & { sport?: string }).sport)
         .filter((s): s is string => !!s)
     )];
-    if (sportsInSlots.length > 1) {
-      setCourtInfo({ isShared: true, sports: sportsInSlots });
-      if (!activeSportTab) setActiveSportTab(sportsInSlots[0]!);
-    } else if (sportsInSlots.length === 1) {
+    if (sportsInSlots.length >= 1) {
       setCourtInfo({ isShared: true, sports: sportsInSlots });
       if (!activeSportTab) setActiveSportTab(sportsInSlots[0]!);
     }
@@ -232,13 +300,28 @@ export default function SlotsPage() {
 
   useEffect(() => { loadSlots(); }, [loadSlots]);
 
-  // Close context menu on outside click
   useEffect(() => {
     if (!ctxMenu) return;
     const handler = () => setCtxMenu(null);
     document.addEventListener("click", handler);
     return () => document.removeEventListener("click", handler);
   }, [ctxMenu]);
+
+  // ── Previews (client-side) ────────────────────────────────────────────────
+
+  const quickPreview = useMemo(() => {
+    if (!showBulkForm || genTab !== "quick") return null;
+    const wd = calcPreview(quickForm.startDate, quickForm.endDate, quickForm.wdStartTime, quickForm.wdEndTime, quickForm.slotDurationMinutes, quickForm.wdPrice, [1, 2, 3, 4, 5]);
+    const we = calcPreview(quickForm.startDate, quickForm.endDate, quickForm.weStartTime, quickForm.weEndTime, quickForm.slotDurationMinutes, quickForm.wePrice, [0, 6]);
+    return { wd, we };
+  }, [showBulkForm, genTab, quickForm]);
+
+  const singlePreview = useMemo(() => {
+    if (!showBulkForm || genTab === "quick") return null;
+    const f = genTab === "weekday" ? wdForm : genTab === "weekend" ? weForm : customForm;
+    const weekdays = genTab === "weekday" ? [1, 2, 3, 4, 5] : genTab === "weekend" ? [0, 6] : customDays;
+    return calcPreview(f.startDate, f.endDate, f.startTime, f.endTime, f.slotDurationMinutes, f.priceCAD, weekdays);
+  }, [showBulkForm, genTab, wdForm, weForm, customForm, customDays]);
 
   // ── Selection helpers ─────────────────────────────────────────────────────
 
@@ -386,7 +469,7 @@ export default function SlotsPage() {
     setIsSaving(true);
     setError("");
     try {
-      const res = await apiFetch<{ data: { count: number; existed: number } }>(
+      const res = await apiFetch<{ data: { created: number; skipped: number; total: number; existed: number } }>(
         `/vendor/courts/${courtId}/slots/bulk`,
         { method: "POST", body: JSON.stringify({ ...payload, conflictStrategy: strategy }) }
       );
@@ -403,9 +486,34 @@ export default function SlotsPage() {
     }
   }
 
-  async function handleBulkGenerate(e: React.FormEvent) {
-    e.preventDefault();
-    await runGenerate(form, "skip");
+  async function runQuickSetup() {
+    setIsSaving(true);
+    setError("");
+    try {
+      await apiFetch<{
+        data: {
+          weekdaySlots: { created: number; skipped: number };
+          weekendSlots: { created: number; skipped: number };
+          total: { created: number; skipped: number };
+        };
+      }>(`/vendor/courts/${courtId}/slots/bulk-schedule`, {
+        method: "POST",
+        body: JSON.stringify({
+          startDate: quickForm.startDate,
+          endDate: quickForm.endDate,
+          slotDurationMinutes: quickForm.slotDurationMinutes,
+          sport: quickForm.sport || undefined,
+          weekday: { startTime: quickForm.wdStartTime, endTime: quickForm.wdEndTime, priceCAD: quickForm.wdPrice },
+          weekend: { startTime: quickForm.weStartTime, endTime: quickForm.weEndTime, priceCAD: quickForm.wePrice },
+        }),
+      });
+      setShowBulkForm(false);
+      loadSlots();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to generate slots");
+    } finally {
+      setIsSaving(false);
+    }
   }
 
   async function handleBlockDates(e: React.FormEvent) {
@@ -432,7 +540,6 @@ export default function SlotsPage() {
 
   // ── Derived state ──────────────────────────────────────────────────────────
 
-  // Filter slots by active sport tab for shared courts
   const visibleSlots = courtInfo?.isShared && activeSportTab
     ? slots.filter((s) => (s as Slot & { sport?: string }).sport === activeSportTab)
     : slots;
@@ -453,6 +560,56 @@ export default function SlotsPage() {
 
   const inputCls = "w-full bg-black border border-border rounded-dome px-3 py-2 text-white text-sm focus:outline-none focus:border-primary";
 
+  // ── Shared sub-form helpers ────────────────────────────────────────────────
+
+  function SportSelect({ value, onChange }: { value: string | undefined; onChange: (v: string | undefined) => void }) {
+    if (!courtInfo?.isShared || courtInfo.sports.length === 0) return null;
+    return (
+      <div>
+        <label className="block text-xs text-muted mb-1">Sport</label>
+        <select value={value ?? ""} onChange={(e) => onChange(e.target.value || undefined)} className={inputCls}>
+          <option value="">All Sports</option>
+          {courtInfo.sports.map((s) => (
+            <option key={s} value={s}>{SPORT_EMOJI[s] ?? ""} {s.charAt(0) + s.slice(1).toLowerCase()}</option>
+          ))}
+        </select>
+      </div>
+    );
+  }
+
+  function DurationSelect({ value, onChange }: { value: number; onChange: (v: number) => void }) {
+    return (
+      <div>
+        <label className="block text-xs text-muted mb-1">Duration</label>
+        <div className="flex gap-1">
+          {DURATIONS.map((d) => (
+            <button key={d} type="button" onClick={() => onChange(d)}
+              className={[
+                "flex-1 py-2 text-xs font-semibold rounded-dome border transition-colors",
+                value === d ? "bg-primary border-primary text-white" : "border-border text-muted hover:text-white",
+              ].join(" ")}>
+              {d}m
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  function PreviewBox({ preview }: { preview: { days: number; slotsPerDay: number; total: number; revenue: number } | null }) {
+    if (!preview) return null;
+    return (
+      <div className="bg-black/40 border border-border rounded-xl p-4 font-mono text-xs">
+        <p className="text-muted">
+          {preview.days} days × {preview.slotsPerDay} slots/day ={" "}
+          <span className="text-white font-bold">{preview.total} slots</span>
+          {" · "}
+          <span className="text-primary">C${preview.revenue.toFixed(2)}</span> potential
+        </p>
+      </div>
+    );
+  }
+
   return (
     <>
       <Header title="Slot Management" />
@@ -467,7 +624,6 @@ export default function SlotsPage() {
             ⚡ Manage Pricing
           </Link>
 
-          {/* Status legend */}
           <div className="flex gap-2 text-xs flex-wrap">
             {Object.entries(STATUS_STYLE).map(([status, cls]) => (
               <span key={status} className={`px-2 py-0.5 rounded border ${cls}`}>
@@ -485,7 +641,7 @@ export default function SlotsPage() {
               {showBlockForm ? "Cancel" : "🚫 Block Dates"}
             </button>
             <button
-              onClick={() => { setShowBulkForm((v) => !v); setShowBlockForm(false); setGenerateConflict(null); }}
+              onClick={() => { setShowBulkForm((v) => !v); setShowBlockForm(false); setGenerateConflict(null); setError(""); }}
               className="bg-primary hover:bg-primary-hover text-white text-sm font-semibold px-4 py-2 rounded-dome transition-colors"
             >
               {showBulkForm ? "Cancel" : "⚡ Generate Slots"}
@@ -495,68 +651,265 @@ export default function SlotsPage() {
 
         {/* ── Generate form ──────────────────────────────────────────── */}
         {showBulkForm && (
-          <div className="bg-surface border border-border rounded-dome p-6">
-            <h2 className="font-bold text-white mb-4">Generate Slots</h2>
-            <form onSubmit={handleBulkGenerate} className="grid grid-cols-2 md:grid-cols-3 gap-4">
-              <DateInput label="Start Date" value={form.startDate}
-                onChange={(v) => setForm((f) => ({ ...f, startDate: v }))} />
-              <DateInput label="End Date" value={form.endDate}
-                onChange={(v) => setForm((f) => ({ ...f, endDate: v }))} />
-              {(["startTime", "endTime"] as const).map((key) => (
-                <div key={key}>
-                  <label className="block text-xs text-muted mb-1">{key === "startTime" ? "Start Time" : "End Time"}</label>
-                  <input type="time" value={form[key]}
-                    onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}
-                    className={inputCls} required />
-                </div>
-              ))}
-              <div>
-                <label className="block text-xs text-muted mb-1">Duration</label>
-                <select value={form.slotDurationMinutes}
-                  onChange={(e) => setForm((f) => ({ ...f, slotDurationMinutes: Number(e.target.value) }))}
-                  className={inputCls}>
-                  <option value={30}>30 min</option>
-                  <option value={60}>60 min</option>
-                  <option value={90}>90 min</option>
-                  <option value={120}>120 min</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs text-muted mb-1">Price per slot (C$)</label>
-                <input type="number" min={1} step={0.01} value={form.priceCAD}
-                  onChange={(e) => setForm((f) => ({ ...f, priceCAD: Number(e.target.value) }))}
-                  className={inputCls} required />
-              </div>
-              {courtInfo?.isShared && courtInfo.sports.length > 0 && (
-                <div>
-                  <label className="block text-xs text-muted mb-1">Generate for sport</label>
-                  <select value={form.sport ?? ""}
-                    onChange={(e) => setForm((f) => ({ ...f, sport: e.target.value || undefined }))}
-                    className={inputCls}>
-                    <option value="">All sports (linked)</option>
-                    {courtInfo.sports.map((s) => (
-                      <option key={s} value={s}>
-                        {SPORT_EMOJI[s] ?? ""} {s.charAt(0) + s.slice(1).toLowerCase()}
-                      </option>
-                    ))}
-                  </select>
-                  <p className="text-xs text-muted mt-1">
-                    "All sports" generates linked slots for each sport simultaneously.
-                  </p>
-                </div>
-              )}
-              {error && <p className="col-span-full text-red-400 text-sm">{error}</p>}
-              <div className="col-span-full">
-                <button type="submit" disabled={isSaving}
-                  className="bg-primary hover:bg-primary-hover disabled:opacity-50 text-white font-bold px-6 py-2.5 rounded-dome transition-colors">
-                  {isSaving ? "Generating…" : "Generate"}
+          <div className="bg-surface border border-border rounded-dome p-6 space-y-5">
+            <h2 className="font-bold text-white text-base">Generate Slots</h2>
+
+            {/* Tab bar */}
+            <div className="flex p-1 bg-black/40 rounded-lg gap-1">
+              {(["quick", "weekday", "weekend", "custom"] as const).map((tab) => (
+                <button key={tab} type="button" onClick={() => setGenTab(tab)}
+                  className={[
+                    "flex-1 py-2 px-1 text-xs font-semibold rounded-md transition-colors whitespace-nowrap",
+                    genTab === tab ? "bg-primary text-white" : "text-muted hover:text-white",
+                  ].join(" ")}>
+                  {tab === "quick" ? "⚡ Quick Setup"
+                    : tab === "weekday" ? "Mon–Fri"
+                    : tab === "weekend" ? "Sat–Sun"
+                    : "Custom Days"}
                 </button>
-              </div>
-            </form>
+              ))}
+            </div>
+
+            {/* ── Quick Setup ── */}
+            {genTab === "quick" && (
+              <form onSubmit={(e) => { e.preventDefault(); runQuickSetup(); }} className="space-y-4">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <DateInput label="From" value={quickForm.startDate}
+                    onChange={(v) => setQuickForm((f) => ({ ...f, startDate: v }))} />
+                  <DateInput label="To" value={quickForm.endDate}
+                    onChange={(v) => setQuickForm((f) => ({ ...f, endDate: v }))} />
+                  <DurationSelect value={quickForm.slotDurationMinutes}
+                    onChange={(v) => setQuickForm((f) => ({ ...f, slotDurationMinutes: v }))} />
+                  <SportSelect value={quickForm.sport}
+                    onChange={(v) => setQuickForm((f) => ({ ...f, sport: v }))} />
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Weekday settings */}
+                  <div className="bg-black/30 border border-border rounded-xl p-4 space-y-3">
+                    <p className="text-xs font-bold text-primary uppercase tracking-wide">Weekdays (Mon–Fri)</p>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs text-muted mb-1">Open</label>
+                        <input type="time" value={quickForm.wdStartTime}
+                          onChange={(e) => setQuickForm((f) => ({ ...f, wdStartTime: e.target.value }))}
+                          className={inputCls} required />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-muted mb-1">Close</label>
+                        <input type="time" value={quickForm.wdEndTime}
+                          onChange={(e) => setQuickForm((f) => ({ ...f, wdEndTime: e.target.value }))}
+                          className={inputCls} required />
+                      </div>
+                      <div className="col-span-2">
+                        <label className="block text-xs text-muted mb-1">Price per slot (C$)</label>
+                        <input type="number" min={1} step={0.01} value={quickForm.wdPrice}
+                          onChange={(e) => setQuickForm((f) => ({ ...f, wdPrice: Number(e.target.value) }))}
+                          className={inputCls} required />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Weekend settings */}
+                  <div className="bg-black/30 border border-border rounded-xl p-4 space-y-3">
+                    <p className="text-xs font-bold text-primary uppercase tracking-wide">Weekends (Sat–Sun)</p>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs text-muted mb-1">Open</label>
+                        <input type="time" value={quickForm.weStartTime}
+                          onChange={(e) => setQuickForm((f) => ({ ...f, weStartTime: e.target.value }))}
+                          className={inputCls} required />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-muted mb-1">Close</label>
+                        <input type="time" value={quickForm.weEndTime}
+                          onChange={(e) => setQuickForm((f) => ({ ...f, weEndTime: e.target.value }))}
+                          className={inputCls} required />
+                      </div>
+                      <div className="col-span-2">
+                        <label className="block text-xs text-muted mb-1">Price per slot (C$)</label>
+                        <input type="number" min={1} step={0.01} value={quickForm.wePrice}
+                          onChange={(e) => setQuickForm((f) => ({ ...f, wePrice: Number(e.target.value) }))}
+                          className={inputCls} required />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Quick preview */}
+                {quickPreview && (
+                  <div className="bg-black/40 border border-border rounded-xl p-4 font-mono text-xs space-y-1.5">
+                    <p className="text-muted">
+                      Weekdays: {quickPreview.wd?.days ?? 0} days × {quickPreview.wd?.slotsPerDay ?? 0} slots ={" "}
+                      <span className="text-white">{quickPreview.wd?.total ?? 0} slots</span>
+                      {" · "}C${quickPreview.wd?.revenue.toFixed(2) ?? "0.00"}
+                    </p>
+                    <p className="text-muted">
+                      Weekends: {quickPreview.we?.days ?? 0} days × {quickPreview.we?.slotsPerDay ?? 0} slots ={" "}
+                      <span className="text-white">{quickPreview.we?.total ?? 0} slots</span>
+                      {" · "}C${quickPreview.we?.revenue.toFixed(2) ?? "0.00"}
+                    </p>
+                    <div className="border-t border-border/50 pt-1.5">
+                      <p className="text-primary font-bold">
+                        Total: {(quickPreview.wd?.total ?? 0) + (quickPreview.we?.total ?? 0)} slots
+                        {" · "}C${((quickPreview.wd?.revenue ?? 0) + (quickPreview.we?.revenue ?? 0)).toFixed(2)} potential
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {error && <p className="text-red-400 text-sm">{error}</p>}
+                <button type="submit" disabled={isSaving}
+                  className="w-full bg-primary hover:bg-primary-hover disabled:opacity-50 text-white font-bold py-3 rounded-dome transition-colors uppercase tracking-wide text-sm">
+                  {isSaving ? "Generating…" : "Generate All Slots"}
+                </button>
+              </form>
+            )}
+
+            {/* ── Weekday tab ── */}
+            {genTab === "weekday" && (
+              <form onSubmit={(e) => { e.preventDefault(); runGenerate({ ...wdForm, weekdays: [1, 2, 3, 4, 5] }, "skip"); }} className="space-y-4">
+                <p className="text-xs text-muted">ℹ️ Only Monday–Friday dates included</p>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                  <DateInput label="From" value={wdForm.startDate}
+                    onChange={(v) => setWdForm((f) => ({ ...f, startDate: v }))} />
+                  <DateInput label="To" value={wdForm.endDate}
+                    onChange={(v) => setWdForm((f) => ({ ...f, endDate: v }))} />
+                  <div>
+                    <label className="block text-xs text-muted mb-1">Open</label>
+                    <input type="time" value={wdForm.startTime}
+                      onChange={(e) => setWdForm((f) => ({ ...f, startTime: e.target.value }))}
+                      className={inputCls} required />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-muted mb-1">Close</label>
+                    <input type="time" value={wdForm.endTime}
+                      onChange={(e) => setWdForm((f) => ({ ...f, endTime: e.target.value }))}
+                      className={inputCls} required />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-muted mb-1">Price per slot (C$)</label>
+                    <input type="number" min={1} step={0.01} value={wdForm.priceCAD}
+                      onChange={(e) => setWdForm((f) => ({ ...f, priceCAD: Number(e.target.value) }))}
+                      className={inputCls} required />
+                  </div>
+                  <SportSelect value={wdForm.sport}
+                    onChange={(v) => setWdForm((f) => ({ ...f, sport: v }))} />
+                </div>
+                <DurationSelect value={wdForm.slotDurationMinutes}
+                  onChange={(v) => setWdForm((f) => ({ ...f, slotDurationMinutes: v }))} />
+                <PreviewBox preview={singlePreview} />
+                {error && <p className="text-red-400 text-sm">{error}</p>}
+                <button type="submit" disabled={isSaving}
+                  className="w-full bg-primary hover:bg-primary-hover disabled:opacity-50 text-white font-bold py-3 rounded-dome transition-colors uppercase tracking-wide text-sm">
+                  {isSaving ? "Generating…" : "Generate Weekday Slots"}
+                </button>
+              </form>
+            )}
+
+            {/* ── Weekend tab ── */}
+            {genTab === "weekend" && (
+              <form onSubmit={(e) => { e.preventDefault(); runGenerate({ ...weForm, weekdays: [0, 6] }, "skip"); }} className="space-y-4">
+                <p className="text-xs text-muted">ℹ️ Only Saturday–Sunday dates included</p>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                  <DateInput label="From" value={weForm.startDate}
+                    onChange={(v) => setWeForm((f) => ({ ...f, startDate: v }))} />
+                  <DateInput label="To" value={weForm.endDate}
+                    onChange={(v) => setWeForm((f) => ({ ...f, endDate: v }))} />
+                  <div>
+                    <label className="block text-xs text-muted mb-1">Open</label>
+                    <input type="time" value={weForm.startTime}
+                      onChange={(e) => setWeForm((f) => ({ ...f, startTime: e.target.value }))}
+                      className={inputCls} required />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-muted mb-1">Close</label>
+                    <input type="time" value={weForm.endTime}
+                      onChange={(e) => setWeForm((f) => ({ ...f, endTime: e.target.value }))}
+                      className={inputCls} required />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-muted mb-1">Price per slot (C$)</label>
+                    <input type="number" min={1} step={0.01} value={weForm.priceCAD}
+                      onChange={(e) => setWeForm((f) => ({ ...f, priceCAD: Number(e.target.value) }))}
+                      className={inputCls} required />
+                  </div>
+                  <SportSelect value={weForm.sport}
+                    onChange={(v) => setWeForm((f) => ({ ...f, sport: v }))} />
+                </div>
+                <DurationSelect value={weForm.slotDurationMinutes}
+                  onChange={(v) => setWeForm((f) => ({ ...f, slotDurationMinutes: v }))} />
+                <PreviewBox preview={singlePreview} />
+                {error && <p className="text-red-400 text-sm">{error}</p>}
+                <button type="submit" disabled={isSaving}
+                  className="w-full bg-primary hover:bg-primary-hover disabled:opacity-50 text-white font-bold py-3 rounded-dome transition-colors uppercase tracking-wide text-sm">
+                  {isSaving ? "Generating…" : "Generate Weekend Slots"}
+                </button>
+              </form>
+            )}
+
+            {/* ── Custom Days tab ── */}
+            {genTab === "custom" && (
+              <form onSubmit={(e) => { e.preventDefault(); runGenerate({ ...customForm, weekdays: customDays }, "skip"); }} className="space-y-4">
+                <div>
+                  <label className="block text-xs text-muted mb-2">Select Days</label>
+                  <div className="flex gap-2">
+                    {DAY_LABELS.map(({ day, label }) => (
+                      <button key={day} type="button"
+                        onClick={() => setCustomDays((prev) =>
+                          prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day]
+                        )}
+                        className={[
+                          "w-10 h-10 rounded-full text-xs font-semibold border transition-colors",
+                          customDays.includes(day)
+                            ? "bg-primary border-primary text-white"
+                            : "border-border text-muted hover:text-white hover:border-primary/50",
+                        ].join(" ")}>
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                  <DateInput label="From" value={customForm.startDate}
+                    onChange={(v) => setCustomForm((f) => ({ ...f, startDate: v }))} />
+                  <DateInput label="To" value={customForm.endDate}
+                    onChange={(v) => setCustomForm((f) => ({ ...f, endDate: v }))} />
+                  <div>
+                    <label className="block text-xs text-muted mb-1">Open</label>
+                    <input type="time" value={customForm.startTime}
+                      onChange={(e) => setCustomForm((f) => ({ ...f, startTime: e.target.value }))}
+                      className={inputCls} required />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-muted mb-1">Close</label>
+                    <input type="time" value={customForm.endTime}
+                      onChange={(e) => setCustomForm((f) => ({ ...f, endTime: e.target.value }))}
+                      className={inputCls} required />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-muted mb-1">Price per slot (C$)</label>
+                    <input type="number" min={1} step={0.01} value={customForm.priceCAD}
+                      onChange={(e) => setCustomForm((f) => ({ ...f, priceCAD: Number(e.target.value) }))}
+                      className={inputCls} required />
+                  </div>
+                  <SportSelect value={customForm.sport}
+                    onChange={(v) => setCustomForm((f) => ({ ...f, sport: v }))} />
+                </div>
+                <DurationSelect value={customForm.slotDurationMinutes}
+                  onChange={(v) => setCustomForm((f) => ({ ...f, slotDurationMinutes: v }))} />
+                <PreviewBox preview={singlePreview} />
+                {error && <p className="text-red-400 text-sm">{error}</p>}
+                <button type="submit" disabled={isSaving || customDays.length === 0}
+                  className="w-full bg-primary hover:bg-primary-hover disabled:opacity-50 text-white font-bold py-3 rounded-dome transition-colors uppercase tracking-wide text-sm">
+                  {isSaving ? "Generating…" : "Generate Slots"}
+                </button>
+              </form>
+            )}
           </div>
         )}
 
-        {/* Conflict banner — shown after generate if existing slots were skipped */}
+        {/* Conflict banner */}
         {generateConflict && (
           <div className="bg-yellow-900/30 border border-yellow-700 rounded-dome px-4 py-3 flex items-center justify-between gap-4">
             <p className="text-yellow-300 text-sm">
@@ -739,7 +1092,6 @@ export default function SlotsPage() {
                             if (canAct) setCtxMenu({ slotId: slot.id, status: slot.status, x: e.clientX, y: e.clientY });
                           }}
                         >
-                          {/* Checkbox */}
                           {canAct && (
                             <input
                               type="checkbox"
@@ -750,7 +1102,6 @@ export default function SlotsPage() {
                             />
                           )}
 
-                          {/* Time + price or inline price editor */}
                           {isEditing ? (
                             <span className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
                               <span className="text-muted">C$</span>
@@ -783,7 +1134,6 @@ export default function SlotsPage() {
                             </span>
                           )}
 
-                          {/* Hover delete button */}
                           {canAct && !isEditing && (
                             <button
                               className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity text-red-400 hover:text-red-300 w-5 h-5 flex items-center justify-center"
@@ -843,7 +1193,6 @@ export default function SlotsPage() {
         </div>
       )}
 
-      {/* ── Single delete confirm ────────────────────────────────────── */}
       {deleteConfirm && (
         <ConfirmModal
           message="Delete this slot? This cannot be undone."
@@ -854,7 +1203,6 @@ export default function SlotsPage() {
         />
       )}
 
-      {/* ── Bulk delete confirm ──────────────────────────────────────── */}
       {bulkDeleteConfirm && (
         <ConfirmModal
           message={`Delete ${selectedIds.size} slot${selectedIds.size !== 1 ? "s" : ""}? Booked slots will be skipped.`}
@@ -865,7 +1213,6 @@ export default function SlotsPage() {
         />
       )}
 
-      {/* ── Bulk block confirm ───────────────────────────────────────── */}
       {bulkBlockConfirm && (
         <ConfirmModal
           message={`Block all selected available slots (${selectedIds.size})?`}
@@ -876,7 +1223,6 @@ export default function SlotsPage() {
         />
       )}
 
-      {/* ── Bulk price modal ─────────────────────────────────────────── */}
       {bulkPriceModal && (
         <BulkPriceModal
           count={selectedIds.size}

@@ -109,9 +109,9 @@ export default function DashboardPage() {
             data={bookings as unknown as Record<string, unknown>[]}
             emptyMessage="No bookings yet"
             columns={[
-              { key: "date",     header: "Date",    render: (row) => { const b = row as unknown as Booking; return new Date(b.slot.date).toLocaleDateString("en-CA", { month: "short", day: "numeric" }); } },
-              { key: "time",     header: "Time",    render: (row) => { const b = row as unknown as Booking; return `${b.slot.startTime}–${b.slot.endTime}`; } },
-              { key: "court",    header: "Court",   render: (row) => { const b = row as unknown as Booking; return b.slot.court?.name ?? "—"; } },
+              { key: "date",     header: "Date",    render: (row) => { const b = row as unknown as Booking; return b.slot ? new Date(b.slot.date).toLocaleDateString("en-CA", { month: "short", day: "numeric" }) : "Walk-in"; } },
+              { key: "time",     header: "Time",    render: (row) => { const b = row as unknown as Booking; return b.slot ? `${b.slot.startTime}–${b.slot.endTime}` : "—"; } },
+              { key: "court",    header: "Court",   render: (row) => { const b = row as unknown as Booking; return b.slot?.court?.name ?? "—"; } },
               { key: "player",   header: "Player",  render: (row) => { const b = row as unknown as Booking; return `${b.user.firstName} ${b.user.lastName}`; } },
               { key: "amount",   header: "Amount",  render: (row) => { const b = row as unknown as Booking; return `C$${b.totalCAD.toFixed(2)}`; } },
               { key: "status",   header: "Status",  render: (row) => { const b = row as unknown as Booking; return <StatusBadge status={b.status} />; } },

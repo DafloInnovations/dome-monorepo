@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(sed -i '' 's/where: { id: booking\\\\.slotId }/where: { id: booking.slotId! }/g' src/services/bookings.service.ts)",
+      "Bash(sed -i '' 's/`slot:\\\\${booking\\\\.slotId}/`slot:${booking.slotId!}/g' src/services/bookings.service.ts)",
+      "Bash(sed -i '' 's/booking\\\\.slot\\\\./booking.slot!./g' src/services/bookings.service.ts)",
+      "Bash(pnpm exec *)",
+      "Bash(kill 14207)",
+      "Bash(rm -rf /Users/nisu/Documents/GitHub/dome-monorepo/apps/vendor/.next)",
+      "Bash(pnpm --filter @dome/vendor dev)",
+      "Bash(awk '{print $2}')",
+      "Bash(xargs kill)"
+    ]
+  }
+}

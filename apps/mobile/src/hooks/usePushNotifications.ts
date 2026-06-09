@@ -35,10 +35,11 @@ function handleNavigation(data: NotifData, router: ReturnType<typeof useRouter>)
       router.push("/(tabs)/bookings");
       break;
     case "REVIEW_PROMPT":
-      if (data.bookingId) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (router as any).push({ pathname: "/review/[bookingId]", params: { bookingId: data.bookingId } });
-      }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (router as any).push({
+        pathname: "/(tabs)/bookings",
+        params: { tab: "past", highlightBookingId: data.bookingId ?? "" },
+      });
       break;
     case "AVAILABILITY_ALERT":
       if (facilityId) {

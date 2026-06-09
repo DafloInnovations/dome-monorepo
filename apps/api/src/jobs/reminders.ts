@@ -34,7 +34,7 @@ export async function sendBookingReminders(): Promise<void> {
       booking.facility.sport.charAt(0) +
       booking.facility.sport.slice(1).toLowerCase();
     const rTitle = "Game Tomorrow! 🏟️";
-    const rBody = `${sport} at ${booking.facility.name} at ${booking.slot.startTime}`;
+    const rBody = `${sport} at ${booking.facility.name} at ${booking.slot!.startTime}`;
     const rData = { type: "booking_reminder", bookingId: booking.id };
     await saveNotification(booking.userId, "BOOKING_REMINDER", rTitle, rBody, rData);
     if (booking.user.deviceToken) {
@@ -59,8 +59,8 @@ export async function sendBookingReminders(): Promise<void> {
         facilityAddress: addrStr,
         sport: booking.facility.sport,
         date: dateStr,
-        startTime: booking.slot.startTime,
-        endTime: booking.slot.endTime,
+        startTime: booking.slot!.startTime,
+        endTime: booking.slot!.endTime,
         mapsUrl,
         bookingId: booking.id,
       }).catch(() => null);

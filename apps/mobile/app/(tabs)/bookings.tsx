@@ -12,7 +12,7 @@ import {
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { useFocusEffect, useRouter } from "expo-router";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useMyBookings, type MyBooking } from "../../src/hooks/useMyBookings";
 import { useMyProfile } from "../../src/hooks/useMyProfile";
@@ -386,11 +386,12 @@ const uc = StyleSheet.create({
 // ─── Past booking card ────────────────────────────────────────────────────────
 
 function PastCard({
-  booking, onReview, reviewed,
+  booking, onReview, reviewed, highlighted,
 }: {
   booking: MyBooking;
   onReview?: () => void;
   reviewed: boolean;
+  highlighted?: boolean;
 }) {
   const sport  = booking.facility.sport.toLowerCase();
   const emoji  = SPORT_EMOJI[sport] ?? "🏟";
@@ -407,7 +408,12 @@ function PastCard({
   }
 
   return (
-    <View style={[pc.card, { borderLeftColor: accent }]}>
+    <View style={[pc.card, { borderLeftColor: accent }, highlighted && pc.cardHighlighted]}>
+      {highlighted && !reviewed && (
+        <View style={pc.reviewHint}>
+          <Text style={pc.reviewHintText}>✨ You have a review to leave!</Text>
+        </View>
+      )}
       <View style={pc.topRow}>
         <View style={pc.left}>
           <Text style={pc.emoji}>{emoji}</Text>
@@ -485,6 +491,15 @@ const pc = StyleSheet.create({
     paddingVertical: 10, alignItems: "center",
   },
   shareBtnText: { color: C.primary, fontSize: 13, fontWeight: "700" },
+  cardHighlighted: {
+    borderColor: C.amber, borderWidth: 2,
+    shadowColor: C.amber, shadowOpacity: 0.25, shadowRadius: 12, elevation: 6,
+  },
+  reviewHint: {
+    backgroundColor: `${C.amber}18`, borderRadius: 8,
+    paddingVertical: 6, paddingHorizontal: 10, marginBottom: 10,
+  },
+  reviewHintText: { color: C.amber, fontSize: 12, fontWeight: "700", textAlign: "center" },
 });
 
 // ─── Cancelled booking card ───────────────────────────────────────────────────
@@ -569,6 +584,7 @@ const canc = StyleSheet.create({
 export default function BookingsScreen() {
   const router  = useRouter();
   const insets  = useSafeAreaInsets();
+  const params  = useLocalSearchParams<{ tab?: string; highlightBookingId?: string }>();
 
   const { threads }     = useThreads();
   const { unreadCount } = useNotificationsContext();
@@ -577,7 +593,28 @@ export default function BookingsScreen() {
   const { bookings, isLoading, error, refetch } = useMyBookings();
   const { profile } = useMyProfile();
 
-  const [activeTab, setActiveTab] = useState<"upcoming" | "past" | "cancelled">("upcoming");
+  const [activeTab, setActiveTab] = useState<"upcoming" | "past" | "cancelled">(
+    params.tab === "past" ? "past" : params.tab === "cancelled" ? "cancelled" : "upcoming"
+  );
+  const [highlightedId, setHighlightedId] = useState<string | null>(
+    params.highlightBookingId ?? null
+  );
+  const listRef = useRef<FlatList<MyBooking>>(null);
+
+  // Process deep-link params from review-prompt notification
+  useEffect(() => {
+    if (!params.tab && !params.highlightBookingId) return;
+    if (params.tab === "past" || params.tab === "cancelled") {
+      setActiveTab(params.tab);
+    }
+    if (params.highlightBookingId) {
+      setHighlightedId(params.highlightBookingId);
+      const t = setTimeout(() => setHighlightedId(null), 5000);
+      router.setParams({ tab: undefined, highlightBookingId: undefined });
+      return () => clearTimeout(t);
+    }
+    router.setParams({ tab: undefined });
+  }, [params.tab, params.highlightBookingId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useFocusEffect(useCallback(() => { void refetch(); }, [refetch]));
 
@@ -601,6 +638,17 @@ export default function BookingsScreen() {
   const displayed =
     activeTab === "upcoming" ? upcoming :
     activeTab === "past"     ? past     : cancelled;
+
+  // Scroll to highlighted booking once past list is ready
+  useEffect(() => {
+    if (!highlightedId || activeTab !== "past" || past.length === 0) return;
+    const idx = past.findIndex((b) => b.id === highlightedId);
+    if (idx < 0) return;
+    const t = setTimeout(() => {
+      listRef.current?.scrollToIndex({ index: idx, animated: true, viewPosition: 0.2 });
+    }, 350);
+    return () => clearTimeout(t);
+  }, [highlightedId, activeTab, past]);
 
   const stats = profile?.stats;
 
@@ -626,6 +674,7 @@ export default function BookingsScreen() {
         <PastCard
           booking={item}
           reviewed={!!item.review}
+          highlighted={item.id === highlightedId}
           onReview={
             isPast && item.status === "CONFIRMED" && !item.review
               ? () =>
@@ -749,11 +798,17 @@ export default function BookingsScreen() {
         </View>
       ) : (
         <FlatList
+          ref={listRef}
           data={displayed}
           keyExtractor={(item) => item.id}
           renderItem={renderItem}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
+          onScrollToIndexFailed={({ index }) => {
+            setTimeout(() => {
+              listRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0.2 });
+            }, 300);
+          }}
           refreshControl={
             <RefreshControl
               refreshing={isLoading && bookings.length > 0}

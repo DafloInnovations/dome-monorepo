@@ -491,7 +491,7 @@ model Slot {
 
 model Booking {
   id             String               @id @default(cuid())
-  slotId         String
+  slotId         String?
   facilityId     String
   userId         String
   bookingGroupId String?
@@ -518,7 +518,7 @@ model Booking {
   createdAt        DateTime             @default(now())
   updatedAt        DateTime             @updatedAt
 
-  slot             Slot              @relation(fields: [slotId], references: [id])
+  slot             Slot?             @relation(fields: [slotId], references: [id])
   facility         Facility          @relation(fields: [facilityId], references: [id])
   user             User              @relation(fields: [userId], references: [id])
   bookingGroup     BookingGroup?     @relation(fields: [bookingGroupId], references: [id])

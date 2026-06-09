@@ -212,7 +212,7 @@ export async function releaseLock(userId: string, bookingId: string) {
   }
 
   const slot = await prisma.slot.findUnique({
-    where: { id: booking.slotId },
+    where: { id: booking.slotId! },
     select: { linkedSlotIds: true },
   });
 
@@ -226,12 +226,12 @@ export async function releaseLock(userId: string, bookingId: string) {
       },
     }),
     prisma.slot.update({
-      where: { id: booking.slotId },
+      where: { id: booking.slotId! },
       data: { status: SlotStatus.AVAILABLE },
     }),
   ]);
 
-  const lockKeys = [`slot:${booking.slotId}:lock`];
+  const lockKeys = [`slot:${booking.slotId!}:lock`];
   if (slot?.linkedSlotIds.length) {
     for (const linkedId of slot.linkedSlotIds) lockKeys.push(`slot:${linkedId}:lock`);
   }
@@ -273,7 +273,7 @@ export async function confirmBooking(
 
   // Fetch linked slot IDs for shared court blocking
   const bookedSlot = await prisma.slot.findUnique({
-    where: { id: booking.slotId },
+    where: { id: booking.slotId! },
     select: { linkedSlotIds: true, sport: true },
   });
   const linkedSlotIds = bookedSlot?.linkedSlotIds ?? [];
@@ -290,7 +290,7 @@ export async function confirmBooking(
       include: { slot: true, facility: { include: { address: true } } },
     }),
     prisma.slot.update({
-      where: { id: booking.slotId },
+      where: { id: booking.slotId! },
       data: { status: SlotStatus.BOOKED },
     }),
     prisma.payment.upsert({
@@ -323,7 +323,7 @@ export async function confirmBooking(
 
   const [confirmed] = await prisma.$transaction(confirmOps);
 
-  const lockKeys = [`slot:${booking.slotId}:lock`];
+  const lockKeys = [`slot:${booking.slotId!}:lock`];
   if (linkedSlotIds.length) {
     for (const id of linkedSlotIds) lockKeys.push(`slot:${id}:lock`);
   }
@@ -417,8 +417,8 @@ export async function cancelBooking(
   if (!booking) throw appError("Booking not found", 404);
 
   // Compute hours until slot starts
-  const [y, m, d] = booking.slot.date.toISOString().split("T")[0]!.split("-").map(Number);
-  const [sh, sm] = booking.slot.startTime.split(":").map(Number);
+  const [y, m, d] = booking.slot!.date.toISOString().split("T")[0]!.split("-").map(Number);
+  const [sh, sm] = booking.slot!.startTime.split(":").map(Number);
   const slotStartMs = Date.UTC(y!, m! - 1, d!, sh!, sm!);
   const hoursUntil = (slotStartMs - Date.now()) / 3_600_000;
 
@@ -494,7 +494,7 @@ export async function cancelBooking(
 
   // Fetch linked slot IDs to unblock on cancellation
   const cancelledSlot = await prisma.slot.findUnique({
-    where: { id: booking.slotId },
+    where: { id: booking.slotId! },
     select: { linkedSlotIds: true },
   });
   const linkedSlotIds = cancelledSlot?.linkedSlotIds ?? [];
@@ -512,7 +512,7 @@ export async function cancelBooking(
       },
     }),
     prisma.slot.update({
-      where: { id: booking.slotId },
+      where: { id: booking.slotId! },
       data: { status: SlotStatus.AVAILABLE },
     })
   );
@@ -528,17 +528,17 @@ export async function cancelBooking(
   }
 
   await prisma.$transaction(ops);
-  const lockKeys = [`slot:${booking.slotId}:lock`];
+  const lockKeys = [`slot:${booking.slotId!}:lock`];
   if (linkedSlotIds.length) for (const id of linkedSlotIds) lockKeys.push(`slot:${id}:lock`);
   await redis.del(...lockKeys);
 
   // Fire availability alerts for the now-free slot (non-blocking)
   checkAndTriggerAlerts(
-    booking.slot.facilityId,
-    booking.slot.courtId,
-    booking.slot.date,
-    booking.slot.startTime,
-    booking.slot.endTime
+    booking.slot!.facilityId,
+    booking.slot!.courtId,
+    booking.slot!.date,
+    booking.slot!.startTime,
+    booking.slot!.endTime
   ).catch((err) => console.error("[Alerts] checkAndTriggerAlerts failed:", err));
 
   // Push + DB + email: booking cancelled
@@ -560,13 +560,13 @@ export async function cancelBooking(
   }
 
   if (actor?.email && actor.emailBookingConfirmation) {
-    const slotDateObj = booking.slot.date instanceof Date ? booking.slot.date : new Date(booking.slot.date);
+    const slotDateObj = booking.slot!.date instanceof Date ? booking.slot!.date : new Date(booking.slot!.date);
     sendBookingCancellation(actor.email, {
       bookingId,
       facilityName: booking.facility?.name ?? "facility",
       date: slotDateObj.toLocaleDateString("en-CA", { weekday: "long", year: "numeric", month: "long", day: "numeric" }),
-      startTime: booking.slot.startTime,
-      endTime: booking.slot.endTime,
+      startTime: booking.slot!.startTime,
+      endTime: booking.slot!.endTime,
       refundType,
       refundAmountCAD: totalCAD,
     }).catch(() => null);
@@ -592,8 +592,8 @@ export async function cancelPreview(userId: string, bookingId: string) {
   });
   if (!booking) throw appError("Booking not found", 404);
 
-  const [y, m, d] = booking.slot.date.toISOString().split("T")[0]!.split("-").map(Number);
-  const [sh, sm] = booking.slot.startTime.split(":").map(Number);
+  const [y, m, d] = booking.slot!.date.toISOString().split("T")[0]!.split("-").map(Number);
+  const [sh, sm] = booking.slot!.startTime.split(":").map(Number);
   const slotStartMs = Date.UTC(y!, m! - 1, d!, sh!, sm!);
   const hoursUntilSlot = (slotStartMs - Date.now()) / 3_600_000;
 
@@ -657,8 +657,8 @@ export async function myBookings(userId: string, page = 1, limit = 20) {
       creditsIssuedCAD: b.creditsIssuedCAD !== null ? Number(b.creditsIssuedCAD) : null,
       slot: {
         ...b.slot,
-        priceCAD: Number(b.slot.priceCAD),
-        court: b.slot.court ?? null,
+        priceCAD: Number(b.slot!.priceCAD),
+        court: b.slot!.court ?? null,
       },
       payment: b.payment
         ? { ...b.payment, amountCAD: Number(b.payment.amountCAD) }
@@ -813,7 +813,7 @@ export async function confirmGroupBooking(
   if (pi.metadata["groupId"] !== groupId)
     throw appError("PaymentIntent does not belong to this group", 400);
 
-  const slotIds = group.bookings.map((b) => b.slotId);
+  const slotIds = group.bookings.map((b) => b.slotId).filter((id): id is string => id !== null);
   const bookingIds = group.bookings.map((b) => b.id);
 
   // Collect linked slot IDs for shared court blocking
@@ -897,7 +897,7 @@ export async function cancelGroupBooking(
   });
   if (!group) throw appError("Booking group not found", 404);
 
-  const slotIds = group.bookings.map((b) => b.slotId);
+  const slotIds = group.bookings.map((b) => b.slotId).filter((id): id is string => id !== null);
   const bookingIds = group.bookings.map((b) => b.id);
   const totalCAD = Number(group.totalCAD);
   const groupPayment = group.payments[0];
@@ -907,8 +907,8 @@ export async function cancelGroupBooking(
   if (groupPayment && group.paymentStatus === PaymentStatus.SUCCEEDED) {
     // Use the earliest slot start time for the cutoff check
     const earliest = group.bookings.reduce((min, b) => {
-      const [y, m, d] = b.slot.date.toISOString().split("T")[0]!.split("-").map(Number);
-      const [sh, sm] = b.slot.startTime.split(":").map(Number);
+      const [y, m, d] = b.slot!.date.toISOString().split("T")[0]!.split("-").map(Number);
+      const [sh, sm] = b.slot!.startTime.split(":").map(Number);
       const ms = Date.UTC(y!, m! - 1, d!, sh!, sm!);
       return ms < min ? ms : min;
     }, Infinity);
@@ -1345,7 +1345,7 @@ export async function getGroupBooking(userId: string, groupId: string) {
       subtotalCAD: Number(b.subtotalCAD),
       taxCAD: Number(b.taxCAD),
       totalCAD: Number(b.totalCAD),
-      slot: { ...b.slot, priceCAD: Number(b.slot.priceCAD) },
+      slot: { ...b.slot, priceCAD: Number(b.slot!.priceCAD) },
     })),
   };
 }

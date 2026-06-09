@@ -82,10 +82,10 @@ export async function sendEmailReviewRequests(): Promise<void> {
       if (!booking.user.email || !booking.user.emailBookingConfirmation) continue;
 
       // Compute exact slot end datetime in UTC
-      const slotDate = booking.slot.date instanceof Date
-        ? booking.slot.date
-        : new Date(booking.slot.date);
-      const [eh, em] = booking.slot.endTime.split(":").map(Number);
+      const slotDate = booking.slot!.date instanceof Date
+        ? booking.slot!.date
+        : new Date(booking.slot!.date);
+      const [eh, em] = booking.slot!.endTime.split(":").map(Number);
       const slotEndMs = Date.UTC(
         slotDate.getUTCFullYear(),
         slotDate.getUTCMonth(),
