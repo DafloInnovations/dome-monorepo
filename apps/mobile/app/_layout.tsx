@@ -20,18 +20,38 @@ function RootNav() {
     if (isLoading) return;
     const inAuth       = segments[0] === "(auth)";
     const inOnboarding = segments[0] === "onboarding";
+    const inTabs       = segments[0] === "(tabs)";
+
+    /*
+     * AUTH FLOW:
+     *
+     * First time / logged-out user:
+     *   app open → no token → /(auth)/phone
+     *
+     * After OTP verification (handled by otp.tsx):
+     *   isNewUser / !profileComplete → /onboarding/profile-setup
+     *   profileComplete              → /(tabs)
+     *
+     * Returning user (token present, profile complete):
+     *   app open → hydrate restores user → /(tabs)
+     *
+     * Returning user (token present, profile incomplete):
+     *   app open → hydrate restores user → /(tabs) with profile banner
+     *   (otp.tsx already routed them to setup during the session they signed up)
+     */
     if (!user && !inAuth) {
+      // No session → always go to login
       router.replace("/(auth)/phone");
     } else if (user && inAuth) {
-      // Authenticated: go to onboarding if profile incomplete, otherwise tabs
+      // Just finished OTP — route based on profile state
       if (!user.profileComplete) {
         router.replace("/onboarding/profile-setup");
       } else {
         router.replace("/(tabs)");
       }
-    } else if (user && !inAuth && !inOnboarding && !user.profileComplete) {
-      // Returning user with incomplete profile (e.g. app reopen) → back to setup
-      router.replace("/onboarding/profile-setup");
+    } else if (user && !inAuth && !inOnboarding && !inTabs) {
+      // Hydrated user landing on an unknown/stale segment → push to tabs
+      router.replace("/(tabs)");
     }
   }, [user, isLoading, segments]);
 

@@ -43,7 +43,6 @@ const SPORTS = [
   { key: "HOCKEY",     label: "Hockey",     emoji: "🏒" },
   { key: "CRICKET",    label: "Cricket",    emoji: "🏏" },
   { key: "BASEBALL",   label: "Baseball",   emoji: "⚾" },
-  { key: "SQUASH",     label: "Squash",     emoji: "🥊" },
 ];
 
 const GENDERS = [
@@ -230,7 +229,7 @@ function Step2({
   const canContinue = !!data.city;
 
   return (
-    <View style={{ flex: 1 }}>
+    <View>
       {!isEditMode && (
         <View style={styles.stepHeader}>
           <Text style={styles.stepEmoji}>📍</Text>
@@ -240,9 +239,10 @@ function Step2({
       {isEditMode && <Label text="CITY" />}
 
       <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.cityScroll}
+        showsVerticalScrollIndicator={false}
+        style={styles.cityScrollOuter}
+        contentContainerStyle={styles.cityGrid}
+        nestedScrollEnabled
       >
         {CANADIAN_CITIES.map((c) => {
           const sel = data.city === c.name;
@@ -262,7 +262,7 @@ function Step2({
 
       {data.city ? (
         <Text style={styles.citySelected}>
-          Selected: {data.city}, {data.province}
+          📍 {data.city}, {data.province}
         </Text>
       ) : (
         <Text style={styles.cityHint}>Tap a city to select it</Text>
@@ -384,6 +384,13 @@ export default function ProfileSetupScreen() {
   const [form, setForm] = useState<FormData>(EMPTY_FORM);
   const savedRef = useRef(false);
 
+  // ── Auth guard — redirect to login if no session ──────────────────────────
+  useEffect(() => {
+    if (!user) {
+      router.replace("/(auth)/phone");
+    }
+  }, [user, router]);
+
   // ── Restore progress or pre-fill edit mode ───────────────────────────────
   useEffect(() => {
     if (isEditMode) {
@@ -426,8 +433,8 @@ export default function ProfileSetupScreen() {
         );
         return true;
       };
-      BackHandler.addEventListener("hardwareBackPress", handler);
-      return () => BackHandler.removeEventListener("hardwareBackPress", handler);
+      const sub = BackHandler.addEventListener("hardwareBackPress", handler);
+      return () => sub.remove();
     }, [isEditMode, step, router])
   );
 
@@ -673,16 +680,22 @@ const styles = StyleSheet.create({
   genderPillText:    { fontSize: 13, color: C.muted, fontWeight: "600" },
   genderPillTextSel: { color: C.primary },
 
-  cityScroll: { paddingVertical: 12, paddingHorizontal: 4, gap: 8, flexDirection: "row" },
+  cityScrollOuter: { maxHeight: 260, marginVertical: 8 },
+  cityGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    paddingVertical: 4,
+  },
   cityPill: {
-    paddingHorizontal: 16, paddingVertical: 10, borderRadius: 99,
+    paddingHorizontal: 14, paddingVertical: 8, borderRadius: 99,
     backgroundColor: "#F5F5F5",
   },
   cityPillSel:     { backgroundColor: C.primary },
-  cityPillText:    { fontSize: 14, color: C.text, fontWeight: "600" },
+  cityPillText:    { fontSize: 13, color: C.text, fontWeight: "600" },
   cityPillTextSel: { color: "#FFFFFF" },
-  citySelected:    { fontSize: 14, color: C.primary, fontWeight: "700", textAlign: "center", marginTop: 8 },
-  cityHint:        { fontSize: 13, color: C.muted, textAlign: "center", marginTop: 8 },
+  citySelected:    { fontSize: 14, color: C.primary, fontWeight: "700", textAlign: "center", marginTop: 6 },
+  cityHint:        { fontSize: 13, color: C.muted, textAlign: "center", marginTop: 6 },
 
   sportsGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 8 },
   sportCard: {
