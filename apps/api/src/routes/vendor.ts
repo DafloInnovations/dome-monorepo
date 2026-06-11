@@ -27,13 +27,13 @@ const router = Router();
 const applySchema = z.object({
   businessName:  z.string().min(2).max(100),
   businessEmail: z.string().email(),
-  businessPhone: z.string().min(10),
+  businessPhone: z.string().min(10).optional().or(z.literal("")),
   website:       z.string().url().optional().or(z.literal("")),
   streetAddress: z.string().min(3),
   city:          z.string().min(2),
-  province:      z.string().length(2),
+  province:      z.string().length(2).default("ON"),
   postalCode:    z.string().min(6).max(7),
-  sports:        z.array(z.string()).min(1),
+  sports:        z.array(z.string()).min(1, "Select at least one sport"),
   description:   z.string().min(20).max(2000),
   agreedToTerms: z.literal(true),
 });
@@ -43,6 +43,7 @@ router.post("/apply", authenticate, validate(applySchema), async (req, res, next
   try {
     const userId = req.user!.sub as string;
     const body = req.body as z.infer<typeof applySchema>;
+    console.log("Vendor apply:", { userId, businessName: body.businessName, businessEmail: body.businessEmail, province: body.province, sports: body.sports });
 
     // Check if vendor record already exists
     const existing = await prisma.vendor.findUnique({ where: { userId } });
@@ -55,7 +56,7 @@ router.post("/apply", authenticate, validate(applySchema), async (req, res, next
       return;
     }
 
-    const provinceEnum = body.province.toUpperCase() as "ON" | "BC" | "AB" | "QC" | "MB" | "SK" | "NS" | "NB" | "NL" | "PE" | "NT" | "NU" | "YT";
+    const provinceEnum = (body.province ?? "ON").toUpperCase() as "ON" | "BC" | "AB" | "QC" | "MB" | "SK" | "NS" | "NB" | "NL" | "PE" | "NT" | "NU" | "YT";
 
     if (existing) {
       // Re-application after rejection
@@ -64,7 +65,7 @@ router.post("/apply", authenticate, validate(applySchema), async (req, res, next
         data: {
           businessName: body.businessName,
           businessEmail: body.businessEmail,
-          businessPhone: body.businessPhone,
+          businessPhone: body.businessPhone || null,
           website: body.website || null,
           streetAddress: body.streetAddress,
           city: body.city,
@@ -85,7 +86,7 @@ router.post("/apply", authenticate, validate(applySchema), async (req, res, next
             userId,
             businessName: body.businessName,
             businessEmail: body.businessEmail,
-            businessPhone: body.businessPhone,
+            businessPhone: body.businessPhone || null,
             website: body.website || null,
             streetAddress: body.streetAddress,
             city: body.city,
@@ -102,6 +103,7 @@ router.post("/apply", authenticate, validate(applySchema), async (req, res, next
           data: { role: "VENDOR" },
         }),
       ]);
+      console.log("Vendor created for userId:", userId);
     }
 
     // Send confirmation email (non-blocking)
@@ -119,7 +121,10 @@ router.post("/apply", authenticate, validate(applySchema), async (req, res, next
     }).catch(() => null);
 
     res.status(201).json({ data: { status: "PENDING", message: "Application submitted successfully. We'll notify you within 24–48 hours." } });
-  } catch (err) { next(err); }
+  } catch (err) {
+    console.error("Vendor apply error:", err);
+    next(err);
+  }
 });
 
 // GET /api/v1/vendor/application-status — any authenticated user
@@ -206,7 +211,7 @@ router.get("/facilities", async (req, res, next) => {
       where: { vendorId: vendor.id },
       include: {
         address: true,
-        courts: { select: { id: true, name: true, isActive: true, dynamicPricingEnabled: true } },
+        courts: { select: { id: true, name: true, isActive: true, dynamicPricingEnabled: true, sports: true, primarySport: true, isShared: true } },
         _count: { select: { bookings: true } },
       },
       orderBy: { createdAt: "desc" },
@@ -288,6 +293,95 @@ router.get("/bookings", async (req, res, next) => {
       total,
       page: Number(page),
       limit: take,
+    });
+  } catch (err) { next(err); }
+});
+
+// ─── GET dashboard (date-filtered stats + bookings) ──────────────────────────
+
+router.get("/dashboard", async (req, res, next) => {
+  try {
+    const vendor = await prisma.vendor.findUnique({
+      where: { userId: req.user!.sub as string },
+    });
+    if (!vendor) { res.status(404).json({ message: "Vendor not found" }); return; }
+
+    const facilityIds = (
+      await prisma.facility.findMany({ where: { vendorId: vendor.id }, select: { id: true } })
+    ).map((f) => f.id);
+
+    const { startDate, endDate } = req.query as Record<string, string | undefined>;
+
+    // Default: current month
+    const now = new Date();
+    const start = startDate
+      ? new Date(startDate + "T00:00:00.000Z")
+      : new Date(Date.UTC(now.getFullYear(), now.getMonth(), 1));
+    const end = endDate
+      ? new Date(endDate + "T23:59:59.999Z")
+      : new Date(Date.UTC(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999));
+
+    const [bookings, activeCourts, totalSlots, bookedSlots] = await Promise.all([
+      prisma.booking.findMany({
+        where: {
+          facilityId: { in: facilityIds },
+          createdAt: { gte: start, lte: end },
+        },
+        include: {
+          slot: { include: { court: { select: { name: true, id: true } } } },
+          facility: { select: { name: true, sport: true } },
+          user: { select: { id: true, firstName: true, lastName: true, phone: true } },
+          payment: { select: { status: true, amountCAD: true, method: true } },
+        },
+        orderBy: { createdAt: "desc" },
+      }),
+      prisma.court.count({ where: { facility: { vendorId: vendor.id }, isActive: true } }),
+      prisma.slot.count({ where: { facilityId: { in: facilityIds }, date: { gte: start, lte: end } } }),
+      prisma.slot.count({ where: { facilityId: { in: facilityIds }, date: { gte: start, lte: end }, status: "BOOKED" } }),
+    ]);
+
+    const confirmed = bookings.filter((b) => b.status === BookingStatus.CONFIRMED);
+    const cancelled = bookings.filter((b) => b.status === BookingStatus.CANCELLED);
+    const pending   = bookings.filter((b) => b.status === BookingStatus.PENDING);
+
+    const revenue = confirmed.reduce((sum, b) => sum + Number(b.totalCAD), 0);
+
+    const revenueByDay: Record<string, number> = {};
+    for (const b of confirmed) {
+      const day = b.createdAt.toISOString().split("T")[0]!;
+      revenueByDay[day] = (revenueByDay[day] ?? 0) + Number(b.totalCAD);
+    }
+
+    const revenueByCourt: Record<string, number> = {};
+    for (const b of confirmed) {
+      const courtName = b.slot?.court?.name ?? "Unknown";
+      revenueByCourt[courtName] = (revenueByCourt[courtName] ?? 0) + Number(b.totalCAD);
+    }
+
+    res.json({
+      data: {
+        stats: {
+          totalBookings:     bookings.length,
+          confirmedBookings: confirmed.length,
+          cancelledBookings: cancelled.length,
+          pendingBookings:   pending.length,
+          revenue:           Math.round(revenue * 100) / 100,
+          activeCourts,
+          occupancyRate: totalSlots > 0 ? Math.round((bookedSlots / totalSlots) * 100) : 0,
+        },
+        revenueByDay,
+        revenueByCourt,
+        bookings: bookings.map((b) => ({
+          ...b,
+          totalCAD:    Number(b.totalCAD),
+          subtotalCAD: Number(b.subtotalCAD),
+          taxCAD:      Number(b.taxCAD),
+        })),
+        dateRange: {
+          startDate: start.toISOString().split("T")[0]!,
+          endDate:   end.toISOString().split("T")[0]!,
+        },
+      },
     });
   } catch (err) { next(err); }
 });

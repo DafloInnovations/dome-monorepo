@@ -12,7 +12,10 @@ import {
   createBooking,
   createGroupBooking,
   createTimeBooking,
+  extendBookingLock,
+  getBookingPaymentIntent,
   getGroupBooking,
+  getPendingBooking,
   logBookingShare,
   myBookings,
   releaseLock,
@@ -57,6 +60,14 @@ router.get("/me", async (req, res, next) => {
   } catch (err) {
     next(err);
   }
+});
+
+// GET /api/v1/bookings/pending — most-recent unpaid pending booking (last 30 min)
+router.get("/pending", async (req, res, next) => {
+  try {
+    const result = await getPendingBooking(req.user!.sub);
+    res.json({ data: result });
+  } catch (err) { next(err); }
 });
 
 // POST /api/v1/bookings
@@ -288,6 +299,24 @@ router.delete("/:id/equipment/:rentalId", async (req, res, next) => {
       param(req.params["id"]!),
       param(req.params["rentalId"]!)
     );
+    res.json({ data: result });
+  } catch (err) { next(err); }
+});
+
+// POST /api/v1/bookings/:id/extend-lock — re-lock slot for same user (resume flow)
+router.post("/:id/extend-lock", async (req, res, next) => {
+  try {
+    const id = param(req.params["id"]!);
+    const result = await extendBookingLock(id, req.user!.sub);
+    res.json({ data: result });
+  } catch (err) { next(err); }
+});
+
+// GET /api/v1/bookings/:id/payment-intent — retrieve clientSecret for existing PI
+router.get("/:id/payment-intent", async (req, res, next) => {
+  try {
+    const id = param(req.params["id"]!);
+    const result = await getBookingPaymentIntent(id, req.user!.sub);
     res.json({ data: result });
   } catch (err) { next(err); }
 });

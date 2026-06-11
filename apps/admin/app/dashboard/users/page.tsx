@@ -16,14 +16,16 @@ export default function UsersPage() {
   const [phone, setPhone] = useState("");
   const [search, setSearch] = useState("");
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const load = useCallback(() => {
     setIsLoading(true);
+    setLoadError(null);
     const qs = new URLSearchParams({ page: String(page), limit: String(PAGE_SIZE) });
     if (phone) qs.set("phone", phone);
     apiFetch<{ data: AdminUser[]; total: number }>(`/admin/users?${qs}`)
       .then((r) => { setUsers(r.data); setTotal(r.total); })
-      .catch(() => null)
+      .catch((e) => setLoadError(e instanceof Error ? e.message : "Failed to load users"))
       .finally(() => setIsLoading(false));
   }, [page, phone]);
 
@@ -59,6 +61,10 @@ export default function UsersPage() {
           )}
           <span className="ml-auto text-xs text-muted self-center">{total} users</span>
         </form>
+
+        {loadError && (
+          <p className="text-red-400 text-sm">{loadError}</p>
+        )}
 
         <DataTable
           isLoading={isLoading}

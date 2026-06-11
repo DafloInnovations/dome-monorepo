@@ -84,13 +84,13 @@ export async function apiFetch<T>(path: string, options?: RequestInit): Promise<
         const retryBody = await retry.json().catch(() => ({})) as { message?: string };
         throw new ApiError(retryBody.message ?? `HTTP ${retry.status}`, retry.status);
       }
-      return retry.json() as Promise<T>;
+      return (retry.status === 204 ? undefined : await retry.json()) as T;
     }
 
     throw new ApiError(body.message ?? `HTTP ${res.status}`, res.status);
   }
 
-  return res.json() as Promise<T>;
+  return (res.status === 204 ? undefined : await res.json()) as T;
 }
 
 // ─── Domain types ──────────────────────────────────────────────────────────────

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import Header from "../../../../components/layout/Header";
@@ -51,6 +51,15 @@ const inputCls =
 export default function FacilityDetailPage() {
   const { id } = useParams<{ id: string }>();
   const [facility, setFacility] = useState<FacilityDetail | null>(null);
+
+  // Sports this facility has onboarded: primary sport + all sports across courts
+  const facilityOnboardedSports = useMemo<string[]>(() => {
+    if (!facility) return [...ALL_SPORTS];
+    const sports = new Set<string>();
+    if (facility.sport) sports.add(facility.sport.toUpperCase());
+    (facility.courts ?? []).forEach((c) => (c.sports ?? []).forEach((s) => sports.add(s)));
+    return sports.size > 0 ? [...sports] : [...ALL_SPORTS];
+  }, [facility]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -223,7 +232,7 @@ export default function FacilityDetailPage() {
     setSharedError("");
     setSharedForm({
       isShared: court.isShared,
-      sports: court.sports.length > 0 ? court.sports : [court.name.toUpperCase().replace(/\s/g, "_")],
+      sports: court.sports.length > 0 ? court.sports : [],
       sportPricing: court.sports.map((s) => ({ sport: s, priceCAD: "25" })),
     });
   }
@@ -514,7 +523,7 @@ export default function FacilityDetailPage() {
                           <div>
                             <p className="text-xs text-muted mb-2">Sports supported:</p>
                             <div className="flex flex-wrap gap-2">
-                              {ALL_SPORTS.map((sport) => {
+                              {facilityOnboardedSports.map((sport) => {
                                 const on = sharedForm.sports.includes(sport);
                                 return (
                                   <button

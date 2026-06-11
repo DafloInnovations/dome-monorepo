@@ -21,6 +21,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFacilities, type Facility, type ActiveCoupon } from "../../src/hooks/useFacilities";
 import { useThreads } from "../../src/hooks/useChat";
+import { CANADIAN_CITIES } from "../../src/config/canadianCities";
 import { useNotificationsContext } from "../../src/context/NotificationsContext";
 import { COLORS } from "../../src/theme";
 
@@ -43,20 +44,7 @@ interface City { name: string; province: string; lat?: number; lng?: number }
 const ALL_CITIES: City = { name: "All Cities", province: "" };
 const TORONTO: City    = { name: "Toronto",    province: "ON", lat: 43.6532, lng: -79.3832 };
 
-const CITIES: City[] = [
-  { name: "Toronto",     province: "ON", lat: 43.6532, lng: -79.3832  },
-  { name: "Montreal",    province: "QC", lat: 45.5017, lng: -73.5673  },
-  { name: "Vancouver",   province: "BC", lat: 49.2827, lng: -123.1207 },
-  { name: "Calgary",     province: "AB", lat: 51.0447, lng: -114.0719 },
-  { name: "Edmonton",    province: "AB", lat: 53.5461, lng: -113.4938 },
-  { name: "Ottawa",      province: "ON", lat: 45.4215, lng: -75.6972  },
-  { name: "Winnipeg",    province: "MB", lat: 49.8951, lng: -97.1384  },
-  { name: "Quebec City", province: "QC", lat: 46.8139, lng: -71.2080  },
-  { name: "Hamilton",    province: "ON", lat: 43.2557, lng: -79.8711  },
-  { name: "Kitchener",   province: "ON", lat: 43.4516, lng: -80.4925  },
-  { name: "Halifax",     province: "NS", lat: 44.6488, lng: -63.5752  },
-  { name: "Saskatoon",   province: "SK", lat: 52.1332, lng: -106.6700 },
-];
+const CITIES: City[] = CANADIAN_CITIES;
 
 const CITY_STORAGE_KEY = "dome_selected_city_v2";
 

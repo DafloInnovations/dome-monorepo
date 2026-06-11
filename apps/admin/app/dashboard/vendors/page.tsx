@@ -23,16 +23,18 @@ function VendorsList() {
   const [page, setPage] = useState(1);
   const [status, setStatus] = useState<StatusOpt>(initialStatus);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [toast, setToast] = useState<ToastState | null>(null);
   const [actionId, setActionId] = useState<string | null>(null);
 
   const load = useCallback(() => {
     setIsLoading(true);
+    setLoadError(null);
     const qs = new URLSearchParams({ page: String(page), limit: String(PAGE_SIZE) });
     if (status !== "ALL") qs.set("status", status);
     apiFetch<{ data: AdminVendor[]; total: number }>(`/admin/vendors?${qs}`)
       .then((r) => { setVendors(r.data); setTotal(r.total); })
-      .catch(() => null)
+      .catch((e) => setLoadError(e instanceof Error ? e.message : "Failed to load vendors"))
       .finally(() => setIsLoading(false));
   }, [page, status]);
 
@@ -90,6 +92,11 @@ function VendorsList() {
           {Array.from({ length: 5 }).map((_, i) => (
             <div key={i} className="h-24 bg-surface border border-border rounded-dome animate-pulse" />
           ))}
+        </div>
+      ) : loadError ? (
+        <div className="text-center py-16">
+          <p className="text-red-400 text-sm mb-2">{loadError}</p>
+          <button onClick={load} className="text-xs text-muted hover:text-white underline">Retry</button>
         </div>
       ) : vendors.length === 0 ? (
         <div className="text-center py-16 text-muted">

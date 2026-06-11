@@ -4,6 +4,12 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Header from "../../../../components/layout/Header";
 import { apiFetch } from "../../../../lib/api";
+import { CANADIAN_CITIES, CITIES_BY_PROVINCE, PROVINCE_NAMES } from "../../../../lib/canadianCities";
+
+function formatPostalCode(value: string): string {
+  const clean = value.replace(/\s/g, "").toUpperCase().slice(0, 6);
+  return clean.length > 3 ? clean.slice(0, 3) + " " + clean.slice(3) : clean;
+}
 
 const SPORTS = ["soccer","basketball","tennis","badminton","volleyball","hockey","squash","pickleball","baseball","cricket"] as const;
 const SURFACES = ["turf","hardwood","concrete","clay","ice","grass","rubberized"] as const;
@@ -27,13 +33,15 @@ const defaultHours = (): HoursRow[] =>
     closeTime: "22:00",
   }));
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({ label, required, error, children }: { label: string; required?: boolean; error?: string; children: React.ReactNode }) {
   return (
     <div>
       <label className="block text-xs font-semibold text-muted uppercase tracking-wide mb-1.5">
         {label}
+        {required && <span className="text-primary ml-0.5">*</span>}
       </label>
       {children}
+      {error && <p className="text-red-400 text-xs mt-1">{error}</p>}
     </div>
   );
 }
@@ -59,10 +67,11 @@ export default function NewFacilityPage() {
     sport: "soccer" as (typeof SPORTS)[number],
     surface: "turf" as (typeof SURFACES)[number],
     capacity: 10,
-    address: { street: "", city: "", province: "ON" as (typeof PROVINCES)[number], postalCode: "" },
+    address: { street: "", city: "", province: "ON" as (typeof PROVINCES)[number], postalCode: "", lat: undefined as number | undefined, lng: undefined as number | undefined },
     cancellationHours: 24,
   });
   const [hours, setHours] = useState<HoursRow[]>(defaultHours());
+  const [addrErrors, setAddrErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {
     apiFetch<{ data: VendorProfile }>("/vendor/profile")
@@ -129,6 +138,25 @@ export default function NewFacilityPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
+
+    // Validate photos (at least 1 required)
+    if (photos.length === 0) {
+      setPhotoError("At least one photo is required.");
+      return;
+    }
+
+    // Validate address fields
+    const ae: Record<string, string> = {};
+    if (!form.address.street.trim())  ae["street"]     = "Street address is required";
+    if (!form.address.city)            ae["city"]       = "Please select a city from the list";
+    if (!form.address.postalCode.trim()) {
+      ae["postalCode"] = "Postal code is required";
+    } else if (!/^[A-Za-z]\d[A-Za-z]\s?\d[A-Za-z]\d$/.test(form.address.postalCode.trim())) {
+      ae["postalCode"] = "Enter a valid Canadian postal code (e.g. M1W 1W3)";
+    }
+    if (Object.keys(ae).length > 0) { setAddrErrors(ae); return; }
+    setAddrErrors({});
+
     setIsSubmitting(true);
     try {
       await apiFetch("/vendor/facilities", {
@@ -174,7 +202,7 @@ export default function NewFacilityPage() {
               </div>
             </Field>
 
-            <Field label="Description">
+            <Field label="Description" required>
               <textarea required minLength={10} maxLength={2000} value={form.description}
                 onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
                 placeholder="Describe your sports offering…" rows={3}
@@ -182,16 +210,16 @@ export default function NewFacilityPage() {
             </Field>
 
             <div className="grid grid-cols-2 gap-4">
-              <Field label="Sport">
-                <select value={form.sport} onChange={(e) => setForm((f) => ({ ...f, sport: e.target.value as typeof form.sport }))} className={selectCls}>
+              <Field label="Sport" required>
+                <select required value={form.sport} onChange={(e) => setForm((f) => ({ ...f, sport: e.target.value as typeof form.sport }))} className={selectCls}>
                   {SPORTS.map((s) => (
                     <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>
                   ))}
                 </select>
               </Field>
 
-              <Field label="Surface">
-                <select value={form.surface} onChange={(e) => setForm((f) => ({ ...f, surface: e.target.value as typeof form.surface }))} className={selectCls}>
+              <Field label="Surface" required>
+                <select required value={form.surface} onChange={(e) => setForm((f) => ({ ...f, surface: e.target.value as typeof form.surface }))} className={selectCls}>
                   {SURFACES.map((s) => (
                     <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>
                   ))}
@@ -199,13 +227,13 @@ export default function NewFacilityPage() {
               </Field>
             </div>
 
-            <Field label="Capacity (players)">
+            <Field label="Capacity (players)" required>
               <input type="number" required min={1} value={form.capacity}
                 onChange={(e) => setForm((f) => ({ ...f, capacity: Number(e.target.value) }))}
                 className={inputCls} style={{ maxWidth: 120 }} />
             </Field>
 
-            <Field label={`Sports Photos (${photos.length}/${MAX_PHOTOS})`}>
+            <Field label={`Sports Photos (${photos.length}/${MAX_PHOTOS})`} required>
               <div className="space-y-3">
                 <label className={`inline-flex items-center justify-center bg-surface-2 border border-border rounded-dome px-4 py-2.5 text-sm font-semibold text-white transition-colors ${
                   photos.length >= MAX_PHOTOS ? "opacity-50 cursor-not-allowed" : "hover:border-primary cursor-pointer"
@@ -248,29 +276,67 @@ export default function NewFacilityPage() {
           <section className="bg-surface border border-border rounded-dome p-6 space-y-4">
             <h2 className="text-sm font-semibold text-muted uppercase tracking-wide">Address</h2>
 
-            <Field label="Street">
+            <Field label="Street" required error={addrErrors["street"]}>
               <input type="text" required value={form.address.street}
-                onChange={(e) => setAddr("street", e.target.value)}
+                onChange={(e) => { setAddr("street", e.target.value); setAddrErrors((a) => { const n = { ...a }; delete n["street"]; return n; }); }}
                 placeholder="123 Main St" className={inputCls} />
             </Field>
 
             <div className="grid grid-cols-3 gap-4">
               <div className="col-span-1">
-                <Field label="City">
-                  <input type="text" required value={form.address.city}
-                    onChange={(e) => setAddr("city", e.target.value)}
-                    placeholder="Toronto" className={inputCls} />
+                <Field label="City" required error={addrErrors["city"]}>
+                  <div className="relative">
+                    <select
+                      value={form.address.city}
+                      onChange={(e) => {
+                        const city = CANADIAN_CITIES.find((c) => c.name === e.target.value);
+                        if (city) {
+                          setForm((f) => ({
+                            ...f,
+                            address: { ...f.address, city: city.name, province: city.province as typeof f.address.province, lat: city.lat, lng: city.lng },
+                          }));
+                          setAddrErrors((a) => { const n = { ...a }; delete n["city"]; return n; });
+                        }
+                      }}
+                      className={`${selectCls} appearance-none pr-8 ${!form.address.city ? "text-muted" : ""}`}
+                    >
+                      <option value="" disabled>Select a city…</option>
+                      {Object.entries(CITIES_BY_PROVINCE).map(([prov, cities]) => (
+                        <optgroup key={prov} label={`${PROVINCE_NAMES[prov] ?? prov}`}>
+                          {cities.map((city) => (
+                            <option key={city.name} value={city.name}>{city.name}</option>
+                          ))}
+                        </optgroup>
+                      ))}
+                    </select>
+                    <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-muted text-xs">▾</span>
+                  </div>
                 </Field>
               </div>
+
               <Field label="Province">
-                <select value={form.address.province} onChange={(e) => setAddr("province", e.target.value as typeof form.address.province)} className={selectCls}>
-                  {PROVINCES.map((p) => <option key={p} value={p}>{p}</option>)}
-                </select>
+                <div className={`${inputCls} flex items-center gap-2`}>
+                  {form.address.city ? (
+                    <>
+                      <span className="text-sm text-white">{form.address.province}</span>
+                      <span className="text-xs text-muted">(auto-filled)</span>
+                    </>
+                  ) : (
+                    <span className="text-muted text-sm">Select a city first</span>
+                  )}
+                </div>
               </Field>
-              <Field label="Postal Code">
-                <input type="text" required value={form.address.postalCode}
-                  onChange={(e) => setAddr("postalCode", e.target.value.toUpperCase())}
-                  placeholder="M1A 1A1" maxLength={7} className={inputCls} />
+
+              <Field label="Postal Code" required error={addrErrors["postalCode"]}>
+                <input
+                  type="text"
+                  required
+                  value={form.address.postalCode}
+                  onChange={(e) => { setAddr("postalCode", formatPostalCode(e.target.value)); setAddrErrors((a) => { const n = { ...a }; delete n["postalCode"]; return n; }); }}
+                  placeholder="M1W 1W3"
+                  maxLength={7}
+                  className={inputCls}
+                />
               </Field>
             </div>
           </section>

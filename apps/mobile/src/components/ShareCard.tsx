@@ -1,5 +1,4 @@
 import { Image, StyleSheet, Text, View } from "react-native";
-import { LinearGradient } from "expo-linear-gradient";
 
 // Sport-specific themes: [topColor, bottomColor, emoji]
 const SPORT_THEMES: Record<string, [string, string, string]> = {
@@ -52,7 +51,7 @@ export default function ShareCard({
   userPhotoUri,
 }: ShareCardProps) {
   const sportKey = sport.toLowerCase();
-  const [topColor, bottomColor, emoji] = SPORT_THEMES[sportKey] ?? DEFAULT_THEME;
+  const [topColor, , emoji] = SPORT_THEMES[sportKey] ?? DEFAULT_THEME;
   const sportLabel = sport.charAt(0).toUpperCase() + sport.slice(1).toLowerCase();
 
   return (
@@ -60,27 +59,14 @@ export default function ShareCard({
       {userPhotoUri ? (
         <>
           <Image source={{ uri: userPhotoUri }} style={StyleSheet.absoluteFill} resizeMode="cover" />
-          {/* Dark overlay for readability over photo */}
-          <LinearGradient
-            colors={["transparent", "rgba(0,0,0,0.5)", "rgba(0,0,0,0.88)"]}
-            locations={[0, 0.45, 1]}
-            style={StyleSheet.absoluteFill}
-          />
+          <View style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(0,0,0,0.62)" }]} />
         </>
       ) : (
-        <LinearGradient
-          colors={[topColor, bottomColor]}
-          start={{ x: 0.2, y: 0 }}
-          end={{ x: 0.8, y: 1 }}
-          style={StyleSheet.absoluteFill}
-        />
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: topColor }]} />
       )}
 
-      {/* Subtle top gradient for logo area */}
-      <LinearGradient
-        colors={["rgba(0,0,0,0.55)", "transparent"]}
-        style={[StyleSheet.absoluteFill, { height: "35%" }]}
-      />
+      {/* Dark scrim behind logo area */}
+      <View style={[StyleSheet.absoluteFill, { height: "35%", backgroundColor: "rgba(0,0,0,0.45)" }]} />
 
       {/* Content */}
       <View style={styles.content}>

@@ -26,7 +26,7 @@ function ReviewCard({
   review: VendorReview;
   onReply: (reviewId: string, current: string) => void;
 }) {
-  const date = review.booking.slot.date
+  const date = review.booking.slot?.date
     ? new Date(review.booking.slot.date).toLocaleDateString("en-CA", { month: "short", day: "numeric", year: "numeric" })
     : "—";
 

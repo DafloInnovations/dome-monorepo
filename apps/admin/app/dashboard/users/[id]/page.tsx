@@ -140,7 +140,14 @@ export default function UserDetailPage() {
         {/* Booking history */}
         <div className="bg-surface border border-border rounded-dome p-5">
           <h3 className="text-xs font-semibold text-muted uppercase tracking-wide mb-4">
-            Recent Bookings {user.bookings ? `(${user.bookings.length})` : ""}
+            Bookings
+            {user._count?.bookings != null && (
+              <span className="ml-1.5 font-normal normal-case text-white">
+                {user.bookings && user.bookings.length < user._count.bookings
+                  ? `— showing ${user.bookings.length} of ${user._count.bookings}`
+                  : `(${user._count.bookings})`}
+              </span>
+            )}
           </h3>
           {!user.bookings || user.bookings.length === 0 ? (
             <p className="text-muted text-sm text-center py-6">No bookings yet</p>

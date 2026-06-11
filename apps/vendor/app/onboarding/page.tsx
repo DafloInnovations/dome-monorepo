@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { apiFetch, getToken, setToken, setStoredUser } from "../../lib/api";
+import { apiFetch, getToken, setRefreshToken, setToken, setStoredUser } from "../../lib/api";
+import { CANADIAN_CITIES, CITIES_BY_PROVINCE, PROVINCE_NAMES } from "../../lib/canadianCities";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -49,6 +50,11 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001/api/v1
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+function formatPostalCode(value: string): string {
+  const clean = value.replace(/\s/g, "").toUpperCase().slice(0, 6);
+  return clean.length > 3 ? clean.slice(0, 3) + " " + clean.slice(3) : clean;
+}
+
 function formatWebsite(url: string): string {
   if (url.startsWith("http://") || url.startsWith("https://")) return url;
   return `https://${url}`;
@@ -73,8 +79,12 @@ function validateFormStep(step: number, form: FormData): Record<string, string> 
   }
   if (step === 2) {
     if (!form.streetAddress.trim()) e["streetAddress"] = "Street address is required";
-    if (!form.city.trim())          e["city"]          = "City is required";
-    if (!form.postalCode.trim() || form.postalCode.length < 6) e["postalCode"] = "Valid postal code required";
+    if (!form.city)                  e["city"]          = "Please select a city from the list";
+    if (!form.postalCode.trim()) {
+      e["postalCode"] = "Postal code is required";
+    } else if (!/^[A-Za-z]\d[A-Za-z]\s?\d[A-Za-z]\d$/.test(form.postalCode.trim())) {
+      e["postalCode"] = "Enter a valid Canadian postal code (e.g. M1W 1W3)";
+    }
   }
   if (step === 3) {
     if (form.sports.length === 0) e["sports"] = "Select at least one sport";
@@ -172,6 +182,7 @@ export default function OnboardingPage() {
       const data = await res.json() as {
         data?: {
           accessToken?: string;
+          refreshToken?: string;
           vendorStatus?: "APPROVED" | "PENDING" | "REJECTED" | "NONE";
           user?: { id?: string; phone?: string; firstName?: string; lastName?: string; role?: string };
         };
@@ -181,6 +192,7 @@ export default function OnboardingPage() {
 
       const user = data.data?.user;
       setToken(data.data!.accessToken!);
+      if (data.data?.refreshToken) setRefreshToken(data.data.refreshToken);
       setStoredUser({
         id: user?.id ?? "", phone: user?.phone ?? "",
         firstName: user?.firstName ?? "", lastName: user?.lastName ?? "",
@@ -242,13 +254,15 @@ export default function OnboardingPage() {
 
     setIsSubmitting(true); setSubmitError("");
     try {
+      const payload = {
+        ...form,
+        businessPhone: form.businessPhone ? formatPhone(form.businessPhone) : undefined,
+        website: form.website ? formatWebsite(form.website) : undefined,
+      };
+      console.log("Submitting vendor application:", payload);
       await apiFetch("/vendor/apply", {
         method: "POST",
-        body: JSON.stringify({
-          ...form,
-          businessPhone: form.businessPhone ? formatPhone(form.businessPhone) : undefined,
-          website: form.website ? formatWebsite(form.website) : undefined,
-        }),
+        body: JSON.stringify(payload),
       });
       localStorage.removeItem(STORAGE_KEY);
       router.replace("/pending");
@@ -395,20 +409,55 @@ export default function OnboardingPage() {
 
               <div className="grid grid-cols-2 gap-4">
                 <Field label="City" error={errors["city"]} required>
-                  <input type="text" value={form.city} onChange={(e) => set("city", e.target.value)}
-                    placeholder="Toronto" className={inputCls} />
+                  <div className="relative">
+                    <select
+                      value={form.city}
+                      onChange={(e) => {
+                        const city = CANADIAN_CITIES.find((c) => c.name === e.target.value);
+                        if (city) {
+                          setForm((f) => ({ ...f, city: city.name, province: city.province as typeof f.province }));
+                          setErrors((err) => { const n = { ...err }; delete n["city"]; return n; });
+                        }
+                      }}
+                      className={`${selectCls} appearance-none pr-8 ${!form.city ? "text-muted" : ""}`}
+                    >
+                      <option value="" disabled>Select a city…</option>
+                      {Object.entries(CITIES_BY_PROVINCE).map(([prov, cities]) => (
+                        <optgroup key={prov} label={`${PROVINCE_NAMES[prov] ?? prov}`}>
+                          {cities.map((city) => (
+                            <option key={city.name} value={city.name}>{city.name}</option>
+                          ))}
+                        </optgroup>
+                      ))}
+                    </select>
+                    <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-muted text-xs">▾</span>
+                  </div>
                 </Field>
+
                 <Field label="Province" required>
-                  <select value={form.province} onChange={(e) => set("province", e.target.value)} className={selectCls}>
-                    {PROVINCES.map((p) => <option key={p} value={p}>{p}</option>)}
-                  </select>
+                  <div className={`${inputCls} flex items-center gap-2`}>
+                    {form.city ? (
+                      <>
+                        <span className="text-white text-sm">{form.province}</span>
+                        <span className="text-xs text-muted">(auto-filled)</span>
+                      </>
+                    ) : (
+                      <span className="text-muted text-sm">Select a city first</span>
+                    )}
+                  </div>
                 </Field>
               </div>
 
               <Field label="Postal Code" error={errors["postalCode"]} required>
-                <input type="text" value={form.postalCode}
-                  onChange={(e) => set("postalCode", e.target.value.toUpperCase())}
-                  placeholder="M1A 1A1" maxLength={7} className={inputCls} style={{ maxWidth: 140 }} />
+                <input
+                  type="text"
+                  value={form.postalCode}
+                  onChange={(e) => set("postalCode", formatPostalCode(e.target.value))}
+                  placeholder="M1W 1W3"
+                  maxLength={7}
+                  className={inputCls}
+                  style={{ maxWidth: 160 }}
+                />
               </Field>
             </div>
           )}

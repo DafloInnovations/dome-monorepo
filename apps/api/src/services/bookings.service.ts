@@ -19,6 +19,8 @@ import {
   sendVendorBookingNotification,
 } from "../lib/email";
 import { checkAndTriggerAlerts } from "./alerts.service";
+import { validateCoupon } from "./coupon.service";
+import { calculatePricingForCourt } from "./pricing.service";
 
 const SLOT_LOCK_TTL = 300;          // 5 minutes
 const FULL_REFUND_CUTOFF_HOURS = 24; // ≥ 24h before slot → full Stripe refund
@@ -34,6 +36,34 @@ function formatTtl(ttl: number): string {
   return `${minutes} minute${minutes !== 1 ? "s" : ""}`;
 }
 
+const PROVINCE_TIMEZONE: Record<string, string> = {
+  ON: 'America/Toronto',
+  QC: 'America/Toronto',
+  BC: 'America/Vancouver',
+  AB: 'America/Edmonton',
+  MB: 'America/Winnipeg',
+  SK: 'America/Regina',
+  NS: 'America/Halifax',
+  NB: 'America/Halifax',
+  NL: 'America/St_Johns',
+  PE: 'America/Halifax',
+  YT: 'America/Whitehorse',
+  NT: 'America/Yellowknife',
+  NU: 'America/Rankin_Inlet',
+}
+
+// Returns true if the slot's wall-clock start time (in the facility's province timezone)
+// is more than 5 minutes in the past relative to UTC now.
+const isSlotInPast = (date: string, startTime: string, province: string): boolean => {
+  const tz = PROVINCE_TIMEZONE[province] ?? 'America/Toronto'
+  // Parse date+time as UTC to get a reference point, then determine the TZ offset
+  // at that moment so we can find the true UTC instant for the slot's local time.
+  const slotUTCRef = new Date(`${date}T${startTime}:00Z`)
+  const slotTZReading = new Date(slotUTCRef.toLocaleString('en-US', { timeZone: tz }))
+  const slotUTC = new Date(slotUTCRef.getTime() + (slotUTCRef.getTime() - slotTZReading.getTime()))
+  return slotUTC < new Date(Date.now() - 5 * 60 * 1000)
+}
+
 // ─── Create booking + acquire 5-min Redis slot lock ──────────────────────────
 
 export async function createBooking(
@@ -47,10 +77,10 @@ export async function createBooking(
   if (!slot) throw appError("Slot not found", 404);
   if (slot.facilityId !== facilityId) throw appError("Slot not found", 404);
 
-  const slotStart = new Date(slot.date);
-  const [sh, sm] = slot.startTime.split(":").map(Number);
-  slotStart.setHours(sh!, sm!, 0, 0);
-  if (slotStart < new Date()) throw appError("Cannot book a slot in the past", 400, "SLOT_IN_PAST");
+  const facilityForTZ = await prisma.facility.findUnique({ where: { id: facilityId }, select: { province: true } });
+  if (isSlotInPast(slot.date.toISOString().split('T')[0]!, slot.startTime, facilityForTZ?.province ?? 'ON')) {
+    throw appError("This time slot is no longer available for booking", 400, "SLOT_IN_PAST");
+  }
 
   // ── SESSION slots: capacity-based, multiple bookings allowed ────────────────
   const isSession = slot.capacity !== null;
@@ -994,6 +1024,52 @@ export async function createTimeBooking(
   if (slotIds.length === 0) throw appError("No slots provided", 400);
   if (slotIds.length > 20) throw appError("Too many slots", 400);
 
+  // ── Resume: if user already has a recent pending booking for these exact slots,
+  // re-lock and return the existing PaymentIntent rather than creating a duplicate.
+  if (slotIds.length === 1) {
+    const thirtyMinsAgo = new Date(Date.now() - 30 * 60 * 1000);
+    const existing = await prisma.booking.findFirst({
+      where: {
+        userId,
+        slotId: slotIds[0],
+        status: BookingStatus.PENDING,
+        paymentStatus: BookingPaymentStatus.UNPAID,
+        paymentIntentId: { not: null },
+        createdAt: { gte: thirtyMinsAgo },
+      },
+      select: { id: true, slotId: true, paymentIntentId: true, totalCAD: true, subtotalCAD: true, taxCAD: true },
+    });
+    if (existing) {
+      const lockKey = `slot:${existing.slotId}:lock`;
+      const holder = await redis.get(lockKey);
+      if (holder === null || holder === userId) {
+        await redis.set(lockKey, userId, "EX", SLOT_LOCK_TTL);
+        let clientSecret: string | null = null;
+        try {
+          const pi = await stripe.paymentIntents.retrieve(existing.paymentIntentId!);
+          clientSecret = pi.client_secret;
+        } catch { /* PI expired; fall through to create a new booking */ }
+        if (clientSecret) {
+          return {
+            type: "single" as const,
+            bookingId: existing.id,
+            groupId: null,
+            resumed: true,
+            fullyPaidWithCredits: false,
+            clientSecret,
+            paymentIntentId: existing.paymentIntentId!,
+            totalCAD: Number(existing.totalCAD),
+            subtotalCAD: Number(existing.subtotalCAD),
+            taxCAD: Number(existing.taxCAD),
+            creditsAppliedCAD: 0,
+            cardChargeCAD: Number(existing.totalCAD),
+            lockExpiresInSeconds: SLOT_LOCK_TTL,
+          };
+        }
+      }
+    }
+  }
+
   // Validate all slots exist and belong to the facility
   const slots = await prisma.slot.findMany({
     where: { id: { in: slotIds }, facilityId },
@@ -1006,6 +1082,8 @@ export async function createTimeBooking(
   });
   if (slots.length !== slotIds.length) throw appError("One or more slots not found", 404);
 
+  const facilityForTZ = await prisma.facility.findUnique({ where: { id: facilityId }, select: { province: true } });
+  const facilityProvince = facilityForTZ?.province ?? 'ON';
   for (const slot of slots) {
     if (slot.status !== SlotStatus.AVAILABLE) {
       throw appError(
@@ -1014,12 +1092,8 @@ export async function createTimeBooking(
         "SLOT_UNAVAILABLE"
       );
     }
-    // Reject bookings for slots whose start time has already passed
-    const slotDate = new Date(slot.date);
-    const [h, m] = slot.startTime.split(":").map(Number);
-    slotDate.setHours(h!, m!, 0, 0);
-    if (slotDate < new Date()) {
-      throw appError(`Cannot book a slot in the past (${slot.startTime} has passed)`, 400, "SLOT_IN_PAST");
+    if (isSlotInPast(slot.date.toISOString().split('T')[0]!, slot.startTime, facilityProvince)) {
+      throw appError("This time slot is no longer available for booking", 400, "SLOT_IN_PAST");
     }
   }
 
@@ -1057,6 +1131,15 @@ export async function createTimeBooking(
       .filter(Boolean) as string[];
     if (toRelease.length) await redis.del(...toRelease.map((id) => `slot:${id}:lock`));
     const failedSlot = slots.find((s) => s.id === allLockIds[failedIdx]) ?? slots[0]!;
+    // Check if it's THIS user who holds the failed lock — they should resume instead
+    const holder = await redis.get(`slot:${allLockIds[failedIdx]!}:lock`);
+    if (holder === userId) {
+      throw appError(
+        "You already have this slot held. Tap 'Resume Payment' to complete your booking.",
+        409,
+        "SLOT_ALREADY_HELD"
+      );
+    }
     throw appError(
       `Slot ${failedSlot.startTime}–${failedSlot.endTime} is held by another player`,
       409,
@@ -1070,21 +1153,61 @@ export async function createTimeBooking(
   });
   if (!user) throw appError("User not found", 404);
 
-  const subtotalCAD = slots.reduce((s, sl) => s + Number(sl.priceCAD), 0);
+  // Calculate dynamic prices per slot (same logic as getAvailableCourts endpoint).
+  // Groups slots by court+date so calculatePricingForCourt is called once per court per day.
+  const slotPriceMap = new Map<string, number>(); // slotId → finalPriceCAD
+  {
+    const groups = new Map<string, typeof slots>();
+    for (const slot of slots) {
+      const key = `${slot.courtId}:${slot.date.toISOString().split("T")[0]}`;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(slot);
+    }
+    for (const [, groupSlots] of groups) {
+      const first = groupSlots[0]!;
+      const pricingResults = await calculatePricingForCourt(
+        first.courtId,
+        first.date,
+        groupSlots.map((s) => ({ startTime: s.startTime, endTime: s.endTime, basePriceCAD: Number(s.priceCAD) }))
+      );
+      pricingResults.forEach((p, i) => {
+        slotPriceMap.set(groupSlots[i]!.id, p.finalPriceCAD);
+      });
+    }
+  }
+
+  const subtotalCAD = slots.reduce((s, sl) => s + (slotPriceMap.get(sl.id) ?? Number(sl.priceCAD)), 0);
   const taxCAD = calculateTax(subtotalCAD, user.province as Province);
   const totalCAD = Math.round((subtotalCAD + taxCAD) * 100) / 100;
 
+  // ── Coupon validation ──────────────────────────────────────────────────────
+  const { couponCode, useCredits = false, creditsToUse } = options;
+  let couponDiscountCAD = 0;
+  let validatedCoupon: { couponId: string; code: string } | null = null;
+
+  if (couponCode) {
+    const couponResult = await validateCoupon(couponCode, userId, facilityId, subtotalCAD);
+    if (!couponResult.valid) {
+      await redis.del(...allLockIds.map((id) => `slot:${id}:lock`));
+      throw appError(couponResult.error, 422, "COUPON_INVALID");
+    }
+    couponDiscountCAD = couponResult.discountCAD;
+    validatedCoupon = { couponId: couponResult.couponId, code: couponResult.code };
+  }
+
+  // Coupon reduces the pre-Stripe total; credits then apply to whatever remains
+  const couponAdjustedTotal = Math.max(0, Math.round((totalCAD - couponDiscountCAD) * 100) / 100);
+
   // ── Credits calculation ────────────────────────────────────────────────────
-  const { useCredits = false, creditsToUse } = options;
   const availableCredits = Number(user.creditBalanceCAD);
 
   const creditsApplied = useCredits && availableCredits > 0
     ? Math.min(
-        Math.round(Math.min(availableCredits, creditsToUse ?? totalCAD) * 100) / 100,
-        totalCAD
+        Math.round(Math.min(availableCredits, creditsToUse ?? couponAdjustedTotal) * 100) / 100,
+        couponAdjustedTotal
       )
     : 0;
-  const cardCharge = Math.max(0, Math.round((totalCAD - creditsApplied) * 100) / 100);
+  const cardCharge = Math.max(0, Math.round((couponAdjustedTotal - creditsApplied) * 100) / 100);
 
   // Helper: deduct credits and write ledger entry inside a transaction array
   function creditDeductOps(bookingId: string) {
@@ -1128,9 +1251,9 @@ export async function createTimeBooking(
   // ── Single slot → individual booking ──────────────────────────────────────
   if (slots.length === 1) {
     const slot = slots[0]!;
-    const sub = Number(slot.priceCAD);
+    const sub = slotPriceMap.get(slot.id) ?? Number(slot.priceCAD);
     const tax = calculateTax(sub, user.province as Province);
-    const tot = Math.round((sub + tax) * 100) / 100;
+    const tot = Math.max(0, Math.round((sub + tax - couponDiscountCAD) * 100) / 100);
 
     const booking = await prisma.booking.create({
       data: {
@@ -1147,9 +1270,26 @@ export async function createTimeBooking(
           creditsAppliedCAD: creditsApplied,
           cardChargeCAD: cardCharge,
         }),
+        ...(validatedCoupon && {
+          couponId: validatedCoupon.couponId,
+          couponCode: validatedCoupon.code,
+          discountCAD: couponDiscountCAD,
+        }),
       },
       include: { slot: true, facility: { include: { address: true } } },
     });
+
+    if (validatedCoupon) {
+      await prisma.$transaction([
+        prisma.couponUsage.create({
+          data: { couponId: validatedCoupon.couponId, userId, bookingId: booking.id, discountCAD: couponDiscountCAD },
+        }),
+        prisma.coupon.update({
+          where: { id: validatedCoupon.couponId },
+          data: { usedCount: { increment: 1 } },
+        }),
+      ]);
+    }
 
     // Fully paid with credits — confirm directly, no Stripe
     if (cardCharge === 0) {
@@ -1212,11 +1352,11 @@ export async function createTimeBooking(
       facilityId,
       subtotalCAD,
       taxCAD,
-      totalCAD,
+      totalCAD: couponAdjustedTotal,
       status: GroupBookingStatus.PENDING,
       bookings: {
         create: slots.map((slot) => {
-          const sub = Number(slot.priceCAD);
+          const sub = slotPriceMap.get(slot.id) ?? Number(slot.priceCAD);
           const tax = calculateTax(sub, user.province as Province);
           return {
             slotId: slot.id,
@@ -1234,6 +1374,28 @@ export async function createTimeBooking(
     },
     include: { bookings: { include: { slot: true } }, facility: { include: { address: true } } },
   });
+
+  // Record coupon usage against the first individual booking in the group
+  if (validatedCoupon && group.bookings[0]) {
+    const firstBookingId = group.bookings[0].id;
+    await prisma.$transaction([
+      prisma.booking.update({
+        where: { id: firstBookingId },
+        data: {
+          couponId: validatedCoupon.couponId,
+          couponCode: validatedCoupon.code,
+          discountCAD: couponDiscountCAD,
+        },
+      }),
+      prisma.couponUsage.create({
+        data: { couponId: validatedCoupon.couponId, userId, bookingId: firstBookingId, discountCAD: couponDiscountCAD },
+      }),
+      prisma.coupon.update({
+        where: { id: validatedCoupon.couponId },
+        data: { usedCount: { increment: 1 } },
+      }),
+    ]);
+  }
 
   // Apply credits to all bookings in the group proportionally — simplest approach:
   // store creditsApplied on the group-level tracking via the first booking
@@ -1278,7 +1440,7 @@ export async function createTimeBooking(
       fullyPaidWithCredits: true,
       clientSecret: null,
       paymentIntentId: null,
-      totalCAD,
+      totalCAD: couponAdjustedTotal,
       subtotalCAD,
       taxCAD,
       creditsAppliedCAD: creditsApplied,
@@ -1328,7 +1490,7 @@ export async function createTimeBooking(
     fullyPaidWithCredits: false,
     clientSecret: pi.client_secret,
     paymentIntentId: pi.id,
-    totalCAD,
+    totalCAD: couponAdjustedTotal,
     subtotalCAD,
     taxCAD,
     creditsAppliedCAD: creditsApplied,
@@ -1366,6 +1528,104 @@ export async function getGroupBooking(userId: string, groupId: string) {
       totalCAD: Number(b.totalCAD),
       slot: { ...b.slot, priceCAD: Number(b.slot!.priceCAD) },
     })),
+  };
+}
+
+// ─── Log share ────────────────────────────────────────────────────────────────
+
+// ─── Pending booking (for resume flow) ───────────────────────────────────────
+
+export async function getPendingBooking(userId: string) {
+  const thirtyMinsAgo = new Date(Date.now() - 30 * 60 * 1000);
+  const booking = await prisma.booking.findFirst({
+    where: {
+      userId,
+      status: BookingStatus.PENDING,
+      paymentStatus: BookingPaymentStatus.UNPAID,
+      paymentIntentId: { not: null },
+      createdAt: { gte: thirtyMinsAgo },
+    },
+    include: {
+      slot: true,
+      facility: { select: { id: true, name: true, sport: true } },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+  if (!booking) return null;
+
+  return {
+    bookingId: booking.id,
+    facilityId: booking.facilityId,
+    facilityName: booking.facility.name,
+    sport: booking.facility.sport,
+    date: booking.slot?.date instanceof Date
+      ? booking.slot.date.toISOString().split("T")[0]!
+      : String(booking.slot?.date ?? ""),
+    startTime: booking.slot?.startTime ?? "",
+    endTime: booking.slot?.endTime ?? "",
+    totalCAD: Number(booking.totalCAD),
+    paymentIntentId: booking.paymentIntentId,
+  };
+}
+
+// ─── Extend Redis lock for same-player resume ────────────────────────────────
+
+const EXTEND_LOCK_TTL = 600; // 10 minutes
+
+export async function extendBookingLock(bookingId: string, userId: string) {
+  const booking = await prisma.booking.findFirst({
+    where: { id: bookingId, userId },
+    select: { id: true, slotId: true, status: true, paymentIntentId: true },
+  });
+  if (!booking) throw appError("Booking not found", 404);
+  if (booking.status !== BookingStatus.PENDING) {
+    throw appError("Booking is no longer pending", 400, "NOT_PENDING");
+  }
+  if (!booking.slotId) throw appError("Booking has no slot", 400);
+
+  const lockKey = `slot:${booking.slotId}:lock`;
+  const currentHolder = await redis.get(lockKey);
+
+  if (currentHolder !== null && currentHolder !== userId) {
+    throw appError("This slot has been taken by another player", 409, "SLOT_TAKEN");
+  }
+
+  // Re-lock (either we hold it or it expired)
+  await redis.set(lockKey, userId, "EX", EXTEND_LOCK_TTL);
+
+  // Retrieve the existing PaymentIntent's client_secret
+  let clientSecret: string | null = null;
+  if (booking.paymentIntentId) {
+    try {
+      const pi = await stripe.paymentIntents.retrieve(booking.paymentIntentId);
+      clientSecret = pi.client_secret;
+    } catch {
+      // PI may have expired; caller will handle null clientSecret
+    }
+  }
+
+  return {
+    extended: true,
+    expiresInSeconds: EXTEND_LOCK_TTL,
+    clientSecret,
+  };
+}
+
+// ─── Get PaymentIntent client_secret for existing booking ────────────────────
+
+export async function getBookingPaymentIntent(bookingId: string, userId: string) {
+  const booking = await prisma.booking.findFirst({
+    where: { id: bookingId, userId },
+    select: { paymentIntentId: true, status: true },
+  });
+  if (!booking) throw appError("Booking not found", 404);
+  if (!booking.paymentIntentId) throw appError("No payment intent for this booking", 404);
+
+  const pi = await stripe.paymentIntents.retrieve(booking.paymentIntentId);
+  return {
+    clientSecret: pi.client_secret,
+    amountCAD: pi.amount / 100,
+    status: pi.status,
   };
 }
 

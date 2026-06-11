@@ -156,13 +156,13 @@ export async function apiFetch<T>(
         const retryBody = await retry.json().catch(() => ({})) as { message?: string };
         throw new ApiError(retryBody.message ?? `HTTP ${retry.status}`, retry.status);
       }
-      return retry.json() as Promise<T>;
+      return (retry.status === 204 ? undefined : await retry.json()) as T;
     }
 
     throw new ApiError(body.message ?? `HTTP ${res.status}`, res.status);
   }
 
-  return res.json() as Promise<T>;
+  return (res.status === 204 ? undefined : await res.json()) as T;
 }
 
 // ─── Typed helpers ────────────────────────────────────────────────────────────
@@ -185,6 +185,12 @@ export const api = {
   vendor: {
     profile: () =>
       apiFetch<{ data: VendorProfile }>("/vendor/profile"),
+    dashboard: (params?: { startDate?: string; endDate?: string }) => {
+      const qs = params ? "?" + new URLSearchParams(Object.fromEntries(
+        Object.entries(params).filter(([, v]) => v != null) as [string, string][]
+      )).toString() : "";
+      return apiFetch<{ data: DashboardData }>(`/vendor/dashboard${qs}`);
+    },
     analytics: () =>
       apiFetch<{ data: AnalyticsData }>("/vendor/analytics"),
     facilities: () =>
@@ -256,6 +262,22 @@ export const api = {
 };
 
 // ─── Domain types ─────────────────────────────────────────────────────────────
+
+export interface DashboardData {
+  stats: {
+    totalBookings:     number;
+    confirmedBookings: number;
+    cancelledBookings: number;
+    pendingBookings:   number;
+    revenue:           number;
+    activeCourts:      number;
+    occupancyRate:     number;
+  };
+  revenueByDay:   Record<string, number>;
+  revenueByCourt: Record<string, number>;
+  bookings:       Booking[];
+  dateRange:      { startDate: string; endDate: string };
+}
 
 export interface AnalyticsData {
   revenueByDay: { date: string; amount: number }[];
@@ -343,7 +365,7 @@ export interface VendorReview {
   createdAt: string;
   user: { firstName: string; lastName: string };
   facility: { id: string; name: string };
-  booking: { slot: { date: string } };
+  booking: { slot: { date: string } | null };
 }
 
 export interface VendorReviewsResponse {

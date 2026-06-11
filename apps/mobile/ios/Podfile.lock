@@ -2488,8 +2488,8 @@ SPEC CHECKSUMS:
   EXNotifications: c67e92b9fdfe785ff9dbdc5f4c0ff935de357da7
   Expo: edf5879dd9f83d2aa5b05d012412c810bc182ac1
   expo-dev-client: b8adef5e6847b5335a3b95a1fd2edc731d4331ee
-  expo-dev-launcher: 2a60fd5a91683ed294ad8e3fe825d822cc463a12
-  expo-dev-menu: 674535aa7f142a956c7965362c15a1556af19f98
+  expo-dev-launcher: 62424c01202c528a0421e5736c7cba2aa95312b6
+  expo-dev-menu: ffb77acaa6a91d260780ab72a7d236ece882c787
   expo-dev-menu-interface: 600df12ea01efecdd822daaf13cc0ac091775533
   ExpoAsset: 9e5a7c9c0a9fb83ad5b2bb365141f2bd7f289b66
   ExpoDevice: 6327c3c200816795708885adf540d26ecab83d1a

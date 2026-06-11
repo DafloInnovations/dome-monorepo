@@ -198,10 +198,10 @@ function InlineCourtCard({
 }) {
   const emoji = SPORT_EMOJI[court.sport?.toUpperCase() ?? ""] ?? "🏟️";
   const bd = court.priceBreakdown;
-  const isPeak = bd && bd.finalPriceCAD > bd.basePriceCAD;
-  const isOff  = bd && bd.finalPriceCAD < bd.basePriceCAD;
-  const pctDiff = bd
-    ? Math.abs(Math.round((bd.finalPriceCAD / bd.basePriceCAD - 1) * 100))
+  const isPeak = court.totalPriceCAD > court.basePriceCAD;
+  const isOff  = court.totalPriceCAD < court.basePriceCAD;
+  const pctDiff = court.basePriceCAD > 0
+    ? Math.abs(Math.round((court.totalPriceCAD / court.basePriceCAD - 1) * 100))
     : 0;
 
   return (
@@ -234,8 +234,8 @@ function InlineCourtCard({
         </View>
         {court.isAvailable && (
           <View style={cc.priceCol}>
-            {bd && bd.basePriceCAD !== bd.finalPriceCAD && (
-              <Text style={cc.basePrice}>C${bd.basePriceCAD.toFixed(2)}</Text>
+            {court.basePriceCAD !== court.totalPriceCAD && (
+              <Text style={cc.basePrice}>C${court.basePriceCAD.toFixed(2)}</Text>
             )}
             <Text style={[cc.price, isPeak && cc.pricePeak, isOff && cc.priceOff]}>
               C${court.totalPriceCAD.toFixed(2)}

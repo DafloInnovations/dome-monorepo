@@ -3,6 +3,7 @@ import * as SecureStore from "expo-secure-store";
 
 const KEY_ACCESS = "dome_access_token";
 const KEY_REFRESH = "dome_refresh_token";
+const KEY_USER   = "dome_user_profile";
 
 export interface AuthUser {
   id: string;
@@ -10,6 +11,7 @@ export interface AuthUser {
   role: string;
   firstName?: string;
   lastName?: string;
+  profileComplete?: boolean;
 }
 
 interface AuthState {
@@ -22,6 +24,7 @@ interface AuthState {
 interface AuthActions {
   setSession: (at: string, rt: string, user: AuthUser) => Promise<void>;
   clearSession: () => Promise<void>;
+  updateUser: (partial: Partial<AuthUser>) => Promise<void>;
   /** Call after any API response. Logs out automatically on 404 "user not found". */
   handleApiError: (status: number, message?: string) => Promise<void>;
 }
@@ -66,11 +69,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (isValid) {
           setAccessToken(at);
           setRefreshToken(rt);
-          setUser({
-            id: String(payload["sub"]),
-            phone: "",
-            role: String(payload["role"]),
-          });
+          // Restore persisted user profile (includes profileComplete)
+          const storedUser = await SecureStore.getItemAsync(KEY_USER);
+          const base: AuthUser = { id: String(payload["sub"]), phone: "", role: String(payload["role"]) };
+          setUser(storedUser ? { ...JSON.parse(storedUser) as AuthUser, ...base } : base);
           return;
         }
       }
@@ -91,6 +93,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await Promise.all([
       SecureStore.deleteItemAsync(KEY_ACCESS),
       SecureStore.deleteItemAsync(KEY_REFRESH),
+      SecureStore.deleteItemAsync(KEY_USER),
     ]);
     setAccessToken(null);
     setRefreshToken(null);
@@ -101,10 +104,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await Promise.all([
       SecureStore.setItemAsync(KEY_ACCESS, at),
       SecureStore.setItemAsync(KEY_REFRESH, rt),
+      SecureStore.setItemAsync(KEY_USER, JSON.stringify(u)),
     ]);
     setAccessToken(at);
     setRefreshToken(rt);
     setUser(u);
+  }, []);
+
+  const updateUser = useCallback(async (partial: Partial<AuthUser>) => {
+    setUser((prev) => {
+      if (!prev) return prev;
+      const next = { ...prev, ...partial };
+      SecureStore.setItemAsync(KEY_USER, JSON.stringify(next)).catch(() => null);
+      return next;
+    });
   }, []);
 
   // When the server says the user record no longer exists, clear the session.
@@ -131,14 +144,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     ]);
     const payload = parseJwt(newAt);
     if (!payload) throw new Error("bad token");
+    const storedUser = await SecureStore.getItemAsync(KEY_USER);
+    const base: AuthUser = { id: String(payload["sub"]), phone: "", role: String(payload["role"]) };
     setAccessToken(newAt);
     setRefreshToken(newRt);
-    setUser({ id: String(payload["sub"]), phone: "", role: String(payload["role"]) });
+    setUser(storedUser ? { ...JSON.parse(storedUser) as AuthUser, ...base } : base);
   }, []);
 
   return (
     <AuthContext.Provider
-      value={{ user, accessToken, refreshToken, isLoading, setSession, clearSession, handleApiError }}
+      value={{ user, accessToken, refreshToken, isLoading, setSession, clearSession, updateUser, handleApiError }}
     >
       {children}
     </AuthContext.Provider>

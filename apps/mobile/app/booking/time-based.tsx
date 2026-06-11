@@ -19,6 +19,7 @@ import { useEquipment } from "../../src/hooks/useEquipment";
 import { useCoupon } from "../../src/hooks/useCoupon";
 import { useCredits, calcCreditSplit } from "../../src/hooks/useCredits";
 import EquipmentItemRow from "../../src/components/EquipmentItem";
+import { savePendingBooking, clearPendingBooking } from "../../src/hooks/usePendingBooking";
 
 const API_URL = process.env["EXPO_PUBLIC_API_URL"] ?? "http://localhost:3001/api/v1";
 
@@ -35,6 +36,7 @@ interface TimeBookingResult {
   type: "single" | "group";
   bookingId: string | null;
   groupId: string | null;
+  resumed?: boolean;
   fullyPaidWithCredits: boolean;
   clientSecret: string | null;
   paymentIntentId: string | null;
@@ -142,6 +144,7 @@ export default function TimeBasedBookingScreen() {
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
         body: result.type === "group" ? JSON.stringify({ reason: "Abandoned checkout" }) : undefined,
       }).catch(() => null);
+      clearPendingBooking().catch(() => null);
     });
     return unsubscribe;
   }, [navigation]);
@@ -193,7 +196,8 @@ export default function TimeBasedBookingScreen() {
       if (bookingResult.fullyPaidWithCredits) {
         stripeSucceededRef.current = true;
         setIsCreating(false);
-        credits.refetch(); // refresh balance in background
+        await clearPendingBooking();
+        credits.refetch();
         const confirmedId = bookingResult.bookingId ?? bookingResult.groupId ?? "";
         router.replace({
           pathname: "/booking/success",
@@ -212,7 +216,20 @@ export default function TimeBasedBookingScreen() {
         return;
       }
 
-      // 3b. Partial credits or no credits — show Stripe sheet for card charge
+      // 3b. Partial credits or no credits — save pending booking, then show Stripe sheet
+      if (bookingResult.bookingId && bookingResult.paymentIntentId) {
+        await savePendingBooking({
+          bookingId: bookingResult.bookingId,
+          facilityName: facilityName ?? "",
+          sport: sport ?? "",
+          date: date ?? "",
+          startTime: startTime ?? "",
+          endTime: endTime ?? "",
+          totalCAD: bookingResult.totalCAD,
+          paymentIntentId: bookingResult.paymentIntentId,
+        });
+      }
+
       const { error: initErr } = await initPaymentSheet({
         paymentIntentClientSecret: bookingResult.clientSecret!,
         merchantDisplayName: "Dome Sports",
@@ -251,6 +268,7 @@ export default function TimeBasedBookingScreen() {
         return;
       }
 
+      await clearPendingBooking();
       credits.refetch();
       const confirmData = (await confirmRes.json()) as { data?: { id?: string; slot?: { startTime?: string; endTime?: string } } };
       const confirmedId = confirmData.data?.id ?? bookingResult.bookingId ?? bookingResult.groupId ?? "";

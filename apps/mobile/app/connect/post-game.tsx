@@ -94,6 +94,29 @@ export default function PostGameScreen() {
   const [facilityLoading, setFacilityLoading] = useState(false);
   const [facilityError, setFacilityError] = useState<string | null>(null);
   const [facilityDropdownOpen, setFacilityDropdownOpen] = useState(false);
+  const [citySports, setCitySports] = useState<Set<string>>(new Set(SPORTS.map((s) => s.key)));
+
+  // Derive which sports are actually available in the selected city
+  useEffect(() => {
+    const controller = new AbortController();
+    const params = new URLSearchParams({
+      lat: String(selectedCity.lat), lng: String(selectedCity.lng), radius: "25", limit: "50",
+    });
+    fetch(`${API_URL}/facilities?${params}`, { signal: controller.signal })
+      .then((r) => r.json())
+      .then((json: { data: Array<{ sport: string }> }) => {
+        const sports = new Set(
+          (json.data ?? []).map((f) => f.sport?.toUpperCase()).filter(Boolean) as string[]
+        );
+        if (sports.size > 0) {
+          setCitySports(sports);
+          setSport((prev) => (prev && sports.has(prev) ? prev : null));
+          setSelectedFacility(null);
+        }
+      })
+      .catch(() => null);
+    return () => controller.abort();
+  }, [selectedCity]);
 
   useEffect(() => {
     if (!sport) {
@@ -218,7 +241,7 @@ export default function PostGameScreen() {
         {/* Sport selector */}
         <Text style={styles.label}>Sport</Text>
         <View style={styles.pillGrid}>
-          {SPORTS.map((s) => (
+          {SPORTS.filter((s) => citySports.has(s.key)).map((s) => (
             <Pressable
               key={s.key}
               style={[styles.pill, sport === s.key && styles.pillActive]}

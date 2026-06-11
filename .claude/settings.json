@@ -9,7 +9,18 @@
       "Bash(rm -rf /Users/nisu/Documents/GitHub/dome-monorepo/apps/vendor/.next)",
       "Bash(pnpm --filter @dome/vendor dev)",
       "Bash(awk '{print $2}')",
-      "Bash(xargs kill)"
+      "Bash(xargs kill)",
+      "Bash(node -e ' *)",
+      "Bash(python3 -c \"import json,sys; p=json.load\\(sys.stdin\\); print\\('version:', p['version']\\); print\\('peerDeps:', json.dumps\\(p.get\\('peerDependencies',{}\\), indent=2\\)\\)\")",
+      "Bash(ls /Users/nisu/Documents/GitHub/dome-monorepo/node_modules/.pnpm/ | grep \"expo-linking\" && echo \"===\" && ls /Users/nisu/Documents/GitHub/dome-monorepo/apps/mobile/ios/../../../node_modules/.pnpm/ | grep \"^expo-linking\" 2>/dev/null | head -5)",
+      "Read(//Users/nisu/Documents/GitHub/dome-monorepo/node_modules/.pnpm//**)",
+      "Bash(python3 -c \"import json,sys; p=json.load\\(sys.stdin\\); print\\('version:', p['version']\\); print\\('main:', p.get\\('main'\\)\\); print\\('react-native:', p.get\\('react-native'\\)\\)\")",
+      "Bash(python3 -c \"import json,sys; p=json.load\\(sys.stdin\\); print\\('version:', p['version']\\)\")",
+      "Bash(python3 -c ' *)",
+      "Bash(git -C /Users/nisu/Documents/GitHub/dome-monorepo ls-files apps/vendor/.env.local apps/admin/.env.local)",
+      "Bash(python3 -c \"import json,sys; p=json.load\\(sys.stdin\\); print\\(json.dumps\\(p.get\\('scripts',{}\\), indent=2\\)\\)\")",
+      "Bash(python3 -c \"import json,sys; p=json.load\\(sys.stdin\\); print\\('name:', p.get\\('name'\\)\\); print\\('main:', p.get\\('main'\\)\\); print\\('exports:', list\\(p.get\\('exports',{}\\).keys\\(\\)\\)[:5]\\)\")",
+      "Bash(git diff *)"
     ]
   }
 }

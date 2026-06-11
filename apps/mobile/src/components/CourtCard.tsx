@@ -25,12 +25,12 @@ export default function CourtCard({ court, isSelected, onPress, alertSet, onAler
   const available = court.isAvailable;
   const breakdown = court.priceBreakdown;
 
-  const hasPriceChange = breakdown !== null && breakdown.finalPriceCAD !== breakdown.basePriceCAD;
-  const isDiscount = hasPriceChange && breakdown!.finalPriceCAD < breakdown!.basePriceCAD;
-  const isPremium  = hasPriceChange && breakdown!.finalPriceCAD > breakdown!.basePriceCAD;
+  const hasPriceChange = court.totalPriceCAD !== court.basePriceCAD;
+  const isDiscount = hasPriceChange && court.totalPriceCAD < court.basePriceCAD;
+  const isPremium  = hasPriceChange && court.totalPriceCAD > court.basePriceCAD;
 
-  const discountPct = isDiscount
-    ? Math.round((1 - breakdown!.finalPriceCAD / breakdown!.basePriceCAD) * 100)
+  const discountPct = isDiscount && court.basePriceCAD > 0
+    ? Math.round((1 - court.totalPriceCAD / court.basePriceCAD) * 100)
     : null;
 
   const otherSports = court.isShared
@@ -83,8 +83,8 @@ export default function CourtCard({ court, isSelected, onPress, alertSet, onAler
 
         {available ? (
           <View style={styles.priceBlock}>
-            {hasPriceChange && breakdown && (
-              <Text style={styles.basePrice}>C${breakdown.basePriceCAD.toFixed(2)}</Text>
+            {hasPriceChange && (
+              <Text style={styles.basePrice}>C${court.basePriceCAD.toFixed(2)}</Text>
             )}
             <View style={styles.priceRow}>
               <Text style={[styles.price, isDiscount ? styles.priceGreen : isPremium ? styles.priceAmber : styles.pricePrimary]}>

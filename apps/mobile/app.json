@@ -43,6 +43,14 @@
       "expo-location",
       "expo-image-picker",
       [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/icon.png",
+          "color": "#E85068",
+          "sounds": []
+        }
+      ],
+      [
         "expo-media-library",
         {
           "photosPermission": "Allow Dome to save share cards to your Photos.",

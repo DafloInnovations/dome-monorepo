@@ -278,25 +278,22 @@ export default function SlotsPage() {
       .finally(() => setIsLoading(false));
   }, [courtId, today]);
 
+  // Load court info directly from the API — authoritative source for isShared + sports
   useEffect(() => {
     if (!courtId) return;
-    apiFetch<{ data: { courts: { id: string; isShared: boolean; sports: string[] }[] } }>(
-      `/vendor/facilities/any`
-    ).catch(() => null);
+    apiFetch<{ data: { isShared: boolean; sports: string[]; primarySport: string | null } }>(
+      `/vendor/courts/${courtId}`
+    ).then((r) => {
+      const { isShared, sports, primarySport } = r.data;
+      if (isShared && sports.length > 0) {
+        setCourtInfo({ isShared: true, sports });
+        setActiveSportTab((prev) => prev ?? sports[0]!);
+      } else {
+        const sole = primarySport ?? sports[0] ?? null;
+        setCourtInfo({ isShared: false, sports: sole ? [sole] : [] });
+      }
+    }).catch(() => null);
   }, [courtId]);
-
-  useEffect(() => {
-    if (slots.length === 0) return;
-    const sportsInSlots = [...new Set(
-      slots
-        .map((s) => (s as Slot & { sport?: string }).sport)
-        .filter((s): s is string => !!s)
-    )];
-    if (sportsInSlots.length >= 1) {
-      setCourtInfo({ isShared: true, sports: sportsInSlots });
-      if (!activeSportTab) setActiveSportTab(sportsInSlots[0]!);
-    }
-  }, [slots, activeSportTab]);
 
   useEffect(() => { loadSlots(); }, [loadSlots]);
 

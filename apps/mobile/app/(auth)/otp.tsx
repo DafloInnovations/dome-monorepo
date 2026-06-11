@@ -57,7 +57,8 @@ export default function OtpScreen() {
         data?: {
           accessToken: string;
           refreshToken: string;
-          user: AuthUser & { isNewUser: boolean };
+          user: AuthUser & { profileComplete: boolean };
+          isNewUser: boolean;
         };
         message?: string;
       };
@@ -69,8 +70,13 @@ export default function OtpScreen() {
         role: user.role,
         firstName: user.firstName,
         lastName: user.lastName,
+        profileComplete: user.profileComplete,
       });
-      router.replace("/(tabs)");
+      if (!user.profileComplete) {
+        router.replace("/onboarding/profile-setup");
+      } else {
+        router.replace("/(tabs)");
+      }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Something went wrong");
       setCode("");

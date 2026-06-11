@@ -1,38 +1,137 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import Header from "../../components/layout/Header";
 import StatsCard from "../../components/ui/StatsCard";
 import DataTable from "../../components/ui/DataTable";
 import StatusBadge from "../../components/ui/StatusBadge";
 import { useVendorProfile } from "../../components/layout/VendorProfileProvider";
-import { api, type AnalyticsData, type Booking } from "../../lib/api";
+import { api, type DashboardData, type Booking } from "../../lib/api";
+
+// ─── Date preset helpers ──────────────────────────────────────────────────────
+
+type Preset = "today" | "yesterday" | "this_week" | "this_month" | "last_month" | "custom";
+
+const PRESETS: { key: Preset; label: string }[] = [
+  { key: "today",      label: "Today"      },
+  { key: "yesterday",  label: "Yesterday"  },
+  { key: "this_week",  label: "This Week"  },
+  { key: "this_month", label: "This Month" },
+  { key: "last_month", label: "Last Month" },
+  { key: "custom",     label: "📅 Custom"  },
+];
+
+function toISO(d: Date): string {
+  return d.toISOString().split("T")[0]!;
+}
+
+function getPresetDates(preset: Preset): { start: string; end: string } {
+  const now = new Date();
+  const today = toISO(now);
+
+  switch (preset) {
+    case "today":
+      return { start: today, end: today };
+
+    case "yesterday": {
+      const y = new Date(now);
+      y.setDate(y.getDate() - 1);
+      const s = toISO(y);
+      return { start: s, end: s };
+    }
+
+    case "this_week": {
+      const d = new Date(now);
+      const day = d.getDay();
+      d.setDate(d.getDate() - (day === 0 ? 6 : day - 1));
+      return { start: toISO(d), end: today };
+    }
+
+    case "this_month": {
+      const s = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+      return { start: s, end: today };
+    }
+
+    case "last_month": {
+      const first = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const last  = new Date(now.getFullYear(), now.getMonth(), 0);
+      return { start: toISO(first), end: toISO(last) };
+    }
+
+    default:
+      return { start: today, end: today };
+  }
+}
+
+function daysBetween(start: string, end: string): number {
+  return Math.round(
+    (new Date(end).getTime() - new Date(start).getTime()) / 86_400_000
+  ) + 1;
+}
+
+// ─── Component ────────────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
   const { businessName } = useVendorProfile();
-  const [analytics, setAnalytics] = useState<AnalyticsData | null>(null);
-  const [bookings, setBookings] = useState<Booking[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState("");
 
-  useEffect(() => {
-    Promise.all([
-      api.vendor.analytics(),
-      api.vendor.bookings({ limit: "10" }),
-    ])
-      .then(([a, b]) => {
-        setAnalytics(a.data);
-        setBookings(b.data);
-      })
-      .catch((e) => setError(e instanceof Error ? e.message : "Failed to load"))
-      .finally(() => setIsLoading(false));
+  const [activePreset, setActivePreset] = useState<Preset>("this_month");
+  const [customStart,  setCustomStart]  = useState("");
+  const [customEnd,    setCustomEnd]    = useState("");
+
+  const [dashData,  setDashData]  = useState<DashboardData | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error,     setError]     = useState("");
+
+  const fetchDashboard = useCallback(async (start: string, end: string) => {
+    setIsLoading(true);
+    setError("");
+    try {
+      const res = await api.vendor.dashboard({ startDate: start, endDate: end });
+      setDashData(res.data);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load");
+    } finally {
+      setIsLoading(false);
+    }
   }, []);
+
+  // Fetch whenever a non-custom preset is selected
+  useEffect(() => {
+    if (activePreset === "custom") return;
+    const { start, end } = getPresetDates(activePreset);
+    fetchDashboard(start, end);
+  }, [activePreset, fetchDashboard]);
+
+  function handlePresetClick(preset: Preset) {
+    setActivePreset(preset);
+    if (preset !== "custom") {
+      setCustomStart("");
+      setCustomEnd("");
+    }
+  }
+
+  function handleApplyCustom() {
+    if (!customStart || !customEnd) return;
+    fetchDashboard(customStart, customEnd);
+  }
+
+  // ── Derived display values ──────────────────────────────────────────────────
+  const activeDateLabel =
+    activePreset === "custom" && customStart && customEnd
+      ? `${customStart} → ${customEnd}`
+      : PRESETS.find((p) => p.key === activePreset)?.label ?? "";
+
+  const stats      = dashData?.stats;
+  const bookings   = dashData?.bookings ?? [];
+  const isCustomApplied = activePreset === "custom" && !!dashData;
 
   return (
     <>
       <Header title="Dashboard" />
       <main className="flex-1 p-6 space-y-6 overflow-auto">
+
+        {/* Page heading */}
         <div>
           <p className="text-sm font-semibold uppercase tracking-wide text-muted">Dashboard</p>
           <h2 className="mt-1 text-2xl font-black text-white">
@@ -46,30 +145,6 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {/* Stats */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <StatsCard
-            label="Today's Bookings"
-            value={isLoading ? "—" : analytics?.todayBookings ?? 0}
-            icon="📅"
-          />
-          <StatsCard
-            label="Revenue This Month"
-            value={isLoading ? "—" : `C$${analytics?.totalRevenueMonth.toFixed(2) ?? "0.00"}`}
-            icon="💰"
-          />
-          <StatsCard
-            label="Active Courts"
-            value={isLoading ? "—" : analytics?.occupancyRateByCourt.length ?? 0}
-            icon="🏟"
-          />
-          <StatsCard
-            label="Occupancy Rate"
-            value={isLoading ? "—" : `${analytics?.overallOccupancyRate ?? 0}%`}
-            icon="📈"
-          />
-        </div>
-
         {/* Quick actions */}
         <div>
           <h2 className="text-sm font-semibold text-muted uppercase tracking-wide mb-3">
@@ -77,9 +152,9 @@ export default function DashboardPage() {
           </h2>
           <div className="flex flex-wrap gap-3">
             {[
-              { href: "/dashboard/facilities/new", label: "+ Add Sport", icon: "🏟" },
-              { href: "/dashboard/facilities",     label: "Generate Slots", icon: "⚡" },
-              { href: "/dashboard/analytics",      label: "View Analytics", icon: "📊" },
+              { href: "/dashboard/facilities/new", label: "+ Add Sport",      icon: "🏟" },
+              { href: "/dashboard/facilities",     label: "Generate Slots",   icon: "⚡" },
+              { href: "/dashboard/analytics",      label: "View Analytics",   icon: "📊" },
             ].map(({ href, label, icon }) => (
               <Link
                 key={href}
@@ -93,31 +168,195 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Recent bookings */}
+        {/* ── Date filter bar ─────────────────────────────────────────────── */}
+        <div className="border-b border-border pb-5">
+          {/* Preset pills */}
+          <div className="flex flex-wrap items-center gap-2 mb-3">
+            {PRESETS.map((preset) => (
+              <button
+                key={preset.key}
+                onClick={() => handlePresetClick(preset.key)}
+                className={`px-4 py-1.5 rounded-full text-sm font-semibold transition-colors ${
+                  activePreset === preset.key
+                    ? "bg-primary text-white"
+                    : "bg-surface border border-border text-muted hover:text-white hover:border-primary/40"
+                }`}
+              >
+                {preset.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Custom range inputs */}
+          {activePreset === "custom" && (
+            <div className="flex flex-wrap items-center gap-3 mt-2">
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-muted font-semibold">From</label>
+                <input
+                  type="date"
+                  value={customStart}
+                  max={customEnd || undefined}
+                  onChange={(e) => setCustomStart(e.target.value)}
+                  className="bg-surface border border-border rounded-dome px-3 py-1.5 text-sm text-white focus:outline-none focus:border-primary"
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-muted font-semibold">To</label>
+                <input
+                  type="date"
+                  value={customEnd}
+                  min={customStart || undefined}
+                  onChange={(e) => setCustomEnd(e.target.value)}
+                  className="bg-surface border border-border rounded-dome px-3 py-1.5 text-sm text-white focus:outline-none focus:border-primary"
+                />
+              </div>
+              <button
+                onClick={handleApplyCustom}
+                disabled={!customStart || !customEnd}
+                className="px-5 py-1.5 rounded-dome text-sm font-bold bg-primary text-white disabled:opacity-40 disabled:cursor-not-allowed hover:bg-primary/90 transition-colors"
+              >
+                Apply
+              </button>
+              {customStart && customEnd && (
+                <span className="text-xs text-muted">
+                  {daysBetween(customStart, customEnd)} day{daysBetween(customStart, customEnd) !== 1 ? "s" : ""}
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Active range label */}
+        {(dashData || isLoading) && (
+          <p className="text-xs text-muted -mt-2">
+            Showing data for{" "}
+            <span className="text-primary font-semibold">{activeDateLabel}</span>
+            {dashData?.dateRange && (
+              <span className="ml-1">
+                ({dashData.dateRange.startDate} → {dashData.dateRange.endDate})
+              </span>
+            )}
+          </p>
+        )}
+
+        {/* ── Stats cards ────────────────────────────────────────────────── */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <StatsCard
+            label="Total Bookings"
+            value={isLoading ? "—" : stats?.totalBookings ?? 0}
+            icon="📅"
+          />
+          <StatsCard
+            label="Revenue"
+            value={isLoading ? "—" : `C$${(stats?.revenue ?? 0).toFixed(2)}`}
+            icon="💰"
+          />
+          <StatsCard
+            label="Active Courts"
+            value={isLoading ? "—" : stats?.activeCourts ?? 0}
+            icon="🏟"
+          />
+          <StatsCard
+            label="Occupancy Rate"
+            value={isLoading ? "—" : `${stats?.occupancyRate ?? 0}%`}
+            icon="📈"
+          />
+        </div>
+
+        {/* Confirmed / Cancelled / Pending mini-row */}
+        {!isLoading && stats && (
+          <div className="flex flex-wrap gap-3">
+            {[
+              { label: "Confirmed", value: stats.confirmedBookings, color: "text-green-400"  },
+              { label: "Cancelled", value: stats.cancelledBookings, color: "text-red-400"    },
+              { label: "Pending",   value: stats.pendingBookings,   color: "text-yellow-400" },
+            ].map(({ label, value, color }) => (
+              <div key={label} className="bg-surface border border-border rounded-xl px-5 py-3 text-sm">
+                <span className={`font-black text-lg ${color}`}>{value}</span>
+                <span className="ml-2 text-muted">{label}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* ── Bookings table ──────────────────────────────────────────────── */}
         <div>
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-sm font-semibold text-muted uppercase tracking-wide">
-              Recent Bookings
+              Bookings
             </h2>
             <Link href="/dashboard/bookings" className="text-xs text-primary hover:underline">
               View all →
             </Link>
           </div>
 
-          <DataTable
-            isLoading={isLoading}
-            data={bookings as unknown as Record<string, unknown>[]}
-            emptyMessage="No bookings yet"
-            columns={[
-              { key: "date",     header: "Date",    render: (row) => { const b = row as unknown as Booking; return b.slot ? new Date(b.slot.date).toLocaleDateString("en-CA", { month: "short", day: "numeric" }) : "Walk-in"; } },
-              { key: "time",     header: "Time",    render: (row) => { const b = row as unknown as Booking; return b.slot ? `${b.slot.startTime}–${b.slot.endTime}` : "—"; } },
-              { key: "court",    header: "Court",   render: (row) => { const b = row as unknown as Booking; return b.slot?.court?.name ?? "—"; } },
-              { key: "player",   header: "Player",  render: (row) => { const b = row as unknown as Booking; return `${b.user.firstName} ${b.user.lastName}`; } },
-              { key: "amount",   header: "Amount",  render: (row) => { const b = row as unknown as Booking; return `C$${b.totalCAD.toFixed(2)}`; } },
-              { key: "status",   header: "Status",  render: (row) => { const b = row as unknown as Booking; return <StatusBadge status={b.status} />; } },
-            ]}
-          />
+          {!isLoading && bookings.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16 text-center bg-surface border border-border rounded-xl">
+              <span className="text-5xl mb-4">📅</span>
+              <p className="text-white font-bold text-base">No bookings in this period</p>
+              <p className="text-muted text-sm mt-1">Try selecting a different date range</p>
+            </div>
+          ) : (
+            <DataTable
+              isLoading={isLoading}
+              data={bookings as unknown as Record<string, unknown>[]}
+              emptyMessage="No bookings yet"
+              columns={[
+                {
+                  key: "date",
+                  header: "Date",
+                  render: (row) => {
+                    const b = row as unknown as Booking;
+                    return b.slot
+                      ? new Date(b.slot.date).toLocaleDateString("en-CA", { month: "short", day: "numeric" })
+                      : "Walk-in";
+                  },
+                },
+                {
+                  key: "time",
+                  header: "Time",
+                  render: (row) => {
+                    const b = row as unknown as Booking;
+                    return b.slot ? `${b.slot.startTime}–${b.slot.endTime}` : "—";
+                  },
+                },
+                {
+                  key: "court",
+                  header: "Court",
+                  render: (row) => {
+                    const b = row as unknown as Booking;
+                    return b.slot?.court?.name ?? "—";
+                  },
+                },
+                {
+                  key: "player",
+                  header: "Player",
+                  render: (row) => {
+                    const b = row as unknown as Booking;
+                    return `${b.user.firstName} ${b.user.lastName}`;
+                  },
+                },
+                {
+                  key: "amount",
+                  header: "Amount",
+                  render: (row) => {
+                    const b = row as unknown as Booking;
+                    return `C$${b.totalCAD.toFixed(2)}`;
+                  },
+                },
+                {
+                  key: "status",
+                  header: "Status",
+                  render: (row) => {
+                    const b = row as unknown as Booking;
+                    return <StatusBadge status={b.status} />;
+                  },
+                },
+              ]}
+            />
+          )}
         </div>
+
       </main>
     </>
   );

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Image,
   Modal,
   Platform,
@@ -19,31 +20,26 @@ import AppHeader from "../../src/components/layout/AppHeader";
 import { useAuth } from "../../src/context/AuthContext";
 import { useMyProfile } from "../../src/hooks/useMyProfile";
 import { useMyBookings, type MyBooking } from "../../src/hooks/useMyBookings";
+import { CANADIAN_CITIES } from "../../src/config/canadianCities";
 import { useAuthToken } from "../../src/hooks/useAuthToken";
 import { useFacilities, type Facility } from "../../src/hooks/useFacilities";
 import type { OpenGame } from "../../src/hooks/useConnect";
 import { COLORS } from "../../src/theme";
+import { usePendingBooking } from "../../src/hooks/usePendingBooking";
+import ResumePaymentBanner from "../../src/components/ResumePaymentBanner";
+import { useStripe } from "../../src/lib/stripe";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const API_URL = process.env["EXPO_PUBLIC_API_URL"] ?? "http://localhost:3001/api/v1";
 const CITY_STORAGE_KEY = "dome_selected_city_v2";
+const PROFILE_BANNER_DISMISSED_KEY = "dome_profile_banner_dismissed_until";
 
 interface City { name: string; province: string; lat?: number; lng?: number }
 const ALL_CITIES: City = { name: "All Cities", province: "" };
 const TORONTO: City    = { name: "Toronto", province: "ON", lat: 43.6532, lng: -79.3832 };
 
-const CITIES: City[] = [
-  { name: "Toronto",     province: "ON", lat: 43.6532, lng: -79.3832  },
-  { name: "Montreal",    province: "QC", lat: 45.5017, lng: -73.5673  },
-  { name: "Vancouver",   province: "BC", lat: 49.2827, lng: -123.1207 },
-  { name: "Calgary",     province: "AB", lat: 51.0447, lng: -114.0719 },
-  { name: "Edmonton",    province: "AB", lat: 53.5461, lng: -113.4938 },
-  { name: "Ottawa",      province: "ON", lat: 45.4215, lng: -75.6972  },
-  { name: "Winnipeg",    province: "MB", lat: 49.8951, lng: -97.1384  },
-  { name: "Halifax",     province: "NS", lat: 44.6488, lng: -63.5752  },
-  { name: "Saskatoon",   province: "SK", lat: 52.1332, lng: -106.6700 },
-];
+const CITIES: City[] = CANADIAN_CITIES;
 
 const SPORT_CARDS = [
   { key: "BADMINTON",   emoji: "🏸", label: "Badminton",   accent: "#4CAF50", bg: "#F1F8F1" },
@@ -351,6 +347,8 @@ export default function HomeScreen() {
   const { profile } = useMyProfile();
   const { bookings } = useMyBookings();
   const { getValidToken } = useAuthToken();
+  const { initPaymentSheet, presentPaymentSheet } = useStripe();
+  const { pending, isResuming, setIsResuming, dismiss: dismissPending, extendLock } = usePendingBooking();
 
   const [selectedCity, setSelectedCity] = useState<City>(ALL_CITIES);
   const [pickerVisible, setPickerVisible] = useState(false);
@@ -358,8 +356,26 @@ export default function HomeScreen() {
 
   const [openGames, setOpenGames] = useState<OpenGame[]>([]);
   const [gamesLoading, setGamesLoading] = useState(false);
+  const [showProfileBanner, setShowProfileBanner] = useState(false);
 
   const dates = [0, 1, 2, 3].map(todayPlus);
+
+  // Show incomplete-profile banner unless dismissed within 24 h
+  useEffect(() => {
+    if (user?.profileComplete) return;
+    AsyncStorage.getItem(PROFILE_BANNER_DISMISSED_KEY).then((raw) => {
+      if (raw && Date.now() < Number(raw)) return; // still dismissed
+      setShowProfileBanner(true);
+    });
+  }, [user?.profileComplete]);
+
+  async function handleDismissProfileBanner() {
+    setShowProfileBanner(false);
+    await AsyncStorage.setItem(
+      PROFILE_BANNER_DISMISSED_KEY,
+      String(Date.now() + 24 * 60 * 60 * 1000)
+    );
+  }
 
   // Restore city
   useEffect(() => {
@@ -448,6 +464,76 @@ export default function HomeScreen() {
     ? "All Cities"
     : `${selectedCity.name}, ${selectedCity.province}`;
 
+  async function handleResumePending() {
+    if (!pending) return;
+    setIsResuming(true);
+    try {
+      const clientSecret = await extendLock(pending.bookingId);
+      if (!clientSecret) {
+        Alert.alert("Session Expired", "Your payment session expired. Please book again.");
+        await dismissPending();
+        return;
+      }
+      const { error: initErr } = await initPaymentSheet({
+        paymentIntentClientSecret: clientSecret,
+        merchantDisplayName: "Dome Sports",
+        style: "alwaysDark",
+      });
+      if (initErr) throw new Error(initErr.message);
+
+      const { error: presentErr } = await presentPaymentSheet();
+      if (presentErr) {
+        if (presentErr.code !== "Canceled") {
+          Alert.alert("Payment Failed", presentErr.message);
+        }
+        return;
+      }
+
+      // Payment succeeded — confirm with backend
+      const token = await getValidToken();
+      const confirmRes = await fetch(
+        `${(process.env["EXPO_PUBLIC_API_URL"] ?? "http://localhost:3001/api/v1")}/bookings/${pending.bookingId}/confirm`,
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ paymentIntentId: pending.paymentIntentId }),
+        }
+      );
+      await dismissPending();
+      if (confirmRes.ok) {
+        router.push({
+          pathname: "/booking/success",
+          params: {
+            bookingId: pending.bookingId,
+            facilityName: pending.facilityName,
+            facilityCity: "",
+            sport: pending.sport,
+            date: pending.date,
+            startTime: pending.startTime,
+            endTime: pending.endTime,
+            totalCAD: String(pending.totalCAD),
+          },
+        } as Parameters<typeof router.push>[0]);
+      } else {
+        Alert.alert(
+          "Payment Received",
+          "Payment was successful. Your booking will be confirmed shortly.",
+          [{ text: "OK" }]
+        );
+      }
+    } catch (e) {
+      if ((e as { message?: string }).message?.includes("taken")) {
+        Alert.alert("Slot No Longer Available", "Sorry, this slot was booked by someone else.", [
+          { text: "Browse Courts", onPress: () => router.push("/(tabs)/venues") },
+        ]);
+      } else {
+        Alert.alert("Error", "Could not resume payment. Please try again.");
+      }
+    } finally {
+      setIsResuming(false);
+    }
+  }
+
   return (
     <View style={s.screen}>
       {/* ── Shared app header ── */}
@@ -462,6 +548,40 @@ export default function HomeScreen() {
         contentContainerStyle={[s.content, { paddingBottom: 48 }]}
         showsVerticalScrollIndicator={false}
       >
+        {/* ── Resume Payment Banner ── */}
+        {pending && (
+          <ResumePaymentBanner
+            booking={pending}
+            onResume={handleResumePending}
+            onDismiss={dismissPending}
+            isLoading={isResuming}
+          />
+        )}
+
+        {/* ── Incomplete Profile Banner ── */}
+        {showProfileBanner && (
+          <View style={s.profileBanner}>
+            <View style={s.profileBannerLeft}>
+              <Text style={s.profileBannerIcon}>🎯</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={s.profileBannerTitle}>Complete your profile</Text>
+                <Text style={s.profileBannerSub}>Get better court recommendations</Text>
+              </View>
+            </View>
+            <View style={s.profileBannerActions}>
+              <Pressable
+                style={s.profileBannerBtn}
+                onPress={() => router.push("/onboarding/profile-setup" as Parameters<typeof router.push>[0])}
+              >
+                <Text style={s.profileBannerBtnText}>Set up now →</Text>
+              </Pressable>
+              <Pressable onPress={handleDismissProfileBanner} hitSlop={8}>
+                <Text style={s.profileBannerClose}>✕</Text>
+              </Pressable>
+            </View>
+          </View>
+        )}
+
         {/* ── Section 1: Hero greeting ── */}
         <View style={s.hero}>
           <Text style={s.heroGreeting}>{greeting()}</Text>
@@ -851,4 +971,28 @@ const modal = StyleSheet.create({
   cityProv: { color: COLORS.textMuted, fontSize: 13 },
   check: { color: COLORS.primary, fontSize: 18, fontWeight: "700" },
   sep: { height: 1, backgroundColor: COLORS.border, marginHorizontal: 20 },
+
+  // Profile incomplete banner
+  profileBanner: {
+    backgroundColor: "#FFF5F7",
+    borderWidth: 1.5,
+    borderColor: COLORS.primary,
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 14,
+    gap: 10,
+  },
+  profileBannerLeft: { flexDirection: "row", alignItems: "center", gap: 10 },
+  profileBannerIcon: { fontSize: 22 },
+  profileBannerTitle: { fontSize: 14, fontWeight: "700", color: "#0A0A0A" },
+  profileBannerSub:   { fontSize: 12, color: "#9E9E9E", marginTop: 1 },
+  profileBannerActions: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  profileBannerBtn: {
+    backgroundColor: COLORS.primary,
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  profileBannerBtnText: { color: "#FFFFFF", fontSize: 13, fontWeight: "700" },
+  profileBannerClose:   { color: "#9E9E9E", fontSize: 16, fontWeight: "600", paddingHorizontal: 8 },
 });

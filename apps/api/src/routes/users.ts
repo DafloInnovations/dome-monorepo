@@ -230,6 +230,48 @@ router.put("/me/email-preferences", authenticate, validate(emailPrefsSchema), as
   } catch (err) { next(err); }
 });
 
+// ─── PUT /api/v1/users/me/profile — first-time profile setup ─────────────────
+
+const profileSetupSchema = z.object({
+  firstName:       z.string().min(2, "First name must be at least 2 characters").max(50),
+  lastName:        z.string().min(2, "Last name must be at least 2 characters").max(50),
+  email:           z.string().email().max(254).optional().nullable(),
+  dateOfBirth:     z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD format").optional().nullable(),
+  gender:          z.enum(["MALE", "FEMALE", "OTHER", "PREFER_NOT"]).optional().nullable(),
+  city:            z.string().min(1, "City is required").max(100),
+  province:        z.string().length(2),
+  preferredSports: z.array(z.string().min(1)).min(1, "Select at least one sport"),
+});
+
+router.put("/me/profile", authenticate, validate(profileSetupSchema), async (req, res, next) => {
+  try {
+    const userId = req.user!.sub as string;
+    const body = req.body as z.infer<typeof profileSetupSchema>;
+
+    const user = await prisma.user.update({
+      where: { id: userId },
+      data: {
+        firstName:       body.firstName.trim(),
+        lastName:        body.lastName.trim(),
+        email:           body.email?.trim().toLowerCase() || null,
+        dateOfBirth:     body.dateOfBirth ? new Date(body.dateOfBirth) : null,
+        gender:          body.gender || null,
+        city:            body.city.trim(),
+        province:        body.province as Province,
+        preferredSports: body.preferredSports,
+        profileComplete: true,
+      },
+      select: {
+        id: true, phone: true, firstName: true, lastName: true,
+        avatarUrl: true, role: true, province: true,
+        city: true, preferredSports: true, profileComplete: true,
+      },
+    });
+
+    res.json({ data: user });
+  } catch (err) { next(err); }
+});
+
 router.delete("/me", authenticate, async (req, res) => {
   // TODO: anonymize / delete account (PIPEDA compliance)
   res.status(204).end();

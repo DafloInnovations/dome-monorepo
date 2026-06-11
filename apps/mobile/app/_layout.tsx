@@ -18,11 +18,20 @@ function RootNav() {
 
   useEffect(() => {
     if (isLoading) return;
-    const inAuth = segments[0] === "(auth)";
+    const inAuth       = segments[0] === "(auth)";
+    const inOnboarding = segments[0] === "onboarding";
     if (!user && !inAuth) {
       router.replace("/(auth)/phone");
     } else if (user && inAuth) {
-      router.replace("/(tabs)");
+      // Authenticated: go to onboarding if profile incomplete, otherwise tabs
+      if (!user.profileComplete) {
+        router.replace("/onboarding/profile-setup");
+      } else {
+        router.replace("/(tabs)");
+      }
+    } else if (user && !inAuth && !inOnboarding && !user.profileComplete) {
+      // Returning user with incomplete profile (e.g. app reopen) → back to setup
+      router.replace("/onboarding/profile-setup");
     }
   }, [user, isLoading, segments]);
 
@@ -40,6 +49,10 @@ function RootNav() {
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="(auth)" />
         <Stack.Screen name="(tabs)" />
+        <Stack.Screen
+          name="onboarding/profile-setup"
+          options={{ headerShown: false, gestureEnabled: false }}
+        />
         <Stack.Screen
           name="facility/[facilityId]"
           options={{

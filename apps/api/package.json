@@ -14,7 +14,9 @@
     "db:generate": "prisma generate",
     "db:seed": "ts-node --transpile-only prisma/seed.ts",
     "db:reset": "prisma migrate reset",
-    "smoke-test": "PRODUCTION_URL=https://dome-monorepo-production.up.railway.app/api/v1 ts-node --transpile-only scripts/smoke-test.ts"
+    "smoke-test": "PRODUCTION_URL=https://dome-monorepo-production.up.railway.app/api/v1 ts-node --transpile-only scripts/smoke-test.ts",
+    "android": "expo run:android",
+    "ios": "expo run:ios"
   },
   "ts-node": {
     "compilerOptions": {
@@ -40,7 +42,10 @@
     "socket.io": "^4.8.3",
     "stripe": "^22.2.0",
     "twilio": "^6.0.2",
-    "zod": "^3.24.1"
+    "zod": "^3.24.1",
+    "expo": "~54.0.35",
+    "react": "19.1.0",
+    "react-native": "0.81.5"
   },
   "devDependencies": {
     "@dome/config": "workspace:*",

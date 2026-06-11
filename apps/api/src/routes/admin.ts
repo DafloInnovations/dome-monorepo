@@ -238,12 +238,14 @@ router.get("/users/:userId", async (req, res, next) => {
         bookings: {
           include: {
             slot: { select: { date: true, startTime: true, endTime: true } },
-            facility: { select: { name: true, sport: true } },
+            facility: { select: { id: true, name: true, sport: true, address: { select: { city: true } } } },
+            payment: { select: { status: true, amountCAD: true } },
           },
           orderBy: { createdAt: "desc" },
-          take: 20,
+          take: 50,
         },
-        domeCredits: { orderBy: { createdAt: "desc" }, take: 10 },
+        domeCredits: { orderBy: { createdAt: "desc" }, take: 30 },
+        _count: { select: { bookings: true } },
       },
     });
     if (!user) { res.status(404).json({ message: "User not found" }); return; }
@@ -251,7 +253,17 @@ router.get("/users/:userId", async (req, res, next) => {
       data: {
         ...user,
         creditBalanceCAD: Number(user.creditBalanceCAD),
-        bookings: user.bookings.map((b) => ({ ...b, totalCAD: Number(b.totalCAD), subtotalCAD: Number(b.subtotalCAD), taxCAD: Number(b.taxCAD) })),
+        bookings: user.bookings.map((b) => ({
+          ...b,
+          totalCAD: Number(b.totalCAD),
+          subtotalCAD: Number(b.subtotalCAD),
+          taxCAD: Number(b.taxCAD),
+          payment: b.payment ? { ...b.payment, amountCAD: Number(b.payment.amountCAD) } : null,
+          slot: {
+            ...b.slot,
+            date: b.slot.date instanceof Date ? b.slot.date.toISOString().split("T")[0]! : String(b.slot.date),
+          },
+        })),
         domeCredits: user.domeCredits.map((c) => ({ ...c, amountCAD: Number(c.amountCAD) })),
       },
     });
