@@ -259,10 +259,10 @@ router.get("/users/:userId", async (req, res, next) => {
           subtotalCAD: Number(b.subtotalCAD),
           taxCAD: Number(b.taxCAD),
           payment: b.payment ? { ...b.payment, amountCAD: Number(b.payment.amountCAD) } : null,
-          slot: {
+          slot: b.slot ? {
             ...b.slot,
             date: b.slot.date instanceof Date ? b.slot.date.toISOString().split("T")[0]! : String(b.slot.date),
-          },
+          } : null,
         })),
         domeCredits: user.domeCredits.map((c) => ({ ...c, amountCAD: Number(c.amountCAD) })),
       },

@@ -77,8 +77,8 @@ export async function createBooking(
   if (!slot) throw appError("Slot not found", 404);
   if (slot.facilityId !== facilityId) throw appError("Slot not found", 404);
 
-  const facilityForTZ = await prisma.facility.findUnique({ where: { id: facilityId }, select: { province: true } });
-  if (isSlotInPast(slot.date.toISOString().split('T')[0]!, slot.startTime, facilityForTZ?.province ?? 'ON')) {
+  const facilityForTZ = await prisma.facility.findUnique({ where: { id: facilityId }, select: { address: { select: { province: true } } } });
+  if (isSlotInPast(slot.date.toISOString().split('T')[0]!, slot.startTime, facilityForTZ?.address?.province ?? 'ON')) {
     throw appError("This time slot is no longer available for booking", 400, "SLOT_IN_PAST");
   }
 
@@ -1082,8 +1082,8 @@ export async function createTimeBooking(
   });
   if (slots.length !== slotIds.length) throw appError("One or more slots not found", 404);
 
-  const facilityForTZ = await prisma.facility.findUnique({ where: { id: facilityId }, select: { province: true } });
-  const facilityProvince = facilityForTZ?.province ?? 'ON';
+  const facilityForTZ = await prisma.facility.findUnique({ where: { id: facilityId }, select: { address: { select: { province: true } } } });
+  const facilityProvince = facilityForTZ?.address?.province ?? 'ON';
   for (const slot of slots) {
     if (slot.status !== SlotStatus.AVAILABLE) {
       throw appError(
@@ -1165,6 +1165,11 @@ export async function createTimeBooking(
     }
     for (const [, groupSlots] of groups) {
       const first = groupSlots[0]!;
+      if (!first.courtId) {
+        // Session or walk-in slots with no court — use slot base price directly
+        groupSlots.forEach((s) => slotPriceMap.set(s.id, Number(s.priceCAD)));
+        continue;
+      }
       const pricingResults = await calculatePricingForCourt(
         first.courtId,
         first.date,
