@@ -4,6 +4,7 @@ import helmet from "helmet";
 import morgan from "morgan";
 import { errorHandler } from "./middleware/error";
 import { router } from "./routes";
+import paymentsRouter from "./routes/payments";
 
 export function createApp() {
   const app = express();
@@ -101,6 +102,7 @@ export function createApp() {
 </html>`);
   });
 
+  app.use("/api/v1/payments", paymentsRouter);
   app.use("/api/v1", router);
 
   app.use(errorHandler);
