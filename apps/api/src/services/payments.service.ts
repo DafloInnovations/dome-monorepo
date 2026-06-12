@@ -191,18 +191,21 @@ export async function handleWebhook(rawBody: Buffer, signature: string) {
     case "checkout.session.completed": {
       const session = event.data.object as unknown as StripeCheckoutSession;
       const meta = session.metadata ?? {};
-      const { bookingId, type, playerName, playerPhone } = meta;
+      const {
+        bookingId, type,
+        date, startTime, endTime, durationMinutes, courtId, facilityId, sport,
+        playerName, playerPhone,
+      } = meta;
 
       if (type !== "WALKIN" || !bookingId) break;
 
-      // Look up by bookingId — the paymentLinkId match is a nice-to-have but
-      // can fail if Stripe doesn't expand payment_link on the event object.
+      // Look up by bookingId alone — reliable since we set it on the payment link metadata.
       const booking = await prisma.booking.findUnique({
         where: { id: bookingId },
         select: { id: true, userId: true, totalCAD: true, status: true },
       });
       if (!booking) break;
-      // Idempotency: skip if already confirmed by an earlier event
+      // Idempotency: skip if already confirmed by an earlier event delivery.
       if (booking.status === BookingStatus.CONFIRMED) break;
 
       const paymentIntentId =
@@ -210,12 +213,34 @@ export async function handleWebhook(rawBody: Buffer, signature: string) {
           ? session.payment_intent
           : (session.payment_intent as { id: string } | null)?.id;
 
+      // Create a slot from the payment-link metadata so the booking has proper
+      // date/time/court stored in the DB (walk-in bookings are created slotless).
+      let createdSlotId: string | undefined;
+      if (date && startTime && endTime && courtId && facilityId) {
+        const slot = await prisma.slot.create({
+          data: {
+            facilityId,
+            courtId,
+            date: new Date(date + "T00:00:00.000Z"),
+            startTime,
+            endTime,
+            durationMinutes: Number(durationMinutes) || 60,
+            priceCAD: booking.totalCAD,
+            status: SlotStatus.BOOKED,
+            sport: sport ?? null,
+            linkedSlotIds: [],
+          },
+        });
+        createdSlotId = slot.id;
+      }
+
       await prisma.$transaction([
         prisma.booking.update({
           where: { id: bookingId },
           data: {
             status: BookingStatus.CONFIRMED,
             paymentStatus: BookingPaymentStatus.PAID,
+            ...(createdSlotId ? { slotId: createdSlotId } : {}),
           },
         }),
         ...(paymentIntentId
@@ -252,7 +277,6 @@ export async function handleWebhook(rawBody: Buffer, signature: string) {
         );
       }
 
-      // TODO: SMS to player when Twilio is configured
       void playerName; void playerPhone;
       break;
     }
