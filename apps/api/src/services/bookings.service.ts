@@ -1248,6 +1248,10 @@ export async function createTimeBooking(
         data: { status: SlotStatus.BOOKED },
       }),
       ...creditDeductOps(bookingId),
+      prisma.user.update({
+        where: { id: userId },
+        data: { creditBalanceCAD: { increment: POINTS_PER_BOOKING } },
+      }),
     ]);
     // Release Redis locks
     await redis.del(...allLockIds.map((id) => `slot:${id}:lock`));
@@ -1636,6 +1640,7 @@ export async function getBookingPaymentIntent(bookingId: string, userId: string)
 
 // ─── Log share ────────────────────────────────────────────────────────────────
 
+const POINTS_PER_BOOKING = 10;
 const SHARE_BONUS_POINTS = 50;
 
 export async function logBookingShare(

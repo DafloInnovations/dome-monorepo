@@ -13,9 +13,9 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import * as ImagePicker from "expo-image-picker";
-import { useRouter } from "expo-router";
+import { useRouter, useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "../../src/context/AuthContext";
@@ -131,6 +131,8 @@ export default function ProfileScreen() {
 
   const { threads }     = useThreads();
   const { unreadCount } = useNotificationsContext();
+
+  useFocusEffect(useCallback(() => { refetch(); }, [refetch]));
   const unreadMessages  = threads.reduce((s, t) => s + (t.unreadCount ?? 0), 0);
 
   const [email,             setEmail]             = useState("");
@@ -253,10 +255,10 @@ export default function ProfileScreen() {
   }
 
   const stats = profile?.stats;
-  const tier  = stats?.tier;
-  const tierName    = tier?.name ?? "Beginner";
-  const tierNameUp  = tierName.toUpperCase();
-  const tierStyle   = TIER_STYLE[tierName] ?? TIER_STYLE[tierNameUp] ?? DEFAULT_TIER;
+  // API returns tier as an uppercase string e.g. "BEGINNER", "ROOKIE"
+  const tierNameUp = stats?.tier ?? "BEGINNER";
+  const tierName   = tierNameUp.charAt(0) + tierNameUp.slice(1).toLowerCase();
+  const tierStyle  = TIER_STYLE[tierName] ?? TIER_STYLE[tierNameUp] ?? DEFAULT_TIER;
   const totalPoints = stats?.totalPoints ?? 0;
   const [tierMin, tierMax] = TIER_RANGES[tierNameUp] ?? [0, 100];
   const tierProgress = Math.min(1, Math.max(0, (totalPoints - tierMin) / Math.max(1, tierMax - tierMin)));
@@ -346,7 +348,7 @@ export default function ProfileScreen() {
           ) : null}
 
           {/* Tier card */}
-          {tier && (
+          {stats && (
             <Pressable
               style={[s.tierCard, { backgroundColor: tierStyle.bg, borderColor: tierStyle.border }]}
               onPress={() => router.navigate("/(tabs)/profile" as Parameters<typeof router.navigate>[0])}

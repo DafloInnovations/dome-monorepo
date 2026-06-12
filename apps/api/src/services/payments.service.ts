@@ -30,6 +30,8 @@ function appError(msg: string, status = 500, code?: string) {
   return Object.assign(new Error(msg), { status, code });
 }
 
+const POINTS_PER_BOOKING = 10;
+
 // ─── Create PaymentIntent ─────────────────────────────────────────────────────
 
 export async function createPaymentIntent(userId: string, bookingId: string) {
@@ -128,6 +130,10 @@ export async function handleWebhook(rawBody: Buffer, signature: string) {
           where: { id: slotId },
           data: { status: SlotStatus.BOOKED },
         }),
+        prisma.user.update({
+          where: { id: userId },
+          data: { creditBalanceCAD: { increment: POINTS_PER_BOOKING } },
+        }),
       ]);
 
       await redis.del(`slot:${slotId}:lock`);
@@ -184,23 +190,20 @@ export async function handleWebhook(rawBody: Buffer, signature: string) {
 
     case "checkout.session.completed": {
       const session = event.data.object as unknown as StripeCheckoutSession;
-      const paymentLinkId =
-        typeof session.payment_link === "string"
-          ? session.payment_link
-          : (session.payment_link as { id: string } | null)?.id;
-
-      if (!paymentLinkId) break;
-
       const meta = session.metadata ?? {};
       const { bookingId, type, playerName, playerPhone } = meta;
 
       if (type !== "WALKIN" || !bookingId) break;
 
-      const booking = await prisma.booking.findFirst({
-        where: { id: bookingId, paymentIntentId: paymentLinkId },
-        select: { id: true, userId: true, totalCAD: true },
+      // Look up by bookingId — the paymentLinkId match is a nice-to-have but
+      // can fail if Stripe doesn't expand payment_link on the event object.
+      const booking = await prisma.booking.findUnique({
+        where: { id: bookingId },
+        select: { id: true, userId: true, totalCAD: true, status: true },
       });
       if (!booking) break;
+      // Idempotency: skip if already confirmed by an earlier event
+      if (booking.status === BookingStatus.CONFIRMED) break;
 
       const paymentIntentId =
         typeof session.payment_intent === "string"

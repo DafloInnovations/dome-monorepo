@@ -11,6 +11,7 @@ export interface AuthUser {
   role: string;
   firstName?: string;
   lastName?: string;
+  avatarUrl?: string | null;
   profileComplete?: boolean;
 }
 

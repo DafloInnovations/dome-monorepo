@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import Header from "../../components/layout/Header";
 import StatsCard from "../../components/ui/StatsCard";
@@ -70,6 +70,8 @@ function daysBetween(start: string, end: string): number {
   ) + 1;
 }
 
+const BOOKING_STATUS_OPTS = ["ALL", "CONFIRMED", "PENDING", "CANCELLED", "COMPLETED"] as const;
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
@@ -82,6 +84,10 @@ export default function DashboardPage() {
   const [dashData,  setDashData]  = useState<DashboardData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error,     setError]     = useState("");
+
+  const [playerSearch,   setPlayerSearch]   = useState("");
+  const [statusFilter,   setStatusFilter]   = useState("ALL");
+  const [courtFilter,    setCourtFilter]    = useState("");
 
   const fetchDashboard = useCallback(async (start: string, end: string) => {
     setIsLoading(true);
@@ -125,6 +131,28 @@ export default function DashboardPage() {
   const stats      = dashData?.stats;
   const bookings   = dashData?.bookings ?? [];
   const isCustomApplied = activePreset === "custom" && !!dashData;
+
+  const courtNames = useMemo(
+    () => Array.from(new Set(bookings.map((b) => b.slot?.court?.name).filter(Boolean))) as string[],
+    [bookings]
+  );
+
+  const filteredBookings = useMemo(() => {
+    let result = bookings;
+    if (statusFilter !== "ALL") {
+      result = result.filter((b) => b.status === statusFilter);
+    }
+    if (courtFilter) {
+      result = result.filter((b) => b.slot?.court?.name === courtFilter);
+    }
+    if (playerSearch.trim()) {
+      const q = playerSearch.trim().toLowerCase();
+      result = result.filter((b) =>
+        `${b.user.firstName} ${b.user.lastName}`.toLowerCase().includes(q)
+      );
+    }
+    return result;
+  }, [bookings, statusFilter, courtFilter, playerSearch]);
 
   return (
     <>
@@ -290,6 +318,61 @@ export default function DashboardPage() {
             </Link>
           </div>
 
+          {/* Search + filters */}
+          {!isLoading && bookings.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2 mb-3">
+              {/* Player search */}
+              <div className="relative">
+                <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" />
+                </svg>
+                <input
+                  type="text"
+                  placeholder="Search player…"
+                  value={playerSearch}
+                  onChange={(e) => setPlayerSearch(e.target.value)}
+                  className="bg-surface border border-border rounded-dome pl-7 pr-3 py-1.5 text-xs text-white placeholder:text-muted focus:outline-none focus:border-primary w-40"
+                />
+                {playerSearch && (
+                  <button onClick={() => setPlayerSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted hover:text-white text-xs">✕</button>
+                )}
+              </div>
+
+              {/* Status pills */}
+              <div className="flex gap-1.5 flex-wrap">
+                {BOOKING_STATUS_OPTS.map((s) => (
+                  <button key={s} onClick={() => setStatusFilter(s)}
+                    className={`text-xs font-semibold px-3 py-1.5 rounded-full transition-colors ${
+                      statusFilter === s
+                        ? "bg-primary text-white"
+                        : "bg-surface border border-border text-muted hover:text-white"
+                    }`}>
+                    {s === "ALL" ? "All" : s.charAt(0) + s.slice(1).toLowerCase()}
+                  </button>
+                ))}
+              </div>
+
+              {/* Court dropdown */}
+              {courtNames.length > 1 && (
+                <select value={courtFilter} onChange={(e) => setCourtFilter(e.target.value)}
+                  className="bg-black border border-border rounded-dome px-2 py-1.5 text-xs text-white focus:outline-none focus:border-primary">
+                  <option value="">All Courts</option>
+                  {courtNames.map((c) => <option key={c} value={c}>{c}</option>)}
+                </select>
+              )}
+
+              {/* Active filter count */}
+              {(statusFilter !== "ALL" || courtFilter || playerSearch) && (
+                <button
+                  onClick={() => { setStatusFilter("ALL"); setCourtFilter(""); setPlayerSearch(""); }}
+                  className="text-xs text-muted hover:text-white transition-colors"
+                >
+                  Clear filters
+                </button>
+              )}
+            </div>
+          )}
+
           {!isLoading && bookings.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 text-center bg-surface border border-border rounded-xl">
               <span className="text-5xl mb-4">📅</span>
@@ -299,8 +382,8 @@ export default function DashboardPage() {
           ) : (
             <DataTable
               isLoading={isLoading}
-              data={bookings as unknown as Record<string, unknown>[]}
-              emptyMessage="No bookings yet"
+              data={filteredBookings as unknown as Record<string, unknown>[]}
+              emptyMessage="No bookings match your filters"
               columns={[
                 {
                   key: "date",

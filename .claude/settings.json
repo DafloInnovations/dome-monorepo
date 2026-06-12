@@ -21,7 +21,12 @@
       "Bash(python3 -c \"import json,sys; p=json.load\\(sys.stdin\\); print\\(json.dumps\\(p.get\\('scripts',{}\\), indent=2\\)\\)\")",
       "Bash(python3 -c \"import json,sys; p=json.load\\(sys.stdin\\); print\\('name:', p.get\\('name'\\)\\); print\\('main:', p.get\\('main'\\)\\); print\\('exports:', list\\(p.get\\('exports',{}\\).keys\\(\\)\\)[:5]\\)\")",
       "Bash(git diff *)",
-      "Bash(git commit -m ' *)"
+      "Bash(git commit -m ' *)",
+      "Bash(ps -p 62330 -o command)",
+      "Bash(awk '$2==62330')",
+      "Bash(kill 62330)",
+      "Bash(pnpm --filter vendor dev)",
+      "Bash(echo \"started PID $!\")"
     ]
   }
 }

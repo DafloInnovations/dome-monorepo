@@ -20,7 +20,6 @@ function RootNav() {
     if (isLoading) return;
     const inAuth       = segments[0] === "(auth)";
     const inOnboarding = segments[0] === "onboarding";
-    const inTabs       = segments[0] === "(tabs)";
 
     /*
      * AUTH FLOW:
@@ -49,8 +48,10 @@ function RootNav() {
       } else {
         router.replace("/(tabs)");
       }
-    } else if (user && !inAuth && !inOnboarding && !inTabs) {
-      // Hydrated user landing on an unknown/stale segment → push to tabs
+    } else if (user && !segments[0]) {
+      // Hydrated user landing at app root → push to tabs.
+      // Valid stack routes like facility, booking, chat, review, and notifications
+      // must remain reachable after button presses.
       router.replace("/(tabs)");
     }
   }, [user, isLoading, segments]);

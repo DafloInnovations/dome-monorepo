@@ -383,28 +383,6 @@ export default function FacilityDetailScreen() {
 
   const date = formatLocalDate(days[selectedDay]!);
 
-  // Dynamic duration options driven by the selected court's rules
-  const validDurations = useMemo<number[]>(() => {
-    if (!activeCourt) return [30, 60, 90, 120, 180];
-    const durations: number[] = [];
-    let cur = activeCourt.minBookingMinutes;
-    while (cur <= activeCourt.maxBookingMinutes) {
-      durations.push(cur);
-      cur += activeCourt.durationStepMinutes;
-    }
-    return durations;
-  }, [activeCourt]);
-
-  // When a court is selected, reset duration to that court's minimum if current is invalid
-  useEffect(() => {
-    if (!activeCourt) return;
-    const isValid =
-      durationMinutes >= activeCourt.minBookingMinutes &&
-      durationMinutes <= activeCourt.maxBookingMinutes &&
-      (durationMinutes - activeCourt.minBookingMinutes) % activeCourt.durationStepMinutes === 0;
-    if (!isValid) setDuration(activeCourt.minBookingMinutes);
-  }, [activeCourt]); // eslint-disable-line react-hooks/exhaustive-deps
-
   const { refetch: refetchSlots } = useSlots(facilityId ?? "", date);
   const { result: courtsResult, isLoading: courtsLoading } = useAvailableCourts(
     facilityId ?? "", date, selectedTime ?? "", durationMinutes
@@ -414,6 +392,31 @@ export default function FacilityDetailScreen() {
     isLoading: timesLoading,
     refetch: refetchTimes,
   } = useAvailableTimes(facilityId ?? "", date, durationMinutes);
+
+  // Use first court from API response as the duration-rules reference so pills
+  // reflect vendor config as soon as courts load — before user selects anything.
+  const refCourt = courtsResult?.courts[0] ?? activeCourt;
+
+  const validDurations = useMemo<number[]>(() => {
+    if (!refCourt) return [60];
+    const durations: number[] = [];
+    let cur = refCourt.minBookingMinutes;
+    while (cur <= refCourt.maxBookingMinutes) {
+      durations.push(cur);
+      cur += refCourt.durationStepMinutes;
+    }
+    return durations;
+  }, [refCourt]);
+
+  // Reset duration whenever court rules change and current value falls outside them
+  useEffect(() => {
+    if (!refCourt) return;
+    const isValid =
+      durationMinutes >= refCourt.minBookingMinutes &&
+      durationMinutes <= refCourt.maxBookingMinutes &&
+      (durationMinutes - refCourt.minBookingMinutes) % refCourt.durationStepMinutes === 0;
+    if (!isValid) setDuration(refCourt.minBookingMinutes);
+  }, [refCourt]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const todayStr = formatLocalDate(new Date());
   const filteredTimes = useMemo<AvailableTimeSlot[]>(() => {
@@ -797,9 +800,9 @@ export default function FacilityDetailScreen() {
                 <Text style={styles.timeRangeText}>
                   {fmtTime12(selectedTime)} → {ctaEndTime}
                 </Text>
-                {activeCourt && (
+                {refCourt && (
                   <Text style={styles.durationHint}>
-                    Min {fmtDuration(activeCourt.minBookingMinutes)} · extend in {fmtDuration(activeCourt.durationStepMinutes)} increments
+                    Min {fmtDuration(refCourt.minBookingMinutes)} · +{fmtDuration(refCourt.durationStepMinutes)} increments
                   </Text>
                 )}
               </View>
@@ -1128,7 +1131,7 @@ const styles = StyleSheet.create({
 
   // Duration pills
   durationRow: {
-    flexDirection: "row", gap: 8, paddingHorizontal: 16,
+    flexDirection: "row", flexWrap: "wrap", gap: 8, paddingHorizontal: 16,
   },
   durationPill: {
     paddingVertical: 11, paddingHorizontal: 16,

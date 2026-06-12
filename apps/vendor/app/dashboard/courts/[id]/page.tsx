@@ -164,7 +164,7 @@ export default function CourtSettingsPage() {
                   selected={minMinutes === 30}
                   title="30 min"
                   subtitle="Half-hour minimum"
-                  onClick={() => setMinMinutes(30)}
+                  onClick={() => { setMinMinutes(30); setStepMinutes(30); }}
                 />
                 <RuleCard
                   selected={minMinutes === 60}
@@ -188,13 +188,18 @@ export default function CourtSettingsPage() {
                   subtitle="30m, 1h, 1.5h, 2h…"
                   onClick={() => setStepMinutes(30)}
                 />
-                <RuleCard
-                  selected={stepMinutes === 60}
-                  title="60 min steps"
-                  subtitle="1h, 2h, 3h only"
-                  onClick={() => setStepMinutes(60)}
-                />
+                {minMinutes >= 60 && (
+                  <RuleCard
+                    selected={stepMinutes === 60}
+                    title="60 min steps"
+                    subtitle="1h, 2h, 3h only"
+                    onClick={() => setStepMinutes(60)}
+                  />
+                )}
               </div>
+              {minMinutes === 30 && stepMinutes === 60 && (
+                <p className="text-xs text-amber-400">Step cannot exceed minimum — resetting to 30 min</p>
+              )}
             </div>
 
             {/* ── Maximum booking ───────────────────────────────────── */}
@@ -204,7 +209,7 @@ export default function CourtSettingsPage() {
                 <p className="text-xs text-muted">Longest single booking allowed</p>
               </div>
               <div className="flex gap-2 flex-wrap">
-                {[60, 120, 180, 240].map((v) => (
+                {[60, 90, 120, 150, 180].filter((v) => v >= minMinutes).map((v) => (
                   <button
                     key={v}
                     type="button"

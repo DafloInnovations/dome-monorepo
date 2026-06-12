@@ -670,6 +670,62 @@ router.put("/facilities/:id", validate(updateFacilitySchema), async (req, res, n
   }
 });
 
+// PUT /api/v1/vendor/facilities/:id/hours
+const updateHoursSchema = z.object({
+  hours: z.array(z.object({
+    day: z.number().int().min(0).max(6),
+    isClosed: z.boolean().optional().default(false),
+    openTime: z.string().regex(/^\d{2}:\d{2}$/, "Must be HH:mm").optional().nullable(),
+    closeTime: z.string().regex(/^\d{2}:\d{2}$/, "Must be HH:mm").optional().nullable(),
+  })).min(1).max(7),
+});
+
+router.put("/facilities/:id/hours", validate(updateHoursSchema), async (req, res, next) => {
+  try {
+    const facilityId = param(req.params["id"]!);
+    const { hours } = req.body as z.infer<typeof updateHoursSchema>;
+
+    const vendor = await prisma.vendor.findUnique({
+      where: { userId: req.user!.sub as string },
+      select: { id: true },
+    });
+    if (!vendor) { res.status(404).json({ message: "Vendor not found" }); return; }
+
+    const facility = await prisma.facility.findFirst({
+      where: { id: facilityId, vendorId: vendor.id },
+      select: { id: true },
+    });
+    if (!facility) { res.status(403).json({ message: "Not your facility" }); return; }
+
+    await Promise.all(
+      hours.map((h) =>
+        prisma.operatingHours.upsert({
+          where: { facilityId_day: { facilityId, day: h.day } },
+          create: {
+            facilityId,
+            day: h.day,
+            isClosed: h.isClosed ?? false,
+            openTime: h.openTime ?? "08:00",
+            closeTime: h.closeTime ?? "22:00",
+          },
+          update: {
+            isClosed: h.isClosed ?? false,
+            openTime: h.openTime ?? "08:00",
+            closeTime: h.closeTime ?? "22:00",
+          },
+        })
+      )
+    );
+
+    const updated = await prisma.operatingHours.findMany({
+      where: { facilityId },
+      orderBy: { day: "asc" },
+    });
+
+    res.json({ data: { hours: updated } });
+  } catch (err) { next(err); }
+});
+
 // ─── Court routes ─────────────────────────────────────────────────────────────
 
 // POST /api/v1/vendor/facilities/:id/courts
@@ -704,10 +760,12 @@ router.get("/courts/:id", async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+const VALID_MAX_MINUTES = [60, 90, 120, 150, 180] as const;
+
 const durationRulesSchema = z.object({
   minBookingMinutes:   z.number().int().refine((v) => [30, 60].includes(v), "Must be 30 or 60"),
   durationStepMinutes: z.number().int().refine((v) => [30, 60].includes(v), "Must be 30 or 60"),
-  maxBookingMinutes:   z.number().int().refine((v) => [60, 120, 180, 240].includes(v), "Must be 60, 120, 180, or 240"),
+  maxBookingMinutes:   z.number().int().refine((v) => (VALID_MAX_MINUTES as readonly number[]).includes(v), "Must be a valid max duration up to 3h"),
 });
 
 // PUT /api/v1/vendor/courts/:id/duration-rules
@@ -715,6 +773,9 @@ router.put("/courts/:id/duration-rules", validate(durationRulesSchema), async (r
   try {
     const courtId = param(req.params["id"]!);
     const rules = req.body as z.infer<typeof durationRulesSchema>;
+    if (rules.durationStepMinutes > rules.minBookingMinutes) {
+      res.status(422).json({ message: "Step size cannot exceed minimum booking duration" }); return;
+    }
     if (rules.minBookingMinutes > rules.maxBookingMinutes) {
       res.status(422).json({ message: "Minimum must not exceed maximum" }); return;
     }

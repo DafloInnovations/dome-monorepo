@@ -1,30 +1,68 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import confetti from "canvas-confetti";
 import Header from "../../../components/layout/Header";
-import { api, type Facility, type WalkinCreated, type WalkinHistory, type WalkinPrice } from "../../../lib/api";
+import { api, apiFetch, type WalkinCreated, type WalkinHistory, type WalkinPrice } from "../../../lib/api";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type PanelState = "idle" | "loading" | "waiting" | "paid" | "expired";
 
-const DURATION_OPTS = [
-  { label: "30m", value: 30 },
-  { label: "1h",  value: 60 },
-  { label: "1.5h", value: 90 },
-  { label: "2h",  value: 120 },
-  { label: "3h",  value: 180 },
-];
+type FacilityCourt = {
+  id: string;
+  name: string;
+  isActive: boolean;
+  sports: string[];
+  primarySport: string | null;
+  facilityId: string;
+};
 
-function todayStr() {
-  return new Date().toISOString().split("T")[0]!;
+type AvailableTime = {
+  time: string;
+  label: string;
+  availableCourts: number;
+  totalCourts: number;
+  status: "AVAILABLE" | "PARTIAL" | "BOOKED";
+};
+
+type CourtRules = {
+  minBookingMinutes: number;
+  durationStepMinutes: number;
+  maxBookingMinutes: number;
+};
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const SPORT_EMOJIS: Record<string, string> = {
+  BADMINTON:  "🏸",
+  PICKLEBALL: "🥒",
+  TENNIS:     "🎾",
+  BASKETBALL: "🏀",
+  SOCCER:     "⚽",
+  CRICKET:    "🏏",
+  VOLLEYBALL: "🏐",
+  HOCKEY:     "🏒",
+};
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function getSportEmoji(sport: string): string {
+  return SPORT_EMOJIS[sport.toUpperCase()] ?? "🏅";
 }
 
-function addMins(time: string, mins: number): string {
-  const [h, m] = time.split(":").map(Number);
-  const total = h! * 60 + m! + mins;
-  return `${String(Math.floor(total / 60) % 24).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+function getSportLabel(sport: string): string {
+  return sport.charAt(0).toUpperCase() + sport.slice(1).toLowerCase();
+}
+
+function formatDuration(minutes: number): string {
+  if (minutes < 60) return `${minutes}m`;
+  if (minutes % 60 === 0) return `${minutes / 60}h`;
+  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+}
+
+function todayStr(): string {
+  return new Date().toISOString().split("T")[0]!;
 }
 
 function fmtTime(t: string): string {
@@ -34,43 +72,48 @@ function fmtTime(t: string): string {
   return `${h12}:${String(m).padStart(2, "0")} ${ampm}`;
 }
 
-function sportEmoji(sport: string): string {
-  const s = sport.toUpperCase();
-  if (s === "BADMINTON")   return "🏸";
-  if (s === "TENNIS")      return "🎾";
-  if (s === "PICKLEBALL")  return "🥒";
-  if (s === "BASKETBALL")  return "🏀";
-  if (s === "SOCCER")      return "⚽";
-  if (s === "VOLLEYBALL")  return "🏐";
-  if (s === "SQUASH")      return "🎱";
-  if (s === "HOCKEY")      return "🏒";
-  if (s === "CRICKET")     return "🏏";
-  if (s === "BASEBALL")    return "⚾";
-  return "🏅";
-}
+// ─── Shared styles ────────────────────────────────────────────────────────────
 
-function sportLabel(sport: string): string {
-  return sport.charAt(0).toUpperCase() + sport.slice(1).toLowerCase();
-}
+const labelCls = "text-xs font-bold text-muted uppercase tracking-wider block mb-2";
+
+const disabledHintCls =
+  "w-full px-4 py-3 rounded-dome border border-border/40 bg-black/30 text-muted text-sm italic";
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function WalkinPage() {
-  // Form state
+  // Facility (auto-loaded)
   const [facilityId, setFacilityId] = useState("");
-  const [courtId, setCourtId] = useState("");
-  const [date, setDate] = useState(todayStr());
-  const [startTime, setStartTime] = useState("");
-  const [durationMinutes, setDurationMinutes] = useState(60);
-  const [sport, setSport] = useState("");
+  const [facilityName, setFacilityName] = useState<string | null>(null);
+  const [allCourts, setAllCourts] = useState<FacilityCourt[]>([]);
+  const [sports, setSports] = useState<string[]>([]);
+
+  // Step 1 — sport
+  const [selectedSport, setSelectedSport] = useState("");
+
+  // Step 2 — court (filtered by sport)
+  const [selectedCourt, setSelectedCourt] = useState("");
+  const [selectedCourtData, setSelectedCourtData] = useState<FacilityCourt | null>(null);
+  const [durationOptions, setDurationOptions] = useState<number[]>([]);
+
+  // Step 3 — date (enabled after court selected)
+  const [selectedDate, setSelectedDate] = useState(todayStr());
+
+  // Step 4 — time (fetched from API after court+date)
+  const [availableTimes, setAvailableTimes] = useState<AvailableTime[]>([]);
+  const [loadingTimes, setLoadingTimes] = useState(false);
+  const [selectedTime, setSelectedTime] = useState("");
+
+  // Step 5 — duration (enabled after time selected)
+  const [selectedDuration, setSelectedDuration] = useState(0);
+
+  // Player info
   const [playerName, setPlayerName] = useState("");
   const [playerPhone, setPlayerPhone] = useState("");
 
-  // Data
-  const [facilities, setFacilities] = useState<Facility[]>([]);
+  // Pricing & history
   const [pricing, setPricing] = useState<WalkinPrice | null>(null);
   const [history, setHistory] = useState<WalkinHistory | null>(null);
-  const [loadingFacilities, setLoadingFacilities] = useState(true);
   const [formError, setFormError] = useState("");
   const [generating, setGenerating] = useState(false);
 
@@ -79,52 +122,49 @@ export default function WalkinPage() {
   const [activeBooking, setActiveBooking] = useState<WalkinCreated | null>(null);
   const [timeLeft, setTimeLeft] = useState("");
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [paidAt, setPaidAt] = useState<Date | null>(null);
 
   const pricingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const dateRef = useRef<HTMLInputElement>(null);
 
-  // ─── Derived values ─────────────────────────────────────────────────────────
+  // ─── Derived ─────────────────────────────────────────────────────────────────
 
-  const selectedFacility = facilities.find((f) => f.id === facilityId) ?? null;
-  const activeCourts = selectedFacility?.courts.filter((c) => c.isActive) ?? [];
-  const selectedCourt = activeCourts.find((c) => c.id === courtId) ?? null;
-  const availableSports: string[] = selectedCourt?.sports?.length
-    ? selectedCourt.sports
-    : selectedFacility
-    ? [selectedFacility.sport]
-    : [];
+  const filteredCourts = useMemo(
+    () => allCourts.filter((c) => !selectedSport || c.sports?.includes(selectedSport)),
+    [allCourts, selectedSport]
+  );
 
-  // When facility changes, reset court + sport
-  useEffect(() => {
-    setCourtId("");
-    setSport("");
-  }, [facilityId]);
+  const isReady = !!(selectedSport && selectedCourt && selectedDate && selectedTime && selectedDuration);
 
-  // When court changes, reset sport
-  useEffect(() => {
-    setSport("");
-  }, [courtId]);
-
-  // Auto-set sport when only one option
-  useEffect(() => {
-    if (availableSports.length === 1 && sport !== availableSports[0]) {
-      setSport(availableSports[0]!);
-    }
-  }, [availableSports, sport]);
-
-  // ─── Load facilities ─────────────────────────────────────────────────────────
+  // ─── Load vendor's facilities on mount ───────────────────────────────────────
 
   useEffect(() => {
     api.vendor.facilities()
       .then((r) => {
-        setFacilities(r.data.filter((f) => f.isActive));
-        if (r.data.length === 1) setFacilityId(r.data[0]!.id);
+        const active = r.data.filter((f) => f.isActive);
+        if (!active.length) return;
+        setFacilityName(active[0]!.name);
+        const courts = active.flatMap((f) =>
+          f.courts.filter((c) => c.isActive).map((c) => ({
+            ...c,
+            facilityId: f.id,
+            // If no sports tagged on the court, inherit the facility's primary sport
+            sports: c.sports?.length ? c.sports : [f.sport],
+          }))
+        );
+        setAllCourts(courts);
+        const sportSet = new Set<string>();
+        active.forEach((f) => {
+          sportSet.add(f.sport);
+          f.courts.forEach((c) => c.sports?.forEach((s) => sportSet.add(s)));
+        });
+        setSports(Array.from(sportSet).filter(Boolean));
       })
-      .catch(() => setFormError("Failed to load facilities"))
-      .finally(() => setLoadingFacilities(false));
+      .catch(() => setFormError("Failed to load facility"));
   }, []);
 
-  // ─── Load today's history ─────────────────────────────────────────────────
+  // ─── Load today's walk-in history ────────────────────────────────────────────
 
   const loadHistory = useCallback(() => {
     api.walkin.history()
@@ -134,32 +174,113 @@ export default function WalkinPage() {
 
   useEffect(() => { loadHistory(); }, [loadHistory]);
 
-  // ─── Pricing preview (debounced) ──────────────────────────────────────────
+  // ─── Available times fetch ───────────────────────────────────────────────────
 
-  useEffect(() => {
-    if (!courtId || !date || !startTime || !durationMinutes || !sport) {
-      setPricing(null);
+  async function fetchAvailableTimes(fId: string, date: string, duration: number) {
+    if (!fId || !date) return;
+    setLoadingTimes(true);
+    setAvailableTimes([]);
+    setSelectedTime("");
+    try {
+      const r = await apiFetch<{ data: { availableTimes: AvailableTime[] } }>(
+        `/facilities/${fId}/available-times?date=${date}&duration=${duration}`
+      );
+      setAvailableTimes(r.data?.availableTimes ?? []);
+    } catch {
+      setAvailableTimes([]);
+    } finally {
+      setLoadingTimes(false);
+    }
+  }
+
+  // ─── Cascade handlers ────────────────────────────────────────────────────────
+
+  function handleSportSelect(sport: string) {
+    setSelectedSport(sport);
+    setSelectedCourt("");
+    setSelectedCourtData(null);
+    setAvailableTimes([]);
+    setSelectedTime("");
+    setSelectedDuration(0);
+    setDurationOptions([]);
+    setPricing(null);
+    setFormError("");
+  }
+
+  async function handleCourtSelect(courtId: string) {
+    const court = allCourts.find((c) => c.id === courtId) ?? null;
+    setSelectedCourt(courtId);
+    setSelectedCourtData(court);
+    setSelectedTime("");
+    setAvailableTimes([]);
+    setPricing(null);
+    setFormError("");
+
+    if (!court) {
+      setDurationOptions([]);
+      setSelectedDuration(0);
       return;
     }
 
+    const courtFacilityId = court.facilityId;
+    setFacilityId(courtFacilityId);
+
+    // Fetch court booking rules → build duration options
+    let minDuration = 60;
+    try {
+      const rules = await apiFetch<{ data: CourtRules }>(`/vendor/courts/${courtId}`);
+      const { minBookingMinutes: min, durationStepMinutes: step, maxBookingMinutes: max } = rules.data;
+      minDuration = min;
+      const opts: number[] = [];
+      let cur = min;
+      while (cur <= max) { opts.push(cur); cur += step; }
+      setDurationOptions(opts);
+      setSelectedDuration(min);
+    } catch {
+      setDurationOptions([60, 90, 120]);
+      setSelectedDuration(60);
+    }
+
+    // Immediately fetch available times for the current date
+    fetchAvailableTimes(courtFacilityId, selectedDate, minDuration);
+  }
+
+  function handleDateChange(date: string) {
+    setSelectedDate(date);
+    setSelectedTime("");
+    setPricing(null);
+    if (facilityId && selectedDuration) {
+      fetchAvailableTimes(facilityId, date, selectedDuration);
+    }
+  }
+
+  // ─── Pricing preview (debounced, fires when all 5 steps complete) ────────────
+
+  useEffect(() => {
+    if (!selectedCourt || !selectedDate || !selectedTime || !selectedDuration || !selectedSport) {
+      setPricing(null);
+      return;
+    }
     if (pricingTimerRef.current) clearTimeout(pricingTimerRef.current);
     pricingTimerRef.current = setTimeout(() => {
-      api.walkin.price({ courtId, date, startTime, durationMinutes, sport })
+      api.walkin.price({
+        courtId: selectedCourt,
+        date: selectedDate,
+        startTime: selectedTime,
+        durationMinutes: selectedDuration,
+        sport: selectedSport,
+      })
         .then((r) => setPricing(r.data))
         .catch(() => setPricing(null));
     }, 400);
+    return () => { if (pricingTimerRef.current) clearTimeout(pricingTimerRef.current); };
+  }, [selectedCourt, selectedDate, selectedTime, selectedDuration, selectedSport]);
 
-    return () => {
-      if (pricingTimerRef.current) clearTimeout(pricingTimerRef.current);
-    };
-  }, [courtId, date, startTime, durationMinutes, sport]);
-
-  // ─── Countdown timer ─────────────────────────────────────────────────────
+  // ─── Countdown timer ─────────────────────────────────────────────────────────
 
   useEffect(() => {
     if (!activeBooking || panelState !== "waiting") return;
     const expiresAt = new Date(activeBooking.expiresAt).getTime();
-
     const interval = setInterval(() => {
       const remaining = expiresAt - Date.now();
       if (remaining <= 0) {
@@ -171,37 +292,46 @@ export default function WalkinPage() {
       const secs = Math.floor((remaining % 60000) / 1000);
       setTimeLeft(`${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`);
     }, 1000);
-
     return () => clearInterval(interval);
   }, [activeBooking, panelState]);
 
-  // ─── Poll for payment ─────────────────────────────────────────────────────
+  // ─── Poll for payment ────────────────────────────────────────────────────────
 
-  useEffect(() => {
-    if (!activeBooking || panelState !== "waiting") return;
+  function stopPolling() {
+    if (pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+  }
 
-    const poll = setInterval(async () => {
+  function startPolling(bookingId: string) {
+    stopPolling();
+    pollRef.current = setInterval(async () => {
       try {
-        const res = await api.walkin.status(activeBooking.bookingId);
-        if (res.data.status === "PAID") {
+        const res = await api.walkin.status(bookingId);
+        const status = res.data.status;
+        if (status === "PAID") {
+          stopPolling();
+          setPaidAt(new Date());
           setPanelState("paid");
-          clearInterval(poll);
           setIsFullscreen(false);
           confetti({ particleCount: 120, spread: 80, origin: { y: 0.6 } });
           loadHistory();
+        } else if (status === "EXPIRED") {
+          stopPolling();
+          setPanelState("expired");
         }
-      } catch {
-        // ignore poll errors
-      }
+      } catch { /* ignore poll errors */ }
     }, 2000);
+  }
 
-    return () => clearInterval(poll);
-  }, [activeBooking, panelState, loadHistory]);
+  // Stop polling on unmount
+  useEffect(() => () => stopPolling(), []);
 
-  // ─── Generate QR ─────────────────────────────────────────────────────────
+  // ─── Generate QR ─────────────────────────────────────────────────────────────
 
   async function handleGenerate() {
-    if (!courtId || !facilityId || !date || !startTime || !sport) {
+    if (!isReady || !facilityId) {
       setFormError("Please fill in all required fields");
       return;
     }
@@ -209,17 +339,19 @@ export default function WalkinPage() {
     setGenerating(true);
     try {
       const res = await api.walkin.create({
-        courtId,
+        courtId: selectedCourt,
         facilityId,
-        date,
-        startTime,
-        durationMinutes,
-        sport,
+        date: selectedDate,
+        startTime: selectedTime,
+        durationMinutes: selectedDuration,
+        sport: selectedSport,
         playerName: playerName || undefined,
         playerPhone: playerPhone || undefined,
       });
       setActiveBooking(res.data);
       setPanelState("waiting");
+      setPaidAt(null);
+      startPolling(res.data.bookingId);
     } catch (err) {
       setFormError(err instanceof Error ? err.message : "Failed to generate QR code");
     } finally {
@@ -228,27 +360,63 @@ export default function WalkinPage() {
   }
 
   function handleNewBooking() {
+    stopPolling();
     setActiveBooking(null);
     setPanelState("idle");
+    setPaidAt(null);
+    // Reset full form
+    setSelectedSport("");
+    setSelectedCourt("");
+    setSelectedCourtData(null);
+    setAvailableTimes([]);
+    setSelectedTime("");
+    setSelectedDate(todayStr());
+    setSelectedDuration(0);
+    setDurationOptions([]);
     setPlayerName("");
     setPlayerPhone("");
-    setStartTime("");
-    setDate(todayStr());
+    setPricing(null);
+    setFormError("");
   }
 
-  function handlePrint() {
-    window.print();
+  function handlePrintReceipt() {
+    if (!activeBooking) return;
+    const w = window.open("", "_blank");
+    if (!w) return;
+    w.document.write(`
+      <html><head><title>Dome Walk-in Receipt</title>
+      <style>
+        body { font-family: Arial, sans-serif; padding: 20px; max-width: 300px; margin: 0 auto; }
+        .logo { font-size: 24px; font-weight: 900; text-align: center; margin-bottom: 4px; }
+        .sub { text-align: center; color: #666; font-size: 12px; margin-bottom: 12px; }
+        .divider { border-top: 1px dashed #ccc; margin: 10px 0; }
+        .row { display: flex; justify-content: space-between; margin: 5px 0; font-size: 13px; }
+        .total { font-size: 22px; font-weight: 900; text-align: center; margin: 14px 0; }
+        .footer { text-align: center; color: #999; font-size: 11px; margin-top: 14px; line-height: 1.6; }
+      </style></head><body>
+      <div class="logo">DOME</div>
+      <div class="sub">Walk-in Receipt · ${activeBooking.facilityName}</div>
+      <div class="divider"></div>
+      <div class="row"><span>Sport</span><span>${getSportLabel(activeBooking.sport)}</span></div>
+      <div class="row"><span>Court</span><span>${activeBooking.courtName}</span></div>
+      <div class="row"><span>Date</span><span>${activeBooking.date}</span></div>
+      <div class="row"><span>Time</span><span>${fmtTime(activeBooking.startTime)} – ${fmtTime(activeBooking.endTime)}</span></div>
+      ${activeBooking.playerName !== "Walk-in Player" ? `<div class="row"><span>Player</span><span>${activeBooking.playerName}</span></div>` : ""}
+      <div class="divider"></div>
+      <div class="total">C$${activeBooking.totalCAD.toFixed(2)}</div>
+      <div class="divider"></div>
+      <div class="footer">
+        Paid · ${paidAt?.toLocaleString("en-CA") ?? ""}<br/>
+        Thank you for playing!<br/>
+        dome.app
+      </div>
+      </body></html>
+    `);
+    w.document.close();
+    w.print();
   }
 
-  // ─── Available times (every 30 min, 6am–11pm) ─────────────────────────────
-
-  const timeOptions: string[] = [];
-  for (let h = 6; h < 23; h++) {
-    timeOptions.push(`${String(h).padStart(2, "0")}:00`);
-    timeOptions.push(`${String(h).padStart(2, "0")}:30`);
-  }
-
-  // ─── Fullscreen QR view ───────────────────────────────────────────────────
+  // ─── Fullscreen QR view ──────────────────────────────────────────────────────
 
   if (isFullscreen && activeBooking && panelState === "waiting") {
     return (
@@ -259,43 +427,26 @@ export default function WalkinPage() {
         >
           ✕ Exit Fullscreen
         </button>
-
-        <p className="text-gray-500 text-sm font-semibold tracking-widest uppercase mb-6">
-          Scan to Pay
-        </p>
-
-        {/* QR Code */}
+        <p className="text-gray-500 text-sm font-semibold tracking-widest uppercase mb-6">Scan to Pay</p>
         <div className="border-4 border-gray-100 rounded-2xl p-4 mb-6">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={activeBooking.qrCodeDataUrl}
-            alt="Payment QR code"
-            className="w-72 h-72"
-          />
+          <img src={activeBooking.qrCodeDataUrl} alt="Payment QR code" className="w-72 h-72" />
         </div>
-
-        {/* Amount */}
         <div className="bg-gray-50 rounded-2xl px-10 py-5 mb-4 text-center">
           <p className="text-gray-500 text-sm mb-1">Total Due</p>
-          <p className="text-5xl font-black text-gray-900">
-            C${activeBooking.totalCAD.toFixed(2)}
-          </p>
+          <p className="text-5xl font-black text-gray-900">C${activeBooking.totalCAD.toFixed(2)}</p>
         </div>
-
         <p className="text-gray-400 text-sm text-center">
-          {sportEmoji(activeBooking.sport)} {sportLabel(activeBooking.sport)} · {activeBooking.courtName}
+          {getSportEmoji(activeBooking.sport)} {getSportLabel(activeBooking.sport)} · {activeBooking.courtName}
           <br />
           {activeBooking.date} · {fmtTime(activeBooking.startTime)}–{fmtTime(activeBooking.endTime)}
         </p>
-
-        <p className="mt-4 text-gray-400 text-xs">
-          Apple Pay · Google Pay · Card · Expires in {timeLeft}
-        </p>
+        <p className="mt-4 text-gray-400 text-xs">Apple Pay · Google Pay · Card · Expires in {timeLeft}</p>
       </div>
     );
   }
 
-  // ─── Print styles ─────────────────────────────────────────────────────────
+  // ─── Print styles ─────────────────────────────────────────────────────────────
 
   const printStyles = activeBooking ? `
     @media print {
@@ -305,13 +456,12 @@ export default function WalkinPage() {
     }
   ` : "";
 
-  // ─── Render ───────────────────────────────────────────────────────────────
+  // ─── Render ───────────────────────────────────────────────────────────────────
 
   return (
     <>
       {printStyles && <style dangerouslySetInnerHTML={{ __html: printStyles }} />}
 
-      {/* Hidden print receipt */}
       {activeBooking && (
         <div id="print-receipt" className="hidden print:block p-8 max-w-sm mx-auto">
           <div className="text-center mb-6">
@@ -319,26 +469,11 @@ export default function WalkinPage() {
             <p className="text-sm text-gray-500">{activeBooking.facilityName}</p>
           </div>
           <div className="border-t border-b border-gray-200 py-4 mb-4 space-y-1 text-sm">
-            <div className="flex justify-between">
-              <span className="text-gray-500">Sport</span>
-              <span>{sportLabel(activeBooking.sport)}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-500">Court</span>
-              <span>{activeBooking.courtName}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-500">Date</span>
-              <span>{activeBooking.date}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-500">Time</span>
-              <span>{fmtTime(activeBooking.startTime)}–{fmtTime(activeBooking.endTime)}</span>
-            </div>
-            <div className="flex justify-between font-bold text-base pt-2">
-              <span>Total Paid</span>
-              <span>C${activeBooking.totalCAD.toFixed(2)}</span>
-            </div>
+            <div className="flex justify-between"><span className="text-gray-500">Sport</span><span>{getSportLabel(activeBooking.sport)}</span></div>
+            <div className="flex justify-between"><span className="text-gray-500">Court</span><span>{activeBooking.courtName}</span></div>
+            <div className="flex justify-between"><span className="text-gray-500">Date</span><span>{activeBooking.date}</span></div>
+            <div className="flex justify-between"><span className="text-gray-500">Time</span><span>{fmtTime(activeBooking.startTime)}–{fmtTime(activeBooking.endTime)}</span></div>
+            <div className="flex justify-between font-bold text-base pt-2"><span>Total Paid</span><span>C${activeBooking.totalCAD.toFixed(2)}</span></div>
           </div>
           <p className="text-center text-gray-500 text-xs">Thank you for playing!</p>
         </div>
@@ -350,7 +485,7 @@ export default function WalkinPage() {
         <div className="flex gap-6 items-start">
 
           {/* ── LEFT: Booking Form ── */}
-          <div className="w-[420px] shrink-0 bg-surface border border-border rounded-dome p-6 space-y-5">
+          <div className="w-[440px] shrink-0 bg-surface border border-border rounded-dome p-6 space-y-6">
             <p className="text-xs font-bold text-muted tracking-widest uppercase">New Walk-in Booking</p>
 
             {formError && (
@@ -359,122 +494,165 @@ export default function WalkinPage() {
               </div>
             )}
 
-            {/* Facility */}
-            {!loadingFacilities && facilities.length > 1 && (
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-muted uppercase tracking-wider">Facility</label>
-                <select
-                  value={facilityId}
-                  onChange={(e) => setFacilityId(e.target.value)}
-                  className="w-full bg-black border border-border rounded-dome px-3 py-2 text-sm text-white focus:outline-none focus:border-primary"
-                >
-                  <option value="">Select facility</option>
-                  {facilities.map((f) => (
-                    <option key={f.id} value={f.id}>{f.name}</option>
-                  ))}
-                </select>
-              </div>
-            )}
+            {/* Facility label */}
+            <div className="bg-black border border-border rounded-dome px-4 py-3">
+              <p className="text-[11px] font-semibold text-muted uppercase tracking-wider mb-0.5">Facility</p>
+              <p className="text-[15px] font-bold text-white">{facilityName ?? "Loading…"}</p>
+            </div>
 
-            {/* Court */}
+            {/* ── Step 1: Sport ── */}
+            <div className="space-y-2">
+              <label className={labelCls}>Sport *</label>
+              {sports.length === 0 ? (
+                <p className="text-muted text-xs">Loading sports…</p>
+              ) : (
+                <div className="flex gap-2 flex-wrap">
+                  {sports.map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => handleSportSelect(s)}
+                      className={`px-4 py-2 rounded-full text-sm font-semibold transition-colors ${
+                        selectedSport === s
+                          ? "bg-primary text-white"
+                          : "border border-border bg-black text-[#CCCCCC] hover:text-white hover:border-white/30"
+                      }`}
+                    >
+                      {getSportEmoji(s)} {getSportLabel(s)}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* ── Step 2: Court ── */}
             <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-muted uppercase tracking-wider">Court *</label>
+              <label className={labelCls}>Court *</label>
               <select
-                value={courtId}
-                onChange={(e) => setCourtId(e.target.value)}
-                disabled={!facilityId}
-                className="w-full bg-black border border-border rounded-dome px-3 py-2 text-sm text-white focus:outline-none focus:border-primary disabled:opacity-40"
+                value={selectedCourt}
+                onChange={(e) => handleCourtSelect(e.target.value)}
+                disabled={!selectedSport}
+                className="w-full bg-black border border-border rounded-dome px-3 py-2 text-sm text-white focus:outline-none focus:border-primary disabled:opacity-40 disabled:cursor-not-allowed"
               >
-                <option value="">Select court</option>
-                {activeCourts.map((c) => (
+                <option value="">{!selectedSport ? "Select a sport first" : "Select court"}</option>
+                {filteredCourts.map((c) => (
                   <option key={c.id} value={c.id}>{c.name}</option>
                 ))}
               </select>
             </div>
 
-            {/* Date */}
+            {/* ── Step 3: Date ── */}
             <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-muted uppercase tracking-wider">Date *</label>
+              <label className={labelCls}>Date *</label>
               <div className="relative">
                 <input
                   ref={dateRef}
                   type="date"
-                  value={date}
+                  value={selectedDate}
                   min={todayStr()}
-                  onChange={(e) => setDate(e.target.value)}
-                  className="w-full bg-black border border-border rounded-dome pl-3 pr-10 py-2 text-sm text-white focus:outline-none focus:border-primary [color-scheme:dark] [&::-webkit-calendar-picker-indicator]:hidden"
+                  onChange={(e) => handleDateChange(e.target.value)}
+                  disabled={!selectedCourt}
+                  className="w-full bg-black border border-border rounded-dome pl-3 pr-10 py-2 text-sm text-white focus:outline-none focus:border-primary disabled:opacity-40 disabled:cursor-not-allowed [color-scheme:dark] [&::-webkit-calendar-picker-indicator]:hidden"
                 />
                 <button
                   type="button"
                   onClick={() => dateRef.current?.showPicker?.()}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted hover:text-white transition-colors"
+                  disabled={!selectedCourt}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted hover:text-white transition-colors disabled:opacity-40"
                 >
                   <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M8 2v4M16 2v4" />
-                    <rect x="3" y="4" width="18" height="18" rx="2" />
-                    <path d="M3 10h18" />
+                    <path d="M8 2v4M16 2v4" /><rect x="3" y="4" width="18" height="18" rx="2" /><path d="M3 10h18" />
                   </svg>
                 </button>
               </div>
+              {!selectedCourt && (
+                <p className="text-[11px] text-muted/60 mt-1">Select a court first</p>
+              )}
             </div>
 
-            {/* Start Time */}
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-muted uppercase tracking-wider">Start Time *</label>
-              <select
-                value={startTime}
-                onChange={(e) => setStartTime(e.target.value)}
-                className="w-full bg-black border border-border rounded-dome px-3 py-2 text-sm text-white focus:outline-none focus:border-primary"
-              >
-                <option value="">Select time</option>
-                {timeOptions.map((t) => (
-                  <option key={t} value={t}>{fmtTime(t)}</option>
-                ))}
-              </select>
+            {/* ── Step 4: Time ── */}
+            <div className="space-y-2">
+              <label className={labelCls}>Start Time *</label>
+
+              {!selectedCourt ? (
+                <p className={disabledHintCls}>Select a court first</p>
+              ) : loadingTimes ? (
+                <div className="flex items-center gap-2 text-muted text-sm py-2">
+                  <span className="w-3 h-3 border-2 border-muted border-t-transparent rounded-full animate-spin" />
+                  Loading available times…
+                </div>
+              ) : availableTimes.length === 0 ? (
+                <div className="px-4 py-3 rounded-dome border border-red-900/50 bg-red-950/20 text-red-400 text-sm">
+                  No available slots on this date — generate slots first
+                </div>
+              ) : (
+                <>
+                  <div className="flex flex-wrap gap-2 max-h-44 overflow-y-auto p-0.5">
+                    {availableTimes
+                      .filter((t) => t.status !== "BOOKED")
+                      .map((t) => (
+                        <button
+                          key={t.time}
+                          type="button"
+                          onClick={() => setSelectedTime(t.time)}
+                          className={`px-3 py-1.5 rounded-dome text-xs font-semibold transition-colors relative ${
+                            selectedTime === t.time
+                              ? "bg-primary text-white"
+                              : t.status === "PARTIAL"
+                              ? "border border-amber-700/60 bg-amber-950/30 text-amber-300 hover:border-amber-500"
+                              : "border border-border bg-black text-[#CCCCCC] hover:text-white hover:border-white/30"
+                          }`}
+                        >
+                          {t.label}
+                          {t.status === "PARTIAL" && (
+                            <span className="ml-1 text-[9px] text-amber-400">◐</span>
+                          )}
+                        </button>
+                      ))}
+                  </div>
+                  <p className="text-[11px] text-muted/60">
+                    ● Available · ◐ Limited ·{" "}
+                    {availableTimes.filter((t) => t.status !== "BOOKED").length} slots open
+                  </p>
+                </>
+              )}
             </div>
 
-            {/* Duration */}
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-muted uppercase tracking-wider">Duration *</label>
-              <div className="flex gap-2">
-                {DURATION_OPTS.map((d) => (
-                  <button
-                    key={d.value}
-                    type="button"
-                    onClick={() => setDurationMinutes(d.value)}
-                    className={`flex-1 py-2 text-xs font-semibold rounded-dome transition-colors ${
-                      durationMinutes === d.value
-                        ? "bg-primary text-white"
-                        : "bg-black border border-border text-muted hover:text-white hover:border-white/30"
-                    }`}
-                  >
-                    {d.label}
-                  </button>
-                ))}
-              </div>
+            {/* ── Step 5: Duration ── */}
+            <div className="space-y-2">
+              <label className={labelCls}>Duration *</label>
+
+              {!selectedCourtData ? (
+                <p className={disabledHintCls}>Select a court to see duration options</p>
+              ) : (
+                <>
+                  <div className="flex gap-2 flex-wrap">
+                    {durationOptions.map((d) => (
+                      <button
+                        key={d}
+                        type="button"
+                        onClick={() => setSelectedDuration(d)}
+                        disabled={!selectedTime}
+                        className={`px-4 py-2 text-xs font-semibold rounded-dome transition-colors ${
+                          selectedDuration === d
+                            ? "bg-primary text-white"
+                            : "bg-black border border-border text-muted hover:text-white hover:border-white/30 disabled:opacity-40 disabled:cursor-not-allowed"
+                        }`}
+                      >
+                        {formatDuration(d)}
+                      </button>
+                    ))}
+                  </div>
+                  {!selectedTime && (
+                    <p className="text-[11px] text-muted/60">Select a time first</p>
+                  )}
+                </>
+              )}
             </div>
 
-            {/* Sport */}
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-muted uppercase tracking-wider">Sport *</label>
-              <select
-                value={sport}
-                onChange={(e) => setSport(e.target.value)}
-                disabled={availableSports.length === 0}
-                className="w-full bg-black border border-border rounded-dome px-3 py-2 text-sm text-white focus:outline-none focus:border-primary disabled:opacity-40"
-              >
-                <option value="">Select sport</option>
-                {availableSports.map((s) => (
-                  <option key={s} value={s}>
-                    {sportEmoji(s)} {sportLabel(s)}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Player Info */}
+            {/* ── Player Info (optional) ── */}
             <div className="space-y-3">
-              <p className="text-xs font-semibold text-muted uppercase tracking-wider">Player Info (optional)</p>
+              <p className={labelCls}>Player Info (optional)</p>
               <input
                 type="text"
                 placeholder="Name"
@@ -491,50 +669,54 @@ export default function WalkinPage() {
               />
             </div>
 
-            {/* Pricing summary */}
-            {pricing && (
-              <div className="border-t border-border pt-4 space-y-1.5 text-sm">
-                <p className="text-xs font-bold text-muted uppercase tracking-wider mb-2">Pricing Summary</p>
-                <div className="flex justify-between text-muted">
-                  <span>
-                    {sportLabel(sport)} ({durationMinutes >= 60 ? `${durationMinutes / 60}h` : `${durationMinutes}m`})
+            {/* ── Booking summary + pricing ── */}
+            {isReady && (
+              <div className="border border-border rounded-dome px-4 py-4 bg-black/40 space-y-1.5">
+                <p className="text-[11px] font-bold text-muted uppercase tracking-wider mb-2">Booking Summary</p>
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted">
+                    {getSportEmoji(selectedSport)} {selectedCourtData?.name}
                   </span>
-                  <span>C${pricing.basePriceCAD.toFixed(2)}</span>
+                  <span className="text-white font-bold">
+                    {pricing ? `C$${pricing.totalCAD.toFixed(2)}` : "…"}
+                  </span>
                 </div>
-                {pricing.appliedRule && (
-                  <div className="flex justify-between text-primary text-xs">
-                    <span>{pricing.appliedRule}</span>
-                    <span>C${(pricing.subtotalCAD - pricing.basePriceCAD).toFixed(2)}</span>
+                <p className="text-xs text-muted/70">
+                  {selectedDate} · {fmtTime(selectedTime)} · {formatDuration(selectedDuration)}
+                </p>
+                {pricing && (
+                  <div className="border-t border-border/50 pt-2 mt-2 space-y-1 text-xs text-muted">
+                    <div className="flex justify-between">
+                      <span>Subtotal</span><span>C${pricing.subtotalCAD.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Tax ({Math.round(pricing.taxRate * 100)}%)</span>
+                      <span>C${pricing.taxCAD.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between font-bold text-white text-sm border-t border-border/50 pt-1 mt-1">
+                      <span>Total</span><span>C${pricing.totalCAD.toFixed(2)}</span>
+                    </div>
                   </div>
                 )}
-                <div className="flex justify-between text-muted">
-                  <span>Subtotal</span>
-                  <span>C${pricing.subtotalCAD.toFixed(2)}</span>
-                </div>
-                <div className="flex justify-between text-muted">
-                  <span>Tax ({Math.round(pricing.taxRate * 100)}%)</span>
-                  <span>C${pricing.taxCAD.toFixed(2)}</span>
-                </div>
-                <div className="flex justify-between font-bold text-white border-t border-border pt-2 mt-1">
-                  <span>Total</span>
-                  <span>C${pricing.totalCAD.toFixed(2)}</span>
-                </div>
               </div>
             )}
 
-            {/* Generate button */}
+            {/* ── Generate QR button ── */}
             <button
               onClick={handleGenerate}
-              disabled={generating || !courtId || !date || !startTime || !sport}
-              className="w-full bg-primary hover:bg-primary-hover disabled:opacity-40 text-white font-semibold py-3 rounded-dome transition-colors flex items-center justify-center gap-2"
+              disabled={generating || !isReady}
+              className={`w-full font-bold py-3.5 rounded-dome transition-all flex items-center justify-center gap-2 text-sm ${
+                isReady
+                  ? "bg-primary hover:bg-primary-hover text-white"
+                  : "bg-surface border border-border text-muted cursor-not-allowed"
+              }`}
             >
               {generating ? (
                 <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              ) : isReady ? (
+                <><span>🔳</span> Generate QR Code</>
               ) : (
-                <>
-                  <span>🔳</span>
-                  Generate QR Code
-                </>
+                "Complete all fields above"
               )}
             </button>
           </div>
@@ -545,17 +727,17 @@ export default function WalkinPage() {
               state={panelState}
               booking={activeBooking}
               timeLeft={timeLeft}
+              paidAt={paidAt}
+              todayCount={history?.count ?? 0}
+              todayRevenue={history?.totalRevenue ?? 0}
               onFullscreen={() => setIsFullscreen(true)}
               onNewBooking={handleNewBooking}
-              onPrint={handlePrint}
+              onPrint={handlePrintReceipt}
             />
           </div>
         </div>
 
-        {/* ── Today's Walk-in Summary ── */}
-        {history && (
-          <TodaysSummary history={history} />
-        )}
+        {history && <TodaysSummary history={history} />}
       </main>
     </>
   );
@@ -563,24 +745,32 @@ export default function WalkinPage() {
 
 // ─── QR Panel ─────────────────────────────────────────────────────────────────
 
+function DetailRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <p className="text-[10px] font-bold text-muted uppercase tracking-wider mb-0.5">{label}</p>
+      <p className="text-sm font-bold text-white">{value}</p>
+    </div>
+  );
+}
+
 function QRPanel({
-  state,
-  booking,
-  timeLeft,
-  onFullscreen,
-  onNewBooking,
-  onPrint,
+  state, booking, timeLeft, paidAt, todayCount, todayRevenue,
+  onFullscreen, onNewBooking, onPrint,
 }: {
   state: PanelState;
   booking: WalkinCreated | null;
   timeLeft: string;
+  paidAt: Date | null;
+  todayCount: number;
+  todayRevenue: number;
   onFullscreen: () => void;
   onNewBooking: () => void;
   onPrint: () => void;
 }) {
   if (state === "idle") {
     return (
-      <div className="bg-surface border border-border rounded-dome p-10 flex flex-col items-center justify-center text-center min-h-[480px]">
+      <div className="bg-surface border border-border rounded-dome p-10 flex flex-col items-center justify-center text-center min-h-[520px]">
         <div className="text-6xl mb-4 opacity-30">🔳</div>
         <p className="text-white font-semibold mb-1">Fill in booking details</p>
         <p className="text-muted text-sm">to generate a payment QR code</p>
@@ -590,7 +780,7 @@ function QRPanel({
 
   if (state === "loading") {
     return (
-      <div className="bg-surface border border-border rounded-dome p-10 flex flex-col items-center justify-center text-center min-h-[480px]">
+      <div className="bg-surface border border-border rounded-dome p-10 flex flex-col items-center justify-center text-center min-h-[520px]">
         <div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin mb-4" />
         <p className="text-muted text-sm">Generating QR code…</p>
       </div>
@@ -599,14 +789,11 @@ function QRPanel({
 
   if (state === "expired") {
     return (
-      <div className="bg-surface border border-border rounded-dome p-10 flex flex-col items-center justify-center text-center min-h-[480px]">
+      <div className="bg-surface border border-border rounded-dome p-10 flex flex-col items-center justify-center text-center min-h-[520px]">
         <div className="text-6xl mb-4">⏰</div>
         <p className="text-white font-bold text-lg mb-1">QR Code Expired</p>
-        <p className="text-muted text-sm mb-6">Player did not complete payment</p>
-        <button
-          onClick={onNewBooking}
-          className="bg-primary hover:bg-primary-hover text-white font-semibold px-6 py-3 rounded-dome transition-colors"
-        >
+        <p className="text-muted text-sm mb-6">Player did not complete payment in time</p>
+        <button onClick={onNewBooking} className="bg-primary hover:bg-primary-hover text-white font-semibold px-6 py-3 rounded-dome transition-colors">
           Generate New QR
         </button>
       </div>
@@ -615,109 +802,88 @@ function QRPanel({
 
   if (state === "paid" && booking) {
     return (
-      <div className="bg-surface border border-border rounded-dome p-10 flex flex-col items-center justify-center text-center min-h-[480px]">
-        <div className="text-6xl mb-4">✅</div>
-        <p className="text-green-400 font-bold text-2xl mb-1">Payment Received</p>
-        <p className="text-white text-3xl font-black mb-5">C${booking.totalCAD.toFixed(2)}</p>
+      <div className="bg-surface border border-border rounded-dome p-8 flex flex-col items-center min-h-[520px]">
+        {/* Success icon */}
+        <div className="w-20 h-20 rounded-full bg-green-500/10 border-2 border-green-500/40 flex items-center justify-center text-4xl mb-5 mt-2">
+          ✅
+        </div>
 
-        {booking.playerName !== "Walk-in Player" && (
-          <p className="text-white font-semibold mb-1">{booking.playerName}</p>
+        <p className="text-green-400 font-black text-2xl tracking-tight mb-1">PAYMENT RECEIVED</p>
+        <p className="text-white text-4xl font-black mb-1">C${booking.totalCAD.toFixed(2)}</p>
+        {paidAt && (
+          <p className="text-muted text-xs mb-6">
+            Paid at {paidAt.toLocaleTimeString("en-CA", { hour: "2-digit", minute: "2-digit" })}
+          </p>
         )}
-        <p className="text-muted text-sm mb-1">
-          {booking.date} · {fmtTime(booking.startTime)}–{fmtTime(booking.endTime)}
-        </p>
-        <p className="text-muted text-sm mb-6">
-          {sportEmoji(booking.sport)} {sportLabel(booking.sport)} · {booking.courtName}
-        </p>
 
-        <div className="flex gap-3">
-          <button
-            onClick={onPrint}
-            className="bg-surface-2 hover:bg-white/10 border border-border text-white text-sm font-semibold px-4 py-2.5 rounded-dome transition-colors flex items-center gap-2"
-          >
-            <span>📋</span> Print Receipt
+        {/* Booking details grid */}
+        <div className="w-full bg-black/40 border border-border rounded-dome px-5 py-4 mb-5 grid grid-cols-2 gap-x-6 gap-y-4">
+          <DetailRow label="Sport" value={`${getSportEmoji(booking.sport)} ${getSportLabel(booking.sport)}`} />
+          <DetailRow label="Court" value={booking.courtName} />
+          <DetailRow label="Date" value={new Date(booking.date).toLocaleDateString("en-CA", { weekday: "short", month: "short", day: "numeric" })} />
+          <DetailRow label="Time" value={`${fmtTime(booking.startTime)} – ${fmtTime(booking.endTime)}`} />
+          {booking.playerName !== "Walk-in Player" && (
+            <DetailRow label="Player" value={booking.playerName} />
+          )}
+          <DetailRow label="Facility" value={booking.facilityName} />
+        </div>
+
+        {/* Actions */}
+        <div className="flex gap-3 w-full mb-4">
+          <button onClick={onPrint}
+            className="flex-1 bg-surface-2 hover:bg-white/10 border border-border text-white text-sm font-semibold py-3 rounded-dome transition-colors flex items-center justify-center gap-2">
+            🖨️ Print Receipt
           </button>
-          <button
-            onClick={onNewBooking}
-            className="bg-primary hover:bg-primary-hover text-white text-sm font-semibold px-4 py-2.5 rounded-dome transition-colors flex items-center gap-2"
-          >
-            <span>🔳</span> New Walk-in
+          <button onClick={onNewBooking}
+            className="flex-1 bg-primary hover:bg-primary-hover text-white text-sm font-bold py-3 rounded-dome transition-colors flex items-center justify-center gap-2">
+            + New Walk-in
           </button>
         </div>
+
+        {/* Today's stats */}
+        {todayCount > 0 && (
+          <p className="text-muted text-xs text-center">
+            🎉 Walk-in #{todayCount} today · C${todayRevenue.toFixed(2)} collected
+          </p>
+        )}
       </div>
     );
   }
 
-  // state === "waiting"
   if (!booking) return null;
 
   return (
-    <div className="bg-surface border border-border rounded-dome p-6 flex flex-col items-center min-h-[480px]">
-      {/* Header row */}
+    <div className="bg-surface border border-border rounded-dome p-6 flex flex-col items-center min-h-[520px]">
       <div className="w-full flex items-center justify-between mb-5">
         <span className="text-xs font-bold text-muted tracking-widest uppercase">Scan to Pay</span>
         <div className="flex items-center gap-2">
           <span className="text-muted text-xs">💳</span>
-          <button
-            onClick={onFullscreen}
-            className="text-xs text-muted hover:text-white transition-colors font-medium"
-            title="Show fullscreen for customer"
-          >
+          <button onClick={onFullscreen} className="text-xs text-muted hover:text-white transition-colors font-medium">
             ⛶ Fullscreen
           </button>
         </div>
       </div>
-
-      {/* QR Code */}
       <div className="border-2 border-border rounded-xl p-3 mb-4">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={booking.qrCodeDataUrl}
-          alt="Payment QR code"
-          className="w-[250px] h-[250px] rounded-lg"
-        />
+        <img src={booking.qrCodeDataUrl} alt="Payment QR code" className="w-[250px] h-[250px] rounded-lg" />
       </div>
-
-      {/* Booking info */}
       <p className="text-white text-sm font-medium mb-0.5">
-        {sportEmoji(booking.sport)} {sportLabel(booking.sport)} · {booking.courtName}
+        {getSportEmoji(booking.sport)} {getSportLabel(booking.sport)} · {booking.courtName}
       </p>
-      <p className="text-muted text-xs mb-4">
-        {booking.date} · {fmtTime(booking.startTime)}–{fmtTime(booking.endTime)}
-      </p>
-
-      {/* Total */}
+      <p className="text-muted text-xs mb-4">{booking.date} · {fmtTime(booking.startTime)}–{fmtTime(booking.endTime)}</p>
       <div className="w-full bg-black border border-border rounded-dome px-4 py-3 text-center mb-4">
         <p className="text-muted text-xs mb-0.5">Total Due</p>
         <p className="text-white text-3xl font-black">C${booking.totalCAD.toFixed(2)}</p>
       </div>
-
       <p className="text-muted text-xs mb-3">Apple Pay · Google Pay · Card</p>
-
-      {/* Waiting + countdown */}
       <div className="flex items-center gap-2 text-muted text-sm mb-1">
         <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
         Waiting for payment…
       </div>
-      {timeLeft && (
-        <p className="text-muted text-xs mb-4">Expires in {timeLeft}</p>
-      )}
-
-      {/* Actions */}
+      {timeLeft && <p className="text-muted text-xs mb-4">Expires in {timeLeft}</p>}
       <div className="flex gap-3 mt-auto pt-4 w-full justify-center">
-        <button
-          onClick={onNewBooking}
-          className="text-sm text-muted hover:text-white transition-colors font-medium"
-        >
-          Cancel
-        </button>
-        <button
-          onClick={() => {
-            // open payment link in new tab (vendor can preview)
-            window.open(booking.paymentLinkUrl, "_blank");
-          }}
-          className="text-sm text-primary hover:text-primary-hover transition-colors font-medium"
-        >
+        <button onClick={onNewBooking} className="text-sm text-muted hover:text-white transition-colors font-medium">Cancel</button>
+        <button onClick={() => window.open(booking.paymentLinkUrl, "_blank")} className="text-sm text-primary hover:text-primary-hover transition-colors font-medium">
           Open Link ↗
         </button>
       </div>
@@ -729,11 +895,7 @@ function QRPanel({
 
 function TodaysSummary({ history }: { history: WalkinHistory }) {
   if (history.count === 0) return null;
-
-  const paid = history.bookings.filter(
-    (b) => b.paymentStatus === "PAID" || b.status === "CONFIRMED"
-  );
-
+  const paid = history.bookings.filter((b) => b.paymentStatus === "PAID" || b.status === "CONFIRMED");
   return (
     <div className="bg-surface border border-border rounded-dome p-5">
       <div className="flex items-center justify-between mb-3">
@@ -742,14 +904,11 @@ function TodaysSummary({ history }: { history: WalkinHistory }) {
           {paid.length} booking{paid.length !== 1 ? "s" : ""} · C${history.totalRevenue.toFixed(2)} collected
         </p>
       </div>
-
       <div className="space-y-1">
         {history.bookings.map((b) => {
           const isPaid = b.paymentStatus === "PAID" || b.status === "CONFIRMED";
-          // Extract sport from notes "Walk-in · PlayerName"
           const namePart = b.notes?.replace("Walk-in · ", "") ?? "Guest";
           const time = new Date(b.createdAt).toLocaleTimeString("en-CA", { hour: "numeric", minute: "2-digit" });
-
           return (
             <div key={b.id} className="flex items-center justify-between py-1.5 border-b border-border/50 last:border-0 text-sm">
               <div className="flex items-center gap-2 min-w-0">
@@ -758,11 +917,7 @@ function TodaysSummary({ history }: { history: WalkinHistory }) {
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 <span className="font-medium text-white">C${b.totalCAD.toFixed(2)}</span>
-                <span className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${
-                  isPaid
-                    ? "bg-green-900/40 text-green-400"
-                    : "bg-amber-900/40 text-amber-400"
-                }`}>
+                <span className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${isPaid ? "bg-green-900/40 text-green-400" : "bg-amber-900/40 text-amber-400"}`}>
                   {isPaid ? "Paid" : "Pending"}
                 </span>
               </div>

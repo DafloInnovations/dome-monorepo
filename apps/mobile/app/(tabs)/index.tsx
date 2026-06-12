@@ -760,6 +760,40 @@ const s = StyleSheet.create({
     lineHeight: 40,
   },
 
+  // Profile completion banner
+  profileBanner: {
+    marginHorizontal: 20,
+    marginBottom: 24,
+    backgroundColor: COLORS.surface,
+    borderRadius: 18,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    gap: 12,
+  },
+  profileBannerLeft: { flexDirection: "row", alignItems: "center", gap: 12 },
+  profileBannerIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    backgroundColor: COLORS.primaryLight,
+    textAlign: "center",
+    lineHeight: 42,
+    fontSize: 22,
+  },
+  profileBannerTitle: { color: COLORS.text, fontSize: 15, fontWeight: "800" },
+  profileBannerSub: { color: COLORS.textMuted, fontSize: 12, marginTop: 2 },
+  profileBannerActions: { flexDirection: "row", alignItems: "center", gap: 10 },
+  profileBannerBtn: {
+    flex: 1,
+    backgroundColor: COLORS.primary,
+    borderRadius: 12,
+    paddingVertical: 10,
+    alignItems: "center",
+  },
+  profileBannerBtnText: { color: "#FFFFFF", fontSize: 13, fontWeight: "800" },
+  profileBannerClose: { color: COLORS.textMuted, fontSize: 18, fontWeight: "800", paddingHorizontal: 4 },
+
   // Section headers
   sectionHeader: {
     flexDirection: "row", alignItems: "center", justifyContent: "space-between",

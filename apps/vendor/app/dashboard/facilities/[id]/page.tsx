@@ -42,6 +42,16 @@ const SPORT_EMOJI: Record<string, string> = {
 };
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const FULL_DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const DEFAULT_HOURS = [
+  { day: 0, isClosed: false, openTime: "08:00", closeTime: "22:00" },
+  { day: 1, isClosed: false, openTime: "08:00", closeTime: "22:00" },
+  { day: 2, isClosed: false, openTime: "08:00", closeTime: "22:00" },
+  { day: 3, isClosed: false, openTime: "08:00", closeTime: "22:00" },
+  { day: 4, isClosed: false, openTime: "08:00", closeTime: "22:00" },
+  { day: 5, isClosed: false, openTime: "08:00", closeTime: "23:00" },
+  { day: 6, isClosed: false, openTime: "08:00", closeTime: "23:00" },
+];
 const MAX_PHOTOS = 5;
 const MAX_PHOTO_BYTES = 2 * 1024 * 1024;
 
@@ -82,6 +92,13 @@ export default function FacilityDetailPage() {
   const [policySaved, setPolicySaved] = useState(false);
   const [policyError, setPolicyError] = useState("");
 
+  // Hours editor state
+  const [hours, setHours] = useState(DEFAULT_HOURS);
+  const [savingHours, setSavingHours] = useState(false);
+  const [savedHours, setSavedHours] = useState(false);
+  const [isEditingHours, setIsEditingHours] = useState(false);
+  const [hoursError, setHoursError] = useState("");
+
   // Shared court editor state (per courtId)
   const [sharedEditing, setSharedEditing] = useState<string | null>(null);
   const [sharedForm, setSharedForm] = useState<{
@@ -113,6 +130,9 @@ export default function FacilityDetailPage() {
           images: r.data.images ?? [],
         });
         setPolicyHours(r.data.cancellationWindowHours ?? 24);
+        if ((r.data.operatingHours ?? []).length > 0) {
+          setHours(r.data.operatingHours);
+        }
       })
       .catch((e) => setError(e instanceof Error ? e.message : "Not found"))
       .finally(() => setIsLoading(false));
@@ -286,6 +306,38 @@ export default function FacilityDetailPage() {
     } finally {
       setSavingPolicy(false);
     }
+  }
+
+  function updateDay(day: number, field: "isClosed" | "openTime" | "closeTime", value: boolean | string) {
+    setHours((prev) => prev.map((h) => h.day === day ? { ...h, [field]: value } : h));
+  }
+
+  async function saveHours() {
+    setSavingHours(true);
+    setHoursError("");
+    try {
+      await apiFetch(`/vendor/facilities/${id}/hours`, {
+        method: "PUT",
+        body: JSON.stringify({ hours }),
+      });
+      setSavedHours(true);
+      setIsEditingHours(false);
+      setTimeout(() => setSavedHours(false), 3000);
+    } catch (err) {
+      setHoursError(err instanceof Error ? err.message : "Failed to save hours");
+    } finally {
+      setSavingHours(false);
+    }
+  }
+
+  function applyToWeekdays(openTime: string, closeTime: string) {
+    setHours((prev) => prev.map((h) => h.day >= 1 && h.day <= 5 ? { ...h, openTime, closeTime, isClosed: false } : h));
+  }
+  function applyToWeekends(openTime: string, closeTime: string) {
+    setHours((prev) => prev.map((h) => (h.day === 0 || h.day === 6) ? { ...h, openTime, closeTime, isClosed: false } : h));
+  }
+  function applyToAll(openTime: string, closeTime: string) {
+    setHours((prev) => prev.map((h) => ({ ...h, openTime, closeTime, isClosed: false })));
   }
 
   if (isLoading) return (
@@ -618,28 +670,132 @@ export default function FacilityDetailPage() {
         </div>
 
         {/* Operating hours */}
-        {facility.operatingHours.length > 0 && (
-          <div>
-            <h2 className="text-sm font-semibold text-muted uppercase tracking-wide mb-3">
-              Operating Hours
-            </h2>
-            <div className="bg-surface border border-border rounded-dome overflow-hidden">
-              {facility.operatingHours.map((oh) => (
-                <div
-                  key={oh.day}
-                  className="flex items-center justify-between px-4 py-2.5 border-b border-border last:border-0"
-                >
-                  <span className="text-sm text-white w-10">{DAYS[oh.day]}</span>
-                  {oh.isClosed ? (
-                    <span className="text-sm text-muted">Closed</span>
-                  ) : (
-                    <span className="text-sm text-muted">{oh.openTime} – {oh.closeTime}</span>
-                  )}
-                </div>
-              ))}
+        <div className="bg-surface border border-border rounded-dome p-6">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h2 className="text-sm font-semibold text-muted uppercase tracking-wide">Operating Hours</h2>
+              <p className="text-xs text-muted mt-1">Set when players can book your facility</p>
             </div>
+            {!isEditingHours ? (
+              <button
+                onClick={() => setIsEditingHours(true)}
+                className="text-xs text-primary hover:underline font-medium"
+              >
+                Edit
+              </button>
+            ) : (
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => {
+                    setIsEditingHours(false);
+                    setHoursError("");
+                    setHours(facility.operatingHours.length > 0 ? [...facility.operatingHours] : DEFAULT_HOURS);
+                  }}
+                  className="text-xs text-muted hover:text-white font-medium"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={saveHours}
+                  disabled={savingHours}
+                  className="bg-primary hover:bg-primary-hover disabled:opacity-50 text-white text-xs font-bold px-3 py-1.5 rounded-dome transition-colors"
+                >
+                  {savingHours ? "Saving…" : "Save Hours"}
+                </button>
+              </div>
+            )}
           </div>
-        )}
+
+          {savedHours && (
+            <p className="text-xs text-green-400 mb-3">✓ Operating hours saved</p>
+          )}
+          {hoursError && (
+            <p className="text-xs text-red-400 mb-3">{hoursError}</p>
+          )}
+
+          {isEditingHours && (
+            <div className="bg-surface-2 rounded-dome p-3 mb-4">
+              <p className="text-xs font-semibold text-muted uppercase tracking-wide mb-2">Quick Fill</p>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={() => applyToWeekdays("08:00", "22:00")}
+                  className="text-xs text-muted hover:text-white border border-border hover:border-primary px-2.5 py-1 rounded-dome transition-colors"
+                >
+                  Weekdays 8AM–10PM
+                </button>
+                <button
+                  onClick={() => applyToWeekends("09:00", "21:00")}
+                  className="text-xs text-muted hover:text-white border border-border hover:border-primary px-2.5 py-1 rounded-dome transition-colors"
+                >
+                  Weekends 9AM–9PM
+                </button>
+                <button
+                  onClick={() => applyToAll("06:00", "23:00")}
+                  className="text-xs text-muted hover:text-white border border-border hover:border-primary px-2.5 py-1 rounded-dome transition-colors"
+                >
+                  All Days 6AM–11PM
+                </button>
+              </div>
+            </div>
+          )}
+
+          <div className="space-y-2">
+            {hours.map((h) => (
+              <div
+                key={h.day}
+                className={`flex items-center gap-4 px-4 py-3 rounded-dome border border-border transition-opacity ${h.isClosed ? "opacity-60" : ""}`}
+              >
+                <span className={`text-sm font-medium w-24 shrink-0 ${h.isClosed ? "text-muted" : "text-white"}`}>
+                  {FULL_DAYS[h.day]}
+                </span>
+
+                {isEditingHours && (
+                  <label className="flex items-center gap-1.5 cursor-pointer shrink-0">
+                    <input
+                      type="checkbox"
+                      checked={!h.isClosed}
+                      onChange={(e) => updateDay(h.day, "isClosed", !e.target.checked)}
+                      className="accent-primary w-3.5 h-3.5"
+                    />
+                    <span className="text-xs text-muted">Open</span>
+                  </label>
+                )}
+
+                {!h.isClosed ? (
+                  isEditingHours ? (
+                    <div className="flex items-center gap-2 flex-1">
+                      <input
+                        type="time"
+                        value={h.openTime}
+                        onChange={(e) => updateDay(h.day, "openTime", e.target.value)}
+                        className="bg-black border border-border rounded-dome px-2 py-1 text-sm text-white focus:outline-none focus:border-primary"
+                      />
+                      <span className="text-muted">–</span>
+                      <input
+                        type="time"
+                        value={h.closeTime}
+                        onChange={(e) => updateDay(h.day, "closeTime", e.target.value)}
+                        className="bg-black border border-border rounded-dome px-2 py-1 text-sm text-white focus:outline-none focus:border-primary"
+                      />
+                      <span className="text-xs text-muted ml-1">
+                        {(() => {
+                          const [oh, om] = h.openTime.split(":").map(Number);
+                          const [ch, cm] = h.closeTime.split(":").map(Number);
+                          const hrs = ((ch! * 60 + cm!) - (oh! * 60 + om!)) / 60;
+                          return hrs > 0 ? `${hrs}h` : "";
+                        })()}
+                      </span>
+                    </div>
+                  ) : (
+                    <span className="text-sm text-muted">{h.openTime} – {h.closeTime}</span>
+                  )
+                ) : (
+                  <span className="text-sm text-muted italic">Closed</span>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
 
         {/* Cancellation policy */}
         <div className="bg-surface border border-border rounded-dome p-6">

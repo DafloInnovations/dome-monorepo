@@ -10,9 +10,9 @@ import { api, type Booking } from "../../../lib/api";
 function exportCsv(bookings: Booking[]) {
   const header = ["Date", "Time", "Court", "Player", "Phone", "Amount", "Status"];
   const rows = bookings.map((b) => [
-    b.slot.date.split("T")[0],
-    `${b.slot.startTime}–${b.slot.endTime}`,
-    b.slot.court?.name ?? "",
+    b.slot?.date?.split("T")[0] ?? "",
+    b.slot ? `${b.slot.startTime}–${b.slot.endTime}` : "",
+    b.slot?.court?.name ?? "",
     `${b.user.firstName} ${b.user.lastName}`,
     b.user.phone,
     `C$${b.totalCAD.toFixed(2)}`,
@@ -96,7 +96,7 @@ export default function BookingsPage() {
   const [isCancelling, setIsCancelling] = useState(false);
 
   const courtNames = Array.from(
-    new Set(bookings.map((b) => b.slot.court?.name).filter(Boolean))
+    new Set(bookings.map((b) => b.slot?.court?.name).filter(Boolean))
   ) as string[];
 
   const load = useCallback(() => {
@@ -131,7 +131,7 @@ export default function BookingsPage() {
   }
 
   const visible = courtFilter
-    ? bookings.filter((b) => b.slot.court?.name === courtFilter)
+    ? bookings.filter((b) => b.slot?.court?.name === courtFilter)
     : bookings;
 
   const totalPages = Math.ceil(total / PAGE_SIZE);
@@ -207,16 +207,16 @@ export default function BookingsPage() {
               key: "date", header: "Date",
               render: (r) => {
                 const b = r as unknown as Booking;
-                return new Date(b.slot.date).toLocaleDateString("en-CA", { month: "short", day: "numeric" });
+                return b.slot?.date ? new Date(b.slot.date).toLocaleDateString("en-CA", { month: "short", day: "numeric" }) : "—";
               },
             },
             {
               key: "time", header: "Time",
-              render: (r) => { const b = r as unknown as Booking; return `${b.slot.startTime}–${b.slot.endTime}`; },
+              render: (r) => { const b = r as unknown as Booking; return b.slot ? `${b.slot.startTime}–${b.slot.endTime}` : "—"; },
             },
             {
               key: "court", header: "Court",
-              render: (r) => { const b = r as unknown as Booking; return b.slot.court?.name ?? "—"; },
+              render: (r) => { const b = r as unknown as Booking; return b.slot?.court?.name ?? "—"; },
             },
             {
               key: "player", header: "Player",
@@ -276,7 +276,7 @@ export default function BookingsPage() {
         title="Cancel Booking"
         description={
           cancelTarget
-            ? `Cancel ${cancelTarget.user.firstName} ${cancelTarget.user.lastName}'s booking on ${new Date(cancelTarget.slot.date).toLocaleDateString("en-CA", { month: "short", day: "numeric" })} at ${cancelTarget.slot.startTime}? This cannot be undone.`
+            ? `Cancel ${cancelTarget.user.firstName} ${cancelTarget.user.lastName}'s booking${cancelTarget.slot ? ` on ${new Date(cancelTarget.slot.date).toLocaleDateString("en-CA", { month: "short", day: "numeric" })} at ${cancelTarget.slot.startTime}` : ""}? This cannot be undone.`
             : undefined
         }
         confirmLabel="Yes, Cancel"

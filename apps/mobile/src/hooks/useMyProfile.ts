@@ -25,7 +25,7 @@ export interface ProfileStats {
   totalHours: number;
   totalPoints: number;
   currentStreak: number;
-  tier: Tier;
+  tier: string; // uppercase string from API: "BEGINNER", "ROOKIE", etc.
   sportBreakdown: Record<string, number>;
 }
 
