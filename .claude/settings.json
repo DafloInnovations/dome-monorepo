@@ -34,7 +34,8 @@
       "Bash(export TMPDIR=/tmp2 2)",
       "Bash(grep \"stripe\" /Users/nisu/Documents/GitHub/dome-monorepo/apps/web/package.json)",
       "Bash(echo \"not found\")",
-      "Bash(pnpm --filter web add @stripe/stripe-js @stripe/react-stripe-js)"
+      "Bash(pnpm --filter web add @stripe/stripe-js @stripe/react-stripe-js)",
+      "Bash(eas build *)"
     ]
   }
 }
