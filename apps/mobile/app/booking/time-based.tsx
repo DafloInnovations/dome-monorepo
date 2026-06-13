@@ -105,7 +105,7 @@ export default function TimeBasedBookingScreen() {
     equipmentTotalCAD,
     setQuantity: setEquipmentQty,
     addToBooking: addEquipmentToBooking,
-  } = useEquipment(facilityId ?? "", sport ?? "");
+  } = useEquipment(facilityId ?? "");
 
   const courtPrice = Number(totalPrice ?? 0);
   const subtotal = Math.round((courtPrice + (equipmentTotalCAD ?? 0)) * 100) / 100;
