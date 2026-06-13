@@ -60,13 +60,6 @@ const SKILL_COLOR: Record<string, string> = {
 };
 
 const SPORTS = ["BADMINTON", "PICKLEBALL", "TENNIS", "BASKETBALL", "SOCCER", "VOLLEYBALL", "HOCKEY", "CRICKET"];
-const TIME_FILTERS = [
-  { key: "all",      label: "All"       },
-  { key: "today",    label: "Today"     },
-  { key: "tomorrow", label: "Tomorrow"  },
-  { key: "week",     label: "This Week" },
-] as const;
-type TimeFilter = typeof TIME_FILTERS[number]["key"];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -439,17 +432,14 @@ export default function ConnectScreen() {
   const { unreadCount } = useNotificationsContext();
   const unreadMessages  = threads.reduce((s, t) => s + (t.unreadCount ?? 0), 0);
 
-  const [timeFilter, setTimeFilter]   = useState<TimeFilter>("all");
   const [sportFilter, setSportFilter] = useState<string | null>(null);
   const [joinedIds, setJoinedIds]     = useState<Set<string>>(new Set());
 
   const gamesFilter = useMemo<GamesFilter>(() => {
     const f: GamesFilter = {};
-    if (timeFilter === "today")    f.date = localDateStr(0);
-    if (timeFilter === "tomorrow") f.date = localDateStr(1);
     if (sportFilter) f.sport = sportFilter;
     return f;
-  }, [timeFilter, sportFilter]);
+  }, [sportFilter]);
 
   const { games, isLoading, error, refetch } = useGames(gamesFilter);
   const { joinGame } = useConnectActions();
@@ -458,13 +448,7 @@ export default function ConnectScreen() {
     useCallback(() => { void refetch(); }, [refetch])
   );
 
-  // "This week" client-side filter
-  const filtered = useMemo(() => {
-    if (timeFilter !== "week") return games;
-    const today = localDateStr(0);
-    const end   = localDateStr(6);
-    return games.filter((g) => g.gameDate != null && g.gameDate >= today && g.gameDate <= end);
-  }, [games, timeFilter]);
+  const filtered = games;
 
   // My active games
   const myGames = useMemo(() => {
@@ -508,7 +492,7 @@ export default function ConnectScreen() {
 
   // ── Render ───────────────────────────────────────────────────────────────────
 
-  const hasFilters = timeFilter !== "all" || sportFilter !== null;
+  const hasFilters = sportFilter !== null;
 
   const ListHeader = (
     <>
@@ -593,30 +577,11 @@ export default function ConnectScreen() {
 
       {/* ── Filter section ──────────────────────────────────────────────────── */}
       <View style={styles.filterSection}>
-        {/* Time filters */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.filterRow}
-        >
-          {TIME_FILTERS.map((tf) => (
-            <Pressable
-              key={tf.key}
-              style={[styles.pill, timeFilter === tf.key && styles.pillActive]}
-              onPress={() => setTimeFilter(tf.key)}
-            >
-              <Text style={[styles.pillText, timeFilter === tf.key && styles.pillTextActive]}>
-                {tf.label}
-              </Text>
-            </Pressable>
-          ))}
-        </ScrollView>
-
         {/* Sport filters */}
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
-          contentContainerStyle={[styles.filterRow, { marginTop: 8 }]}
+          contentContainerStyle={styles.filterRow}
         >
           <Pressable
             style={[styles.pill, sportFilter === null && styles.pillActive]}
@@ -687,14 +652,12 @@ export default function ConnectScreen() {
                   <>
                     <Text style={styles.emptyEmoji}>🔍</Text>
                     <Text style={styles.emptyTitle}>
-                      No {sportFilter
-                        ? (sportFilter.charAt(0) + sportFilter.slice(1).toLowerCase())
-                        : ""} games{timeFilter !== "all" ? ` ${timeFilter}` : ""}
+                      No {sportFilter ? (sportFilter.charAt(0) + sportFilter.slice(1).toLowerCase()) : ""} games
                     </Text>
                     <View style={styles.emptyBtnRow}>
                       <Pressable
                         style={styles.emptyBtnOutline}
-                        onPress={() => { setTimeFilter("all"); setSportFilter(null); }}
+                        onPress={() => setSportFilter(null)}
                       >
                         <Text style={styles.emptyBtnOutlineText}>Clear filters</Text>
                       </Pressable>
