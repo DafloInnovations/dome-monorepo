@@ -602,51 +602,47 @@ export default function ConnectScreen() {
 
       {/* ── Filter section ──────────────────────────────────────────────────── */}
       <View style={styles.filterSection}>
-        {/* Sport pills + Sort button row */}
-        <View style={styles.filterBarRow}>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.filterRow}
+        {/* Sport pills */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.filterRow}
+        >
+          <Pressable
+            style={[styles.pill, sportFilter === null && styles.pillActive]}
+            onPress={() => setSportFilter(null)}
           >
+            <Text style={[styles.pillText, sportFilter === null && styles.pillTextActive]}>
+              🏟 All
+            </Text>
+          </Pressable>
+          {SPORTS.map((s) => (
             <Pressable
-              style={[styles.pill, sportFilter === null && styles.pillActive]}
-              onPress={() => setSportFilter(null)}
+              key={s}
+              style={[styles.pill, sportFilter === s && styles.pillActive]}
+              onPress={() => setSportFilter(sportFilter === s ? null : s)}
             >
-              <Text style={[styles.pillText, sportFilter === null && styles.pillTextActive]}>
-                🏟 All
+              <Text style={[styles.pillText, sportFilter === s && styles.pillTextActive]}>
+                {SPORT_EMOJI[s]} {s.charAt(0) + s.slice(1).toLowerCase()}
               </Text>
             </Pressable>
-            {SPORTS.map((s) => (
-              <Pressable
-                key={s}
-                style={[styles.pill, sportFilter === s && styles.pillActive]}
-                onPress={() => setSportFilter(sportFilter === s ? null : s)}
-              >
-                <Text style={[styles.pillText, sportFilter === s && styles.pillTextActive]}>
-                  {SPORT_EMOJI[s]} {s.charAt(0) + s.slice(1).toLowerCase()}
-                </Text>
-              </Pressable>
-            ))}
-          </ScrollView>
+          ))}
+        </ScrollView>
 
-          {/* Sort dropdown trigger */}
+        {/* Sort + Post row */}
+        <View style={styles.sortPostRow}>
           <Pressable style={styles.sortBtn} onPress={() => setShowSort(true)}>
-            <Ionicons name="funnel-outline" size={14} color={C.text} />
+            <Ionicons name="funnel-outline" size={13} color={C.text} />
             <Text style={styles.sortBtnText} numberOfLines={1}>
               {SORT_OPTIONS.find((o) => o.key === sortBy)?.label ?? "Sort"}
             </Text>
             <Ionicons name="chevron-down" size={12} color={C.muted} />
           </Pressable>
-        </View>
 
-        {/* Post Game CTA */}
-        <Pressable
-          style={styles.postBtn}
-          onPress={() => router.push("/connect/post-game")}
-        >
-          <Text style={styles.postBtnText}>＋  POST A GAME</Text>
-        </Pressable>
+          <Pressable style={styles.postBtn} onPress={() => router.push("/connect/post-game")}>
+            <Text style={styles.postBtnText}>＋  POST A GAME</Text>
+          </Pressable>
+        </View>
       </View>
 
       {/* ── Sort Modal ──────────────────────────────────────────────────────── */}
@@ -809,8 +805,7 @@ const styles = StyleSheet.create({
 
   // Filter section
   filterSection:  { paddingBottom: 12 },
-  filterBarRow:   { flexDirection: "row", alignItems: "center", marginBottom: 0 },
-  filterRow:      { paddingHorizontal: 16, gap: 8, alignItems: "center" },
+  filterRow:      { paddingHorizontal: 16, gap: 8, alignItems: "center", paddingBottom: 10 },
   pill: {
     paddingHorizontal: 14, paddingVertical: 8,
     borderRadius: 20, backgroundColor: C.surface,
@@ -819,14 +814,19 @@ const styles = StyleSheet.create({
   pillText:       { color: C.text, fontSize: 13, fontWeight: "500" },
   pillTextActive: { color: "#fff", fontWeight: "700" },
 
+  // Sort + Post row
+  sortPostRow: {
+    flexDirection: "row", alignItems: "center",
+    paddingHorizontal: 16, gap: 10,
+  },
+
   // Sort button
   sortBtn: {
-    flexDirection: "row", alignItems: "center", gap: 4,
+    flexDirection: "row", alignItems: "center", gap: 5,
     backgroundColor: C.surface, borderRadius: 20,
-    paddingHorizontal: 10, paddingVertical: 8,
-    marginRight: 16, flexShrink: 0,
+    paddingHorizontal: 12, paddingVertical: 9,
   },
-  sortBtnText: { color: C.text, fontSize: 12, fontWeight: "600", maxWidth: 80 },
+  sortBtnText: { color: C.text, fontSize: 12, fontWeight: "600" },
 
   // Sort modal
   sortOverlay: {
@@ -854,11 +854,11 @@ const styles = StyleSheet.create({
 
   // Post Game button
   postBtn: {
-    marginHorizontal: 16, marginTop: 12,
+    flex: 1,
     backgroundColor: C.primary, borderRadius: 14,
-    paddingVertical: 16, alignItems: "center",
+    paddingVertical: 12, alignItems: "center",
   },
-  postBtnText: { color: "#fff", fontSize: 15, fontWeight: "800", letterSpacing: 0.5 },
+  postBtnText: { color: "#fff", fontSize: 14, fontWeight: "800", letterSpacing: 0.5 },
 
   // My games section
   myGamesSection: { marginBottom: 16, paddingLeft: 16 },
