@@ -43,13 +43,24 @@ function StripePaymentForm({
 }) {
   const stripe   = useStripe();
   const elements = useElements();
-  const [busy,  setBusy]  = useState(false);
-  const [ready, setReady] = useState(false);
+  const [paying, setPaying] = useState(false);
+  const [ready,  setReady]  = useState(false);
+  const [errMsg, setErrMsg] = useState("");
 
   async function handlePay(e: React.FormEvent) {
     e.preventDefault();
-    if (!stripe || !elements) return;
-    setBusy(true);
+    if (!stripe || !elements || !ready) return;
+    // Keep form mounted while Stripe processes
+    setPaying(true);
+    setErrMsg("");
+
+    // Required by Stripe: validate card fields before confirming
+    const { error: submitError } = await elements.submit();
+    if (submitError) {
+      setErrMsg(submitError.message ?? "Invalid card details");
+      setPaying(false);
+      return;
+    }
 
     const { error: confirmError, paymentIntent } = await stripe.confirmPayment({
       elements,
@@ -61,28 +72,32 @@ function StripePaymentForm({
     });
 
     if (confirmError) {
-      onError(confirmError.message ?? "Payment failed");
-      setBusy(false);
+      setErrMsg(confirmError.message ?? "Payment failed");
+      setPaying(false);
       return;
     }
 
     if (paymentIntent?.status === "succeeded") {
+      // Stripe done — safe to hand off to parent spinner
       onSuccess(paymentIntent.id);
     } else {
-      onError("Payment was not completed. Please try again.");
-      setBusy(false);
+      setErrMsg("Payment was not completed. Please try again.");
+      setPaying(false);
     }
   }
 
   return (
     <form onSubmit={handlePay} className="space-y-5">
       <PaymentElement options={{ layout: "tabs" }} onReady={() => setReady(true)} />
+      {errMsg && (
+        <p className="text-red-400 text-sm bg-red-950/30 border border-red-900/50 rounded-dome px-3 py-2">{errMsg}</p>
+      )}
       <button
         type="submit"
-        disabled={!stripe || !elements || !ready || busy}
+        disabled={!stripe || !elements || !ready || paying}
         className="w-full bg-primary hover:bg-primary-hover disabled:opacity-50 text-white font-bold py-4 rounded-dome transition-colors text-base"
       >
-        {busy ? "Processing…" : !ready ? "Loading…" : `Pay C$${totalCAD.toFixed(2)}`}
+        {!ready ? "Loading…" : paying ? "Processing…" : `Pay C$${totalCAD.toFixed(2)}`}
       </button>
       <p className="text-center text-xs text-muted">
         🔒 Secured by Stripe · By booking you agree to our cancellation policy.

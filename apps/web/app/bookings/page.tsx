@@ -50,6 +50,7 @@ export default function BookingsPage() {
 
   const upcoming = bookings.filter((b) => {
     if (b.status === "CANCELLED") return false;
+    if (!b.slot) return true;
     const dateStr = b.slot.date.split("T")[0]!;
     const slotEnd = new Date(`${dateStr}T${b.slot.endTime}:00`);
     return slotEnd >= now;
@@ -57,6 +58,7 @@ export default function BookingsPage() {
 
   const past = bookings.filter((b) => {
     if (b.status === "CANCELLED") return true;
+    if (!b.slot) return false;
     const dateStr = b.slot.date.split("T")[0]!;
     const slotEnd = new Date(`${dateStr}T${b.slot.endTime}:00`);
     return slotEnd < now;
@@ -122,7 +124,7 @@ export default function BookingsPage() {
         title="Cancel Booking"
         description={
           cancelTarget
-            ? `Cancel your booking on ${new Date(cancelTarget.slot.date.split("T")[0]! + "T00:00:00").toLocaleDateString("en-CA", { month: "short", day: "numeric" })} at ${cancelTarget.slot.startTime}? You may be eligible for a refund depending on timing.`
+            ? `Cancel your booking${cancelTarget.slot ? ` on ${new Date(cancelTarget.slot.date.split("T")[0]! + "T00:00:00").toLocaleDateString("en-CA", { month: "short", day: "numeric" })} at ${cancelTarget.slot.startTime}` : ""}? You may be eligible for a refund depending on timing.`
             : ""
         }
         confirmLabel="Yes, Cancel"

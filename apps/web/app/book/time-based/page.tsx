@@ -44,9 +44,12 @@ function PaymentForm({
   const elements = useElements();
   const router   = useRouter();
 
-  const [status, setStatus]     = useState<"idle" | "processing" | "error">("idle");
-  const [errorMsg, setErrorMsg] = useState("");
-  const [peReady, setPeReady]   = useState(false);
+  // "paying"    = Stripe confirmPayment in flight (form stays mounted)
+  // "serverConfirm" = server-side confirm after Stripe succeeds (spinner OK — Stripe is done)
+  const [paying,       setPaying]   = useState(false);
+  const [serverConfirm, setServerConfirm] = useState(false);
+  const [errorMsg,     setErrorMsg] = useState("");
+  const [peReady,      setPeReady]  = useState(false);
 
   const isPaidByCredits = clientSecret === "credits";
 
@@ -66,21 +69,29 @@ function PaymentForm({
 
   // Credits-only path: no card needed — just confirm on the server
   async function handleCreditsOnly() {
-    setStatus("processing");
+    setServerConfirm(true);
     try {
-      const paymentIntentId = "credits";
-      await confirmOnServer(paymentIntentId);
+      await confirmOnServer("credits");
     } catch (err) {
-      setStatus("error");
+      setServerConfirm(false);
       setErrorMsg(err instanceof Error ? err.message : "Booking failed");
     }
   }
 
   async function handlePay(e: React.FormEvent) {
     e.preventDefault();
-    if (!stripe || !elements) return;
-    setStatus("processing");
+    if (!stripe || !elements || !peReady) return;
+    // Keep the form mounted — only disable the button while Stripe is working
+    setPaying(true);
     setErrorMsg("");
+
+    // Required by Stripe: validate card fields before confirming
+    const { error: submitError } = await elements.submit();
+    if (submitError) {
+      setErrorMsg(submitError.message ?? "Invalid card details");
+      setPaying(false);
+      return;
+    }
 
     const { error: confirmError, paymentIntent } = await stripe.confirmPayment({
       elements,
@@ -92,25 +103,29 @@ function PaymentForm({
     });
 
     if (confirmError) {
-      setStatus("error");
+      // Stripe rejected — show error, re-enable form
+      setPaying(false);
       setErrorMsg(confirmError.message ?? "Payment failed");
       return;
     }
 
     if (paymentIntent?.status === "succeeded") {
+      // Stripe is done — safe to swap in spinner and call server
+      setServerConfirm(true);
       try {
         await confirmOnServer(paymentIntent.id);
       } catch (err) {
-        setStatus("error");
+        setServerConfirm(false);
+        setPaying(false);
         setErrorMsg(err instanceof Error ? err.message : "Booking confirmation failed");
       }
     } else {
-      setStatus("error");
+      setPaying(false);
       setErrorMsg("Payment was not completed. Please try again.");
     }
   }
 
-  if (status === "processing") {
+  if (serverConfirm) {
     return (
       <div className="flex flex-col items-center py-12 gap-4">
         <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" />
@@ -143,15 +158,15 @@ function PaymentForm({
   return (
     <form onSubmit={handlePay} className="space-y-5">
       <PaymentElement options={{ layout: "tabs" }} onReady={() => setPeReady(true)} />
-      {status === "error" && (
+      {errorMsg && (
         <p className="text-red-400 text-sm bg-red-950/30 border border-red-900/50 rounded-dome px-3 py-2">{errorMsg}</p>
       )}
       <button
         type="submit"
-        disabled={!stripe || !elements || !peReady}
+        disabled={!stripe || !elements || !peReady || paying}
         className="w-full bg-primary hover:bg-primary-hover disabled:opacity-50 text-white font-bold py-4 rounded-dome transition-colors text-base"
       >
-        {!peReady ? "Loading…" : `Pay C$${totalCAD.toFixed(2)}`}
+        {!peReady ? "Loading…" : paying ? "Processing…" : `Pay C$${totalCAD.toFixed(2)}`}
       </button>
       <p className="text-center text-xs text-muted">
         🔒 Secured by Stripe · By booking you agree to our cancellation policy.

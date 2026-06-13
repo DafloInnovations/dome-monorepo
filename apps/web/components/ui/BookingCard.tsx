@@ -27,8 +27,12 @@ export default function BookingCard({ booking, onCancel }: Props) {
           <div>
             <p className="font-bold text-white">{booking.facility.name}</p>
             <p className="text-xs text-muted mt-0.5">
-              {booking.slot.court?.name ? `${booking.slot.court.name} · ` : ""}
-              {formatDate(booking.slot.date)} · {booking.slot.startTime}–{booking.slot.endTime}
+              {booking.slot ? (
+                <>
+                  {booking.slot.court?.name ? `${booking.slot.court.name} · ` : ""}
+                  {formatDate(booking.slot.date)} · {booking.slot.startTime}–{booking.slot.endTime}
+                </>
+              ) : "Time-based booking"}
             </p>
           </div>
         </div>

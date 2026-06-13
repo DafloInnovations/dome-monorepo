@@ -94,7 +94,7 @@ export interface Booking {
     startTime: string;
     endTime: string;
     court: { name: string } | null;
-  };
+  } | null;
   facility: { id: string; name: string; sport: string; address?: FacilityAddress | null };
 }
 

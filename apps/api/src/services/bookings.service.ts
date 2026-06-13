@@ -685,11 +685,11 @@ export async function myBookings(userId: string, page = 1, limit = 20) {
       taxCAD: Number(b.taxCAD),
       totalCAD: Number(b.totalCAD),
       creditsIssuedCAD: b.creditsIssuedCAD !== null ? Number(b.creditsIssuedCAD) : null,
-      slot: {
+      slot: b.slot ? {
         ...b.slot,
-        priceCAD: Number(b.slot!.priceCAD),
-        court: b.slot!.court ?? null,
-      },
+        priceCAD: Number(b.slot.priceCAD),
+        court: b.slot.court ?? null,
+      } : null,
       payment: b.payment
         ? { ...b.payment, amountCAD: Number(b.payment.amountCAD) }
         : null,

@@ -462,7 +462,7 @@ export default function SlotBookingCta({ facilityId, facilityName, sport }: Prop
     if (!token) return;
     fetch(`${API_URL}/users/me/credits`, { headers: { Authorization: `Bearer ${token}` } })
       .then((r) => {
-        if (r.status === 401) { clearToken(); return null; }
+        if (r.status === 401) { return null; }
         return r.json() as Promise<{ balance?: number }>;
       })
       .then((json) => {
@@ -473,7 +473,7 @@ export default function SlotBookingCta({ facilityId, facilityName, sport }: Prop
 
   // Run an action — if not logged in, persist booking state and show auth modal
   function requireAuth(action: () => Promise<void>) {
-    if (getStoredUser()) {
+    if (getStoredUser() && getToken()) {
       void action();
     } else {
       // Persist selection so it survives if the page ever refreshes
@@ -592,6 +592,12 @@ export default function SlotBookingCta({ facilityId, facilityName, sport }: Prop
       });
       router.push(`/book/time-based?${params}`);
     } catch (e) {
+      if ((e as { status?: number }).status === 401) {
+        clearToken();
+        pendingAction.current = handleBook;
+        setShowAuthModal(true);
+        return;
+      }
       setBookingError(e instanceof Error ? e.message : "Booking failed. Please try again.");
     } finally {
       setBookingLoading(false);
@@ -617,6 +623,12 @@ export default function SlotBookingCta({ facilityId, facilityName, sport }: Prop
       });
       setAlertSet(true);
     } catch (e) {
+      if ((e as { status?: number }).status === 401) {
+        clearToken();
+        pendingAction.current = handleSetAlert;
+        setShowAuthModal(true);
+        return;
+      }
       setBookingError(e instanceof Error ? e.message : "Failed to set alert");
     } finally {
       setAlertLoading(false);
@@ -643,6 +655,12 @@ export default function SlotBookingCta({ facilityId, facilityName, sport }: Prop
         setCouponInput("");
       }
     } catch (e) {
+      if ((e as { status?: number }).status === 401) {
+        clearToken();
+        pendingAction.current = handleValidateCoupon;
+        setShowAuthModal(true);
+        return;
+      }
       setCouponError(e instanceof Error ? e.message : "Could not validate coupon");
     } finally {
       setCouponLoading(false);
