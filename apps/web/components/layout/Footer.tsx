@@ -44,11 +44,9 @@ export default function Footer() {
             <div key={section}>
               <p className="text-xs font-semibold text-muted uppercase tracking-wider mb-4">{section}</p>
               <ul className="space-y-2.5">
-                {items.map(({ href, label }) => (
-                  <li key={href}>
-                    <Link href={href} className="text-sm text-muted hover:text-white transition-colors">
-                      {label}
-                    </Link>
+                {items.map(({ label }) => (
+                  <li key={label}>
+                    <span className="text-sm text-muted cursor-default">{label}</span>
                   </li>
                 ))}
               </ul>

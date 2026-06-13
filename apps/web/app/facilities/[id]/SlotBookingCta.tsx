@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { API_URL, apiFetch } from "../../../lib/api";
-import { getStoredUser, getToken, setToken, setStoredUser } from "../../../lib/auth";
+import { clearToken, getStoredUser, getToken, setToken, setStoredUser } from "../../../lib/auth";
 
 const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const FALLBACK_DURATIONS = [30, 60, 90, 120, 180];
@@ -457,14 +457,16 @@ export default function SlotBookingCta({ facilityId, facilityName, sport }: Prop
 
   // Fetch credit balance if user is logged in
   useEffect(() => {
-    const user = getStoredUser();
-    if (!user) return;
+    if (typeof window === "undefined") return;
     const token = getToken();
     if (!token) return;
     fetch(`${API_URL}/users/me/credits`, { headers: { Authorization: `Bearer ${token}` } })
-      .then((r) => r.json())
-      .then((json: { balance?: number }) => {
-        if (typeof json.balance === "number") setCreditBalance(json.balance);
+      .then((r) => {
+        if (r.status === 401) { clearToken(); return null; }
+        return r.json() as Promise<{ balance?: number }>;
+      })
+      .then((json) => {
+        if (json && typeof json.balance === "number") setCreditBalance(json.balance);
       })
       .catch(() => null);
   }, []);
