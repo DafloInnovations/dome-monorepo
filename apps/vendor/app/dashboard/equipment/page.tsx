@@ -24,13 +24,15 @@ const EMPTY_FORM: EquipmentFormData = {
 
 function EquipmentModal({
   facilityId,
-  facilities,
+  facilityName,
+  facilitySports,
   initial,
   onSave,
   onClose,
 }: {
   facilityId: string;
-  facilities: Facility[];
+  facilityName: string;
+  facilitySports: string[];
   initial?: Equipment;
   onSave: (facilityId: string, data: EquipmentFormData, id?: string) => Promise<void>;
   onClose: () => void;
@@ -42,9 +44,6 @@ function EquipmentModal({
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [selFacilityId, setSelFacilityId] = useState(initial?.facilityId ?? facilityId);
-
-  const allSports = Object.keys(SPORT_EMOJI);
 
   async function handleSave() {
     if (!form.name.trim() || !form.sport || !form.priceCAD || !form.quantity) {
@@ -54,7 +53,7 @@ function EquipmentModal({
     setSaving(true);
     setError(null);
     try {
-      await onSave(selFacilityId, form, initial?.id);
+      await onSave(facilityId, form, initial?.id);
       onClose();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to save");
@@ -70,18 +69,12 @@ function EquipmentModal({
           {initial ? "Edit Equipment" : "Add Equipment"}
         </h3>
 
-        {/* Facility */}
+        {/* Facility — read-only */}
         <div>
           <label className="text-xs text-muted uppercase tracking-wide mb-1 block">Facility</label>
-          <select
-            value={selFacilityId}
-            onChange={(e) => setSelFacilityId(e.target.value)}
-            className="w-full bg-black border border-border rounded-dome px-3 py-2 text-sm text-white focus:outline-none focus:border-primary"
-          >
-            {facilities.map((f) => (
-              <option key={f.id} value={f.id}>{f.name}</option>
-            ))}
-          </select>
+          <p className="px-3 py-2 text-sm text-white bg-black/40 border border-border rounded-dome">
+            {facilityName}
+          </p>
         </div>
 
         {/* Name */}
@@ -106,7 +99,7 @@ function EquipmentModal({
           />
         </div>
 
-        {/* Sport */}
+        {/* Sport — filtered to this facility's sports */}
         <div>
           <label className="text-xs text-muted uppercase tracking-wide mb-1 block">Sport</label>
           <select
@@ -115,7 +108,7 @@ function EquipmentModal({
             className="w-full bg-black border border-border rounded-dome px-3 py-2 text-sm text-white focus:outline-none focus:border-primary"
           >
             <option value="">Select sport…</option>
-            {allSports.map((s) => (
+            {facilitySports.map((s) => (
               <option key={s} value={s}>{SPORT_EMOJI[s]} {s.charAt(0) + s.slice(1).toLowerCase()}</option>
             ))}
           </select>
@@ -222,7 +215,13 @@ export default function EquipmentPage() {
   const totalItems = equipment.length;
   const totalRentals = equipment.reduce((s, e) => s + e._count.rentals, 0);
 
-  const defaultFacilityId = facilities[0]?.id ?? "";
+  const defaultFacility = facilities[0];
+  const defaultFacilityId = defaultFacility?.id ?? "";
+  const defaultFacilityName = defaultFacility?.name ?? "";
+  // Collect unique sports from the facility's primary sport + all court sports
+  const defaultFacilitySports = defaultFacility
+    ? [...new Set([defaultFacility.sport, ...defaultFacility.courts.flatMap((c) => c.sports)])]
+    : [];
 
   return (
     <div className="flex-1 flex flex-col min-h-screen">
@@ -334,7 +333,8 @@ export default function EquipmentPage() {
       {showModal && (
         <EquipmentModal
           facilityId={editing?.facilityId ?? defaultFacilityId}
-          facilities={facilities}
+          facilityName={defaultFacilityName}
+          facilitySports={defaultFacilitySports}
           initial={editing}
           onSave={handleSave}
           onClose={() => { setShowModal(false); setEditing(undefined); }}
