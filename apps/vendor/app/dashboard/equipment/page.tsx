@@ -199,7 +199,7 @@ export default function EquipmentPage() {
 
   async function handleDelete(item: Equipment) {
     if (!confirm(`Delete "${item.name}"? This cannot be undone.`)) return;
-    await api.equipment.delete(item.id);
+    await api.equipment.remove(item.id);
     await load();
   }
 
