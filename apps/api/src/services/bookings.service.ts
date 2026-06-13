@@ -1324,6 +1324,7 @@ export async function createTimeBooking(
       currency: "cad",
       metadata: {
         bookingId: booking.id,
+        slotId: booking.slotId ?? "",
         userId,
         creditsApplied: String(creditsApplied),
       },

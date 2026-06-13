@@ -1,6 +1,7 @@
 import {
   BookingPaymentStatus,
   BookingStatus,
+  GroupBookingStatus,
   PaymentMethod,
   PaymentStatus,
   SlotStatus,
@@ -102,8 +103,74 @@ export async function handleWebhook(rawBody: Buffer, signature: string) {
   switch (event.type) {
     case "payment_intent.succeeded": {
       const pi = event.data.object as unknown as StripePaymentIntentMeta;
-      const { bookingId, userId, slotId } = pi.metadata;
-      if (!bookingId || !slotId || !userId) break;
+      const { bookingId, userId, slotId, groupId, slotIds: slotIdsStr } = pi.metadata;
+      if (!userId) break;
+
+      // ── Group booking (multiple slots / multiple courts) ──────────────────
+      if (groupId) {
+        const group = await prisma.bookingGroup.findUnique({
+          where: { id: groupId },
+          select: { status: true, taxCAD: true, bookings: { select: { id: true, slotId: true } } },
+        });
+        if (!group || group.status === GroupBookingStatus.CONFIRMED) break;
+
+        const slotIds = slotIdsStr ? slotIdsStr.split(",").filter(Boolean) : group.bookings.map((b) => b.slotId).filter((id): id is string => !!id);
+        const bookingIds = group.bookings.map((b) => b.id);
+
+        const bookedSlots = await prisma.slot.findMany({
+          where: { id: { in: slotIds } },
+          select: { id: true, linkedSlotIds: true },
+        });
+        const linkedIds = [...new Set(bookedSlots.flatMap((s) => s.linkedSlotIds))];
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const ops: import("@prisma/client").Prisma.PrismaPromise<any>[] = [
+          prisma.bookingGroup.update({
+            where: { id: groupId },
+            data: { status: GroupBookingStatus.CONFIRMED, paymentStatus: PaymentStatus.SUCCEEDED },
+          }),
+          prisma.booking.updateMany({
+            where: { id: { in: bookingIds } },
+            data: { status: BookingStatus.CONFIRMED, paymentStatus: BookingPaymentStatus.PAID },
+          }),
+          prisma.slot.updateMany({
+            where: { id: { in: slotIds } },
+            data: { status: SlotStatus.BOOKED },
+          }),
+          prisma.payment.upsert({
+            where: { gatewayPaymentId: pi.id },
+            create: {
+              bookingGroupId: groupId,
+              userId,
+              amountCAD: pi.amount / 100,
+              taxCAD: Number(group.taxCAD),
+              method: PaymentMethod.CARD,
+              gatewayPaymentId: pi.id,
+              status: PaymentStatus.SUCCEEDED,
+            },
+            update: { status: PaymentStatus.SUCCEEDED },
+          }),
+          prisma.user.update({
+            where: { id: userId },
+            data: { creditBalanceCAD: { increment: POINTS_PER_BOOKING } },
+          }),
+        ];
+        if (linkedIds.length > 0) {
+          ops.push(
+            prisma.slot.updateMany({
+              where: { id: { in: linkedIds }, status: SlotStatus.AVAILABLE },
+              data: { status: SlotStatus.BLOCKED, blockReason: "Court booked for another sport" },
+            })
+          );
+        }
+        await prisma.$transaction(ops);
+        const allLockIds = [...slotIds, ...linkedIds];
+        if (allLockIds.length) await redis.del(...allLockIds.map((id) => `slot:${id}:lock`));
+        break;
+      }
+
+      // ── Single booking ────────────────────────────────────────────────────
+      if (!bookingId || !slotId) break;
 
       await prisma.$transaction([
         prisma.payment.upsert({
@@ -138,7 +205,6 @@ export async function handleWebhook(rawBody: Buffer, signature: string) {
 
       await redis.del(`slot:${slotId}:lock`);
 
-      // Push: booking confirmed via webhook
       const [userForToken, bookingWithDetails] = await Promise.all([
         prisma.user.findUnique({ where: { id: userId }, select: { deviceToken: true } }),
         prisma.booking.findUnique({
@@ -152,11 +218,11 @@ export async function handleWebhook(rawBody: Buffer, signature: string) {
       if (bookingWithDetails) {
         const sport = bookingWithDetails.facility.sport.charAt(0) +
           bookingWithDetails.facility.sport.slice(1).toLowerCase();
-        const slotDate = bookingWithDetails.slot!.date instanceof Date
-          ? bookingWithDetails.slot!.date.toLocaleDateString("en-CA", { month: "short", day: "numeric" })
-          : String(bookingWithDetails.slot!.date).split("T")[0];
+        const slotDate = bookingWithDetails.slot?.date instanceof Date
+          ? bookingWithDetails.slot.date.toLocaleDateString("en-CA", { month: "short", day: "numeric" })
+          : String(bookingWithDetails.slot?.date ?? "").split("T")[0];
         const wTitle = "Booking Confirmed ✅";
-        const wBody = `${sport} at ${bookingWithDetails.facility.name} on ${slotDate} at ${bookingWithDetails.slot!.startTime}`;
+        const wBody = `${sport} at ${bookingWithDetails.facility.name} on ${slotDate} at ${bookingWithDetails.slot?.startTime ?? ""}`;
         const wData = { type: "booking_confirmed", bookingId };
         await saveNotification(userId, "BOOKING_CONFIRMED", wTitle, wBody, wData);
         if (userForToken?.deviceToken) {
