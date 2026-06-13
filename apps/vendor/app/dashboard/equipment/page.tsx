@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Header from "../../../components/layout/Header";
-import { api, type Facility, type VendorProfile, type VendorEquipment as Equipment } from "../../../lib/api";
+import { api, type Facility, type VendorEquipment as Equipment } from "../../../lib/api";
 
 const SPORT_EMOJI: Record<string, string> = {
   BADMINTON: "🏸", TENNIS: "🎾", BASKETBALL: "🏀", SOCCER: "⚽",
@@ -153,7 +153,6 @@ function EquipmentModal({
 export default function EquipmentPage() {
   const [equipment, setEquipment] = useState<Equipment[]>([]);
   const [facilities, setFacilities] = useState<Facility[]>([]);
-  const [vendorSports, setVendorSports] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<Equipment | undefined>();
@@ -161,14 +160,12 @@ export default function EquipmentPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [eqRes, facRes, profileRes] = await Promise.all([
+      const [eqRes, facRes] = await Promise.all([
         api.equipment.list(),
         api.vendor.facilities(),
-        api.vendor.profile(),
       ]);
       setEquipment(eqRes.data ?? []);
       setFacilities(facRes.data ?? []);
-      setVendorSports((profileRes.data as VendorProfile).sports ?? []);
     } catch { /* handled by empty state */ } finally {
       setLoading(false);
     }
@@ -215,6 +212,8 @@ export default function EquipmentPage() {
   const totalRentals = equipment.reduce((s, e) => s + e._count.rentals, 0);
 
   const defaultFacilityId = facilities[0]?.id ?? "";
+  // Sports derived from the vendor's actual facilities — same source as the Sports page
+  const vendorSports = [...new Set(facilities.map((f) => f.sport.toUpperCase()))];
 
   return (
     <div className="flex-1 flex flex-col min-h-screen">
