@@ -83,16 +83,12 @@ function formatAmPm(time: string): string {
   return `${hour}:${String(m!).padStart(2, "0")} ${period}`;
 }
 
-// Generate times every 30 min 06:00–22:30
-function buildTimeslots(): string[] {
-  const times: string[] = [];
-  for (let h = 6; h < 23; h++) {
-    times.push(`${String(h).padStart(2, "0")}:00`);
-    times.push(`${String(h).padStart(2, "0")}:30`);
-  }
-  return times;
+interface AvailableTime {
+  time: string;    // HH:mm
+  label: string;   // "10:00 AM"
+  status: "AVAILABLE" | "PARTIAL" | "BOOKED";
+  availableCourts: number;
 }
-const ALL_TIMES = buildTimeslots();
 
 interface EquipmentItem {
   id: string;
@@ -124,6 +120,8 @@ export default function SlotBookingCta({ facilityId, facilityName, sport }: Prop
   const [startTime, setStartTime] = useState<string | null>(null);
   const [duration, setDuration] = useState<number>(60);
   const [bookingRules, setBookingRules] = useState<BookingRules | null>(null);
+  const [availableTimes, setAvailableTimes] = useState<AvailableTime[]>([]);
+  const [timesLoading, setTimesLoading] = useState(false);
   const [courtsResult, setCourtsResult] = useState<AvailableCourtsResult | null>(null);
   const [courtsLoading, setCourtsLoading] = useState(false);
   const [selectedCourts, setSelectedCourts] = useState<AvailableCourt[]>([]);
@@ -157,19 +155,39 @@ export default function SlotBookingCta({ facilityId, facilityName, sport }: Prop
 
   const date = formatDate(days[dayIdx]!);
   const endTime = startTime ? addMins(startTime, duration) : null;
-
   const isToday = dayIdx === 0;
-  const nowMinutes = isToday ? new Date().getHours() * 60 + new Date().getMinutes() : -1;
-  function isPastTime(t: string) {
-    if (!isToday) return false;
-    const [h, m] = t.split(":").map(Number);
-    return h! * 60 + m! <= nowMinutes;
-  }
+
+  // Fetch available start times when date or duration changes
+  useEffect(() => {
+    setStartTime(null);
+    setCourtsResult(null);
+    setSelectedCourts([]);
+    setAvailableTimes([]);
+    setTimesLoading(true);
+    const qs = new URLSearchParams({ date, duration: String(duration) });
+    fetch(`${API_URL}/facilities/${facilityId}/available-times?${qs}`)
+      .then((r) => r.json())
+      .then((json: { data?: { availableTimes?: AvailableTime[] } }) => {
+        const now = new Date();
+        const nowMins = now.getHours() * 60 + now.getMinutes();
+        const times = (json.data?.availableTimes ?? []).filter((t) => {
+          if (t.status === "BOOKED") return false;
+          if (isToday) {
+            const [h, m] = t.time.split(":").map(Number);
+            if (h! * 60 + m! <= nowMins) return false;
+          }
+          return true;
+        });
+        setAvailableTimes(times);
+      })
+      .catch(() => setAvailableTimes([]))
+      .finally(() => setTimesLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [facilityId, date, duration]);
 
   // Fetch available courts whenever date/time/duration/sport changes
   useEffect(() => {
     setAlertSet(false);
-    if (startTime && isPastTime(startTime)) setStartTime(null);
     if (!startTime) { setCourtsResult(null); setSelectedCourts([]); return; }
     setCourtsLoading(true);
     setSelectedCourts([]);
@@ -446,15 +464,20 @@ export default function SlotBookingCta({ facilityId, facilityName, sport }: Prop
           Start Time & Duration
         </p>
         <div className="flex gap-3 items-center flex-wrap">
-          {/* Time dropdown */}
+          {/* Time dropdown — populated from actual available slots */}
           <select
             value={startTime ?? ""}
             onChange={(e) => setStartTime(e.target.value || null)}
-            className="bg-surface border border-border rounded-dome px-3 py-2 text-sm text-white focus:outline-none focus:border-primary"
+            disabled={timesLoading}
+            className="bg-surface border border-border rounded-dome px-3 py-2 text-sm text-white focus:outline-none focus:border-primary disabled:opacity-50"
           >
-            <option value="">Select time…</option>
-            {ALL_TIMES.map((t) => (
-              <option key={t} value={t} disabled={isPastTime(t)}>{formatAmPm(t)}{isPastTime(t) ? " (past)" : ""}</option>
+            <option value="">
+              {timesLoading ? "Loading…" : availableTimes.length === 0 ? "No times available" : "Select time…"}
+            </option>
+            {availableTimes.map((t) => (
+              <option key={t.time} value={t.time}>
+                {t.label}{t.status === "PARTIAL" ? ` (${t.availableCourts} court${t.availableCourts !== 1 ? "s" : ""} left)` : ""}
+              </option>
             ))}
           </select>
 

@@ -29,7 +29,8 @@
       "Bash(echo \"started PID $!\")",
       "Bash(grep -E \"\\\\.tsx$\")",
       "Bash(git stash *)",
-      "Bash(redis-cli ping *)"
+      "Bash(redis-cli ping *)",
+      "Bash(git commit -m 'fix: use api.equipment.remove \\(not .delete\\) for equipment deletion *)"
     ]
   }
 }
