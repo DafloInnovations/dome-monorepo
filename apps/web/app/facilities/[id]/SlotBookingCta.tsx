@@ -563,15 +563,24 @@ export default function SlotBookingCta({ facilityId, facilityName, sport }: Prop
         return;
       }
 
-      // Add equipment if selected (updates PaymentIntent amount server-side)
+      // Add equipment if selected — use the response to get updated totals
+      let finalTotal    = result.data.totalCAD;
+      let finalSubtotal = result.data.subtotalCAD ?? result.data.totalCAD;
+      let finalTax      = result.data.taxCAD ?? 0;
+
       const equipItems = Object.entries(equipmentSelected)
         .filter(([, qty]) => qty > 0)
         .map(([equipmentId, quantity]) => ({ equipmentId, quantity }));
       if (equipItems.length > 0 && type === "single" && bookingId) {
-        await apiFetch(`/bookings/${bookingId}/equipment`, {
+        const equipRes = await apiFetch<{
+          data: { subtotalCAD: number; taxCAD: number; totalCAD: number };
+        }>(`/bookings/${bookingId}/equipment`, {
           method: "POST",
           body: JSON.stringify({ items: equipItems }),
         });
+        finalTotal    = equipRes.data.totalCAD;
+        finalSubtotal = equipRes.data.subtotalCAD;
+        finalTax      = equipRes.data.taxCAD;
       }
 
       const courtNames = selectedCourts.map((c) => c.name).join(", ");
@@ -584,9 +593,9 @@ export default function SlotBookingCta({ facilityId, facilityName, sport }: Prop
         durationMinutes: String(duration),
         courts: courtNames,
         clientSecret: clientSecret!,
-        totalCAD: String(result.data.totalCAD),
-        subtotalCAD: String(result.data.subtotalCAD ?? result.data.totalCAD),
-        taxCAD: String(result.data.taxCAD ?? 0),
+        totalCAD: String(finalTotal),
+        subtotalCAD: String(finalSubtotal),
+        taxCAD: String(finalTax),
         ...(type === "single" && bookingId ? { bookingId } : {}),
         ...(type === "group" && groupId ? { groupId } : {}),
       });
