@@ -701,6 +701,7 @@ export default function BookingsScreen() {
             pathname: "/booking/cancel/[bookingId]",
             params: {
               bookingId: item.id,
+              ...(item.bookingGroupId ? { bookingGroupId: item.bookingGroupId } : {}),
               facilityName: item.facility.name,
               sport: item.facility.sport,
               slotDate,

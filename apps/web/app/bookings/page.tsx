@@ -30,8 +30,12 @@ export default function BookingsPage() {
   async function handleCancel() {
     if (!cancelId) return;
     setCancelling(true);
+    const target = bookings.find((b) => b.id === cancelId);
+    const cancelUrl = target?.bookingGroupId
+      ? `/bookings/group/${target.bookingGroupId}/cancel`
+      : `/bookings/${cancelId}/cancel`;
     try {
-      await apiFetch(`/bookings/${cancelId}/cancel`, {
+      await apiFetch(cancelUrl, {
         method: "PUT",
         body: JSON.stringify({ reason: "Cancelled by player" }),
       });

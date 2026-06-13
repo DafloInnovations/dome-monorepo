@@ -82,6 +82,7 @@ export interface Slot {
 
 export interface Booking {
   id: string;
+  bookingGroupId?: string | null;
   status: string;
   paymentStatus: string;
   totalCAD: number;

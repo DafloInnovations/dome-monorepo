@@ -42,6 +42,7 @@ export default function CancelBookingScreen() {
   const router = useRouter();
   const {
     bookingId,
+    bookingGroupId,
     facilityName,
     sport,
     slotDate,
@@ -50,6 +51,7 @@ export default function CancelBookingScreen() {
     totalCAD,
   } = useLocalSearchParams<{
     bookingId: string;
+    bookingGroupId?: string;
     facilityName?: string;
     sport?: string;
     slotDate?: string;
@@ -75,7 +77,7 @@ export default function CancelBookingScreen() {
 
   async function handleConfirm() {
     try {
-      const result = await cancelBooking(bookingId!, reason);
+      const result = await cancelBooking(bookingId!, reason, bookingGroupId);
       const msg =
         result.refundType === "full"
           ? `C$${result.refundedCAD?.toFixed(2)} refund initiated to your card.`

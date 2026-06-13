@@ -657,47 +657,107 @@ export async function cancelPreview(userId: string, bookingId: string) {
 // ─── User booking history ─────────────────────────────────────────────────────
 
 export async function myBookings(userId: string, page = 1, limit = 20) {
-  const take = Math.min(limit, 50);
+  // Fetch all bookings first — we need all siblings in a group to merge them
+  // correctly before applying pagination on the merged count.
+  const all = await prisma.booking.findMany({
+    where: { userId },
+    include: {
+      slot: { include: { court: true } },
+      facility: { include: { address: true } },
+      payment: {
+        select: { id: true, status: true, method: true, amountCAD: true },
+      },
+      review: { select: { id: true } },
+    },
+    orderBy: [{ createdAt: "desc" }],
+  });
+
+  const normalised = all.map((b) => ({
+    ...b,
+    subtotalCAD: Number(b.subtotalCAD),
+    taxCAD: Number(b.taxCAD),
+    totalCAD: Number(b.totalCAD),
+    creditsIssuedCAD: b.creditsIssuedCAD !== null ? Number(b.creditsIssuedCAD) : null,
+    slot: b.slot ? {
+      ...b.slot,
+      priceCAD: Number(b.slot.priceCAD),
+      court: b.slot.court ?? null,
+    } : null,
+    payment: b.payment
+      ? { ...b.payment, amountCAD: Number(b.payment.amountCAD) }
+      : null,
+  }));
+
+  // Merge group siblings: a multi-hour booking creates one Booking per 1-hour slot,
+  // all sharing the same bookingGroupId. Surface them as a single entry spanning
+  // the full duration, with totals summed across all slots.
+  const seenGroups = new Set<string>();
+  const merged: typeof normalised = [];
+
+  for (const b of normalised) {
+    if (!b.bookingGroupId) {
+      merged.push(b);
+      continue;
+    }
+    if (seenGroups.has(b.bookingGroupId)) continue;
+    seenGroups.add(b.bookingGroupId);
+
+    const siblings = normalised.filter((s) => s.bookingGroupId === b.bookingGroupId);
+    const withSlots = siblings.filter((s) => s.slot !== null);
+    withSlots.sort((a, c) => a.slot!.startTime.localeCompare(c.slot!.startTime));
+
+    if (withSlots.length === 0) {
+      merged.push(b);
+      continue;
+    }
+
+    const first = withSlots[0]!;
+    const last  = withSlots[withSlots.length - 1]!;
+    const totalDuration = withSlots.reduce((s, x) => s + x.slot!.durationMinutes, 0);
+    const totalSubtotal = siblings.reduce((s, x) => s + x.subtotalCAD, 0);
+    const totalTax      = siblings.reduce((s, x) => s + x.taxCAD, 0);
+    const totalTotal    = siblings.reduce((s, x) => s + x.totalCAD, 0);
+
+    const statuses = siblings.map((s) => s.status);
+    const status = statuses.includes(BookingStatus.CONFIRMED) ? BookingStatus.CONFIRMED
+      : statuses.includes(BookingStatus.PENDING) ? BookingStatus.PENDING
+      : BookingStatus.CANCELLED;
+
+    const paymentStatus = siblings.some((s) => s.paymentStatus === BookingPaymentStatus.PAID)
+      ? BookingPaymentStatus.PAID
+      : first.paymentStatus;
+
+    merged.push({
+      ...first,
+      subtotalCAD: totalSubtotal,
+      taxCAD: totalTax,
+      totalCAD: totalTotal,
+      status,
+      paymentStatus,
+      slot: {
+        ...first.slot!,
+        endTime: last.slot!.endTime,
+        durationMinutes: totalDuration,
+      },
+    });
+  }
+
+  // Sort merged list by slot date desc (most recent first)
+  merged.sort((a, b) => {
+    const aDate = a.slot?.date instanceof Date ? a.slot.date.toISOString() : a.createdAt.toISOString();
+    const bDate = b.slot?.date instanceof Date ? b.slot.date.toISOString() : b.createdAt.toISOString();
+    return bDate.localeCompare(aDate);
+  });
+
+  const take = Math.min(Math.max(limit, 1), 100);
   const skip = (Math.max(page, 1) - 1) * take;
 
-  const [bookings, total] = await Promise.all([
-    prisma.booking.findMany({
-      where: { userId },
-      include: {
-        slot: { include: { court: true } },
-        facility: { include: { address: true } },
-        payment: {
-          select: { id: true, status: true, method: true, amountCAD: true },
-        },
-        review: { select: { id: true } },
-      },
-      orderBy: { slot: { date: "desc" } },
-      skip,
-      take,
-    }),
-    prisma.booking.count({ where: { userId } }),
-  ]);
-
   return {
-    data: bookings.map((b) => ({
-      ...b,
-      subtotalCAD: Number(b.subtotalCAD),
-      taxCAD: Number(b.taxCAD),
-      totalCAD: Number(b.totalCAD),
-      creditsIssuedCAD: b.creditsIssuedCAD !== null ? Number(b.creditsIssuedCAD) : null,
-      slot: b.slot ? {
-        ...b.slot,
-        priceCAD: Number(b.slot.priceCAD),
-        court: b.slot.court ?? null,
-      } : null,
-      payment: b.payment
-        ? { ...b.payment, amountCAD: Number(b.payment.amountCAD) }
-        : null,
-    })),
-    total,
+    data: merged.slice(skip, skip + take),
+    total: merged.length,
     page: Math.max(page, 1),
     limit: take,
-    hasMore: skip + take < total,
+    hasMore: skip + take < merged.length,
   };
 }
 

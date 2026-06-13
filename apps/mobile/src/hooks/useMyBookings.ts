@@ -22,6 +22,7 @@ export interface BookingFacility {
 
 export interface MyBooking {
   id: string;
+  bookingGroupId?: string | null;
   status: string;
   paymentStatus: string;
   subtotalCAD: number;

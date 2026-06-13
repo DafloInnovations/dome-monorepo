@@ -48,12 +48,19 @@ export function useCancellation() {
     }
   }, [getValidToken]);
 
-  const cancelBooking = useCallback(async (bookingId: string, reason?: string): Promise<CancelResult> => {
+  const cancelBooking = useCallback(async (
+    bookingId: string,
+    reason?: string,
+    groupId?: string | null,
+  ): Promise<CancelResult> => {
     setIsCancelling(true);
     setError(null);
     try {
       const token = await getValidToken();
-      const res = await fetch(`${API_URL}/bookings/${bookingId}/cancel`, {
+      const url = groupId
+        ? `${API_URL}/bookings/group/${groupId}/cancel`
+        : `${API_URL}/bookings/${bookingId}/cancel`;
+      const res = await fetch(url, {
         method: "PUT",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ reason: reason?.trim() || undefined }),

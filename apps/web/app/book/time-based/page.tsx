@@ -46,10 +46,11 @@ function PaymentForm({
 
   // "paying"    = Stripe confirmPayment in flight (form stays mounted)
   // "serverConfirm" = server-side confirm after Stripe succeeds (spinner OK — Stripe is done)
-  const [paying,       setPaying]   = useState(false);
+  const [paying,        setPaying]       = useState(false);
   const [serverConfirm, setServerConfirm] = useState(false);
-  const [errorMsg,     setErrorMsg] = useState("");
-  const [peReady,      setPeReady]  = useState(false);
+  const [errorMsg,      setErrorMsg]     = useState("");
+  const [peReady,       setPeReady]      = useState(false);
+  const [peLoadError,   setPeLoadError]  = useState(false);
 
   const isPaidByCredits = clientSecret === "credits";
 
@@ -142,7 +143,7 @@ function PaymentForm({
           <p className="text-green-400 font-semibold">💳 Paid in full with Dome Credits</p>
           <p className="text-green-400/70 text-sm mt-1">No card charge — C${creditsApplied.toFixed(2)} credits applied</p>
         </div>
-        {status === "error" && (
+        {errorMsg && (
           <p className="text-red-400 text-sm bg-red-950/30 border border-red-900/50 rounded-dome px-3 py-2">{errorMsg}</p>
         )}
         <button
@@ -155,9 +156,26 @@ function PaymentForm({
     );
   }
 
+  // Payment session expired — clientSecret is invalid
+  if (peLoadError) {
+    return (
+      <div className="space-y-4 text-center py-4">
+        <p className="text-red-400 font-semibold">⚠️ Payment session expired</p>
+        <p className="text-muted text-sm">Your booking hold timed out. Please go back and start a new booking.</p>
+        <a href={`/facilities/${facilityId}`} className="inline-block bg-primary hover:bg-primary-hover text-white font-bold px-6 py-3 rounded-dome transition-colors text-sm">
+          Back to Facility
+        </a>
+      </div>
+    );
+  }
+
   return (
     <form onSubmit={handlePay} className="space-y-5">
-      <PaymentElement options={{ layout: "tabs" }} onReady={() => setPeReady(true)} />
+      <PaymentElement
+        options={{ layout: "tabs" }}
+        onReady={() => setPeReady(true)}
+        onLoadError={() => setPeLoadError(true)}
+      />
       {errorMsg && (
         <p className="text-red-400 text-sm bg-red-950/30 border border-red-900/50 rounded-dome px-3 py-2">{errorMsg}</p>
       )}
