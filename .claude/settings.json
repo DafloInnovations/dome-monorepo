@@ -30,7 +30,11 @@
       "Bash(grep -E \"\\\\.tsx$\")",
       "Bash(git stash *)",
       "Bash(redis-cli ping *)",
-      "Bash(git commit -m 'fix: use api.equipment.remove \\(not .delete\\) for equipment deletion *)"
+      "Bash(git commit -m 'fix: use api.equipment.remove \\(not .delete\\) for equipment deletion *)",
+      "Bash(export TMPDIR=/tmp2 2)",
+      "Bash(grep \"stripe\" /Users/nisu/Documents/GitHub/dome-monorepo/apps/web/package.json)",
+      "Bash(echo \"not found\")",
+      "Bash(pnpm --filter web add @stripe/stripe-js @stripe/react-stripe-js)"
     ]
   }
 }
