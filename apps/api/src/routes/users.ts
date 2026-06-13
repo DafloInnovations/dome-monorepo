@@ -236,7 +236,10 @@ const profileSetupSchema = z.object({
   firstName:       z.string().min(2, "First name must be at least 2 characters").max(50),
   lastName:        z.string().min(2, "Last name must be at least 2 characters").max(50),
   email:           z.string().email().max(254).optional().nullable(),
-  dateOfBirth:     z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD format").optional().nullable(),
+  dateOfBirth:     z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD format").refine((d) => {
+    const dt = new Date(d);
+    return !isNaN(dt.getTime());
+  }, "Invalid date").optional().nullable(),
   gender:          z.enum(["MALE", "FEMALE", "OTHER", "PREFER_NOT"]).optional().nullable(),
   city:            z.string().min(1, "City is required").max(100),
   province:        z.string().length(2),
@@ -269,7 +272,18 @@ router.put("/me/profile", authenticate, validate(profileSetupSchema), async (req
     });
 
     res.json({ data: user });
-  } catch (err) { next(err); }
+  } catch (err) {
+    // Unique constraint on email — another account already uses it
+    if (
+      err instanceof Error &&
+      "code" in err &&
+      (err as { code: string }).code === "P2002"
+    ) {
+      res.status(409).json({ message: "This email is already associated with another account." });
+      return;
+    }
+    next(err);
+  }
 });
 
 router.delete("/me", authenticate, async (req, res) => {

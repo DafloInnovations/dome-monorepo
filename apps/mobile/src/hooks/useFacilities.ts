@@ -11,6 +11,16 @@ export interface ActiveCoupon {
   maxDiscountCAD: number | null;
 }
 
+export interface ActiveDiscount {
+  type: string;
+  name: string;
+  adjustmentType: string;
+  adjustmentValue: number;
+  startTime: string | null;
+  endTime: string | null;
+  daysOfWeek: number[];
+}
+
 export interface Facility {
   id: string;
   name: string;
@@ -32,6 +42,7 @@ export interface Facility {
   totalReviews: number;
   distanceKm?: number;
   activeCoupons?: ActiveCoupon[];
+  activeDiscounts?: ActiveDiscount[];
 }
 
 interface UseFacilitiesOpts {

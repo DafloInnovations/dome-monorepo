@@ -1,5 +1,6 @@
 import {
   type Prisma,
+  PriceAdjustmentType,
   Province,
   SlotStatus,
   SportType,
@@ -79,6 +80,11 @@ function parseDate(s: string): Date {
 
 // ─── Shared Prisma include shape ──────────────────────────────────────────────
 
+const DISCOUNT_ADJUSTMENT_TYPES = [
+  PriceAdjustmentType.PERCENTAGE_DECREASE,
+  PriceAdjustmentType.FIXED_DECREASE,
+];
+
 function buildFacilityListInclude() {
   const now = new Date();
   return {
@@ -100,6 +106,27 @@ function buildFacilityListInclude() {
         maxDiscountCAD: true,
       },
       take: 3,
+    },
+    courts: {
+      where: { isActive: true },
+      select: {
+        pricingRules: {
+          where: {
+            isActive: true,
+            adjustmentType: { in: DISCOUNT_ADJUSTMENT_TYPES },
+          },
+          select: {
+            type: true,
+            name: true,
+            adjustmentType: true,
+            adjustmentValue: true,
+            startTime: true,
+            endTime: true,
+            daysOfWeek: true,
+          },
+          take: 3,
+        },
+      },
     },
   } satisfies Prisma.FacilityInclude;
 }
@@ -206,13 +233,30 @@ export async function listFacilities(params: ListFacilitiesParams) {
       slots: { some: { date: parseDate(date), status: SlotStatus.AVAILABLE } },
     }),
     ...(hasOffers && {
-      coupons: {
-        some: {
-          isActive: true,
-          validFrom: { lte: now },
-          validUntil: { gte: now },
+      OR: [
+        {
+          coupons: {
+            some: {
+              isActive: true,
+              validFrom: { lte: now },
+              validUntil: { gte: now },
+            },
+          },
         },
-      },
+        {
+          courts: {
+            some: {
+              isActive: true,
+              pricingRules: {
+                some: {
+                  isActive: true,
+                  adjustmentType: { in: DISCOUNT_ADJUSTMENT_TYPES },
+                },
+              },
+            },
+          },
+        },
+      ],
     }),
   };
 
@@ -260,6 +304,35 @@ export async function listFacilities(params: ListFacilitiesParams) {
       validUntil: c.validUntil.toISOString(),
       maxDiscountCAD: c.maxDiscountCAD !== null ? Number(c.maxDiscountCAD) : null,
     })),
+    activeDiscounts: (() => {
+      const seen = new Set<string>();
+      const discounts: {
+        type: string;
+        name: string;
+        adjustmentType: string;
+        adjustmentValue: number;
+        startTime: string | null;
+        endTime: string | null;
+        daysOfWeek: number[];
+      }[] = [];
+      for (const court of f.courts) {
+        for (const rule of court.pricingRules) {
+          if (!seen.has(rule.name)) {
+            seen.add(rule.name);
+            discounts.push({
+              type: rule.type as string,
+              name: rule.name,
+              adjustmentType: rule.adjustmentType as string,
+              adjustmentValue: Number(rule.adjustmentValue),
+              startTime: rule.startTime ?? null,
+              endTime: rule.endTime ?? null,
+              daysOfWeek: rule.daysOfWeek,
+            });
+          }
+        }
+      }
+      return discounts;
+    })(),
   }));
 
   // Post-filter and sort

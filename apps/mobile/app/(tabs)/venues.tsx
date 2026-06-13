@@ -19,7 +19,7 @@ import * as Location from "expo-location";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useFacilities, type Facility, type ActiveCoupon } from "../../src/hooks/useFacilities";
+import { useFacilities, type Facility, type ActiveCoupon, type ActiveDiscount } from "../../src/hooks/useFacilities";
 import { useThreads } from "../../src/hooks/useChat";
 import { CANADIAN_CITIES } from "../../src/config/canadianCities";
 import { useNotificationsContext } from "../../src/context/NotificationsContext";
@@ -96,6 +96,20 @@ function getOfferBadgeLabel(c: ActiveCoupon): string {
   return `OFFER`;
 }
 
+function getDiscountBadgeLabel(d: ActiveDiscount): string {
+  if (d.adjustmentType === "PERCENTAGE_DECREASE") return `-${d.adjustmentValue}%`;
+  if (d.adjustmentType === "FIXED_DECREASE")      return `-C$${d.adjustmentValue}`;
+  return `DEAL`;
+}
+
+function getDiscountLabel(d: ActiveDiscount): string {
+  const amount = d.adjustmentType === "PERCENTAGE_DECREASE"
+    ? `${d.adjustmentValue}% off`
+    : `C$${d.adjustmentValue} off`;
+  const emoji = d.type === "EARLY_BIRD" ? "🌅" : "🕐";
+  return `${emoji} ${d.name}: ${amount}`;
+}
+
 type SortBy = "nearest" | "rated" | "popular";
 const SORT_LABELS: Record<SortBy, string> = {
   nearest: "Nearest",
@@ -169,6 +183,7 @@ function FacilityCard({
   const addressText = facility.address
     ? `${facility.address.street}, ${facility.address.city}` : null;
   const topCoupon   = facility.activeCoupons?.[0] ?? null;
+  const topDiscount = facility.activeDiscounts?.[0] ?? null;
 
   return (
     <Pressable
@@ -202,6 +217,10 @@ function FacilityCard({
           <View style={fc.offerBadge}>
             <Text style={fc.offerBadgeText}>🏷️ {getOfferBadgeLabel(topCoupon)}</Text>
           </View>
+        ) : topDiscount ? (
+          <View style={fc.offerBadge}>
+            <Text style={fc.offerBadgeText}>🏷️ {getDiscountBadgeLabel(topDiscount)}</Text>
+          </View>
         ) : !hasReviews ? (
           <View style={fc.newBadge}>
             <Text style={fc.newBadgeText}>NEW</Text>
@@ -225,9 +244,11 @@ function FacilityCard({
         ) : null}
 
         {/* Offer line */}
-        {topCoupon && (
+        {(topCoupon || topDiscount) && (
           <View style={fc.offerLine}>
-            <Text style={fc.offerLineText}>🏷️ {getCouponLabel(topCoupon)}</Text>
+            <Text style={fc.offerLineText}>
+              {topCoupon ? `🏷️ ${getCouponLabel(topCoupon)}` : getDiscountLabel(topDiscount!)}
+            </Text>
           </View>
         )}
 

@@ -4,10 +4,13 @@ import { redis } from "../lib/redis";
 import { generateRefreshToken, signAccessToken } from "../lib/jwt";
 import type { User } from "@prisma/client";
 
-const twilioClient = twilio(
-  process.env["TWILIO_ACCOUNT_SID"]!,
-  process.env["TWILIO_AUTH_TOKEN"]!
-);
+// Lazy init — only created when actually needed, avoids crash on missing credentials at module load
+function getTwilioClient() {
+  return twilio(
+    process.env["TWILIO_ACCOUNT_SID"]!,
+    process.env["TWILIO_AUTH_TOKEN"]!
+  );
+}
 
 const OTP_TTL_SECONDS = 300;       // 5 min
 const OTP_MAX_ATTEMPTS = 3;
@@ -70,7 +73,7 @@ export async function sendOtp(rawPhone: string): Promise<void> {
   }
 
   const fromNumber = `+1${process.env["TWILIO_PHONE_NUMBER"]!.replace(/\D/g, "")}`;
-  await twilioClient.messages.create({
+  await getTwilioClient().messages.create({
     body: `Your Dome verification code is ${otp}. It expires in 5 minutes. Do not share it.`,
     from: fromNumber,
     to: phone,
@@ -127,7 +130,7 @@ export async function verifyOtp(
 
   const user = await prisma.user.upsert({
     where: { phone },
-    create: { phone, isPhoneVerified: true },
+    create: { phone, isPhoneVerified: true, preferredSports: [] },
     update: { isPhoneVerified: true },
   });
 

@@ -7,6 +7,15 @@ import { runRecurringBookings } from "./jobs/recurring";
 import { runExpireAlerts } from "./jobs/alerts";
 import { sendReviewPrompts, sendEmailReviewRequests } from "./jobs/reviews";
 
+// Fail fast if critical env vars are missing — surfaces Railway misconfig at boot instead of silent 500s at runtime
+const REQUIRED_ENV = ["JWT_SECRET", "DATABASE_URL", "REDIS_URL"];
+for (const key of REQUIRED_ENV) {
+  if (!process.env[key]) {
+    console.error(`[fatal] Missing required environment variable: ${key}`);
+    process.exit(1);
+  }
+}
+
 const PORT = process.env["PORT"] ?? 3001;
 
 const app = createApp();

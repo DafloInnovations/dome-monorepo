@@ -356,8 +356,10 @@ export default function NotificationsScreen() {
 
   // ── Filter counts ──────────────────────────────────────────────────────────
   const filterCounts = useMemo<Record<FilterKey, number>>(() => {
-    const counts: Record<FilterKey, number> = { all: notifications.length, bookings: 0, games: 0, messages: 0 };
+    const counts: Record<FilterKey, number> = { all: 0, bookings: 0, games: 0, messages: 0 };
     for (const n of notifications) {
+      if (n.isRead) continue;
+      counts.all++;
       for (const [key, types] of Object.entries(FILTER_TYPES)) {
         if (types && types.includes(n.type)) {
           counts[key as FilterKey]++;

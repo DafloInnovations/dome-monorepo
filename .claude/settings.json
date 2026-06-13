@@ -26,7 +26,10 @@
       "Bash(awk '$2==62330')",
       "Bash(kill 62330)",
       "Bash(pnpm --filter vendor dev)",
-      "Bash(echo \"started PID $!\")"
+      "Bash(echo \"started PID $!\")",
+      "Bash(grep -E \"\\\\.tsx$\")",
+      "Bash(git stash *)",
+      "Bash(redis-cli ping *)"
     ]
   }
 }

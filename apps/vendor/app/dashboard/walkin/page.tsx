@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import confetti from "canvas-confetti";
 import Header from "../../../components/layout/Header";
-import { api, apiFetch, type WalkinCreated, type WalkinHistory, type WalkinPrice } from "../../../lib/api";
+import { api, apiFetch, type WalkinCreated, type WalkinPrice } from "../../../lib/api";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -588,31 +588,39 @@ export default function WalkinPage() {
               ) : (
                 <>
                   <div className="flex flex-wrap gap-2 max-h-44 overflow-y-auto p-0.5">
-                    {availableTimes
-                      .filter((t) => t.status !== "BOOKED")
-                      .map((t) => (
+                    {availableTimes.map((t) => {
+                      const isBooked = t.status === "BOOKED";
+                      const isSelected = selectedTime === t.time;
+                      return (
                         <button
                           key={t.time}
                           type="button"
-                          onClick={() => setSelectedTime(t.time)}
-                          className={`px-3 py-1.5 rounded-dome text-xs font-semibold transition-colors relative ${
-                            selectedTime === t.time
+                          onClick={() => { if (!isBooked) setSelectedTime(t.time); }}
+                          disabled={isBooked}
+                          title={isBooked ? "Already booked" : undefined}
+                          className={[
+                            "px-3 py-1.5 rounded-dome text-xs font-semibold transition-colors",
+                            isBooked
+                              ? "border border-border/20 bg-black/10 text-muted/30 opacity-50 cursor-not-allowed line-through"
+                              : isSelected
                               ? "bg-primary text-white"
                               : t.status === "PARTIAL"
                               ? "border border-amber-700/60 bg-amber-950/30 text-amber-300 hover:border-amber-500"
-                              : "border border-border bg-black text-[#CCCCCC] hover:text-white hover:border-white/30"
-                          }`}
+                              : "border border-border bg-black text-[#CCCCCC] hover:text-white hover:border-white/30",
+                          ].join(" ")}
                         >
                           {t.label}
-                          {t.status === "PARTIAL" && (
+                          {!isBooked && t.status === "PARTIAL" && (
                             <span className="ml-1 text-[9px] text-amber-400">◐</span>
                           )}
                         </button>
-                      ))}
+                      );
+                    })}
                   </div>
                   <p className="text-[11px] text-muted/60">
-                    ● Available · ◐ Limited ·{" "}
-                    {availableTimes.filter((t) => t.status !== "BOOKED").length} slots open
+                    ● Available&nbsp;·&nbsp;◐&nbsp;Limited&nbsp;·&nbsp;
+                    <span className="line-through">Booked</span>
+                    &nbsp;·&nbsp;{availableTimes.filter((t) => t.status !== "BOOKED").length} open
                   </p>
                 </>
               )}
