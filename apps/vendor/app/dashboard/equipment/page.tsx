@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Header from "../../../components/layout/Header";
-import { api, type Facility, type VendorEquipment as Equipment } from "../../../lib/api";
+import { api, type Facility, type VendorProfile, type VendorEquipment as Equipment } from "../../../lib/api";
 
 const SPORT_EMOJI: Record<string, string> = {
   BADMINTON: "🏸", TENNIS: "🎾", BASKETBALL: "🏀", SOCCER: "⚽",
@@ -24,14 +24,12 @@ const EMPTY_FORM: EquipmentFormData = {
 
 function EquipmentModal({
   facilityId,
-  facilityName,
   facilitySports,
   initial,
   onSave,
   onClose,
 }: {
   facilityId: string;
-  facilityName: string;
   facilitySports: string[];
   initial?: Equipment;
   onSave: (facilityId: string, data: EquipmentFormData, id?: string) => Promise<void>;
@@ -68,14 +66,6 @@ function EquipmentModal({
         <h3 className="text-lg font-bold text-white">
           {initial ? "Edit Equipment" : "Add Equipment"}
         </h3>
-
-        {/* Facility — read-only */}
-        <div>
-          <label className="text-xs text-muted uppercase tracking-wide mb-1 block">Facility</label>
-          <p className="px-3 py-2 text-sm text-white bg-black/40 border border-border rounded-dome">
-            {facilityName}
-          </p>
-        </div>
 
         {/* Name */}
         <div>
@@ -163,6 +153,7 @@ function EquipmentModal({
 export default function EquipmentPage() {
   const [equipment, setEquipment] = useState<Equipment[]>([]);
   const [facilities, setFacilities] = useState<Facility[]>([]);
+  const [vendorSports, setVendorSports] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<Equipment | undefined>();
@@ -170,12 +161,14 @@ export default function EquipmentPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [eqRes, facRes] = await Promise.all([
+      const [eqRes, facRes, profileRes] = await Promise.all([
         api.equipment.list(),
         api.vendor.facilities(),
+        api.vendor.profile(),
       ]);
       setEquipment(eqRes.data ?? []);
       setFacilities(facRes.data ?? []);
+      setVendorSports((profileRes.data as VendorProfile).sports ?? []);
     } catch { /* handled by empty state */ } finally {
       setLoading(false);
     }
@@ -215,13 +208,7 @@ export default function EquipmentPage() {
   const totalItems = equipment.length;
   const totalRentals = equipment.reduce((s, e) => s + e._count.rentals, 0);
 
-  const defaultFacility = facilities[0];
-  const defaultFacilityId = defaultFacility?.id ?? "";
-  const defaultFacilityName = defaultFacility?.name ?? "";
-  // Collect unique sports from the facility's primary sport + all court sports
-  const defaultFacilitySports = defaultFacility
-    ? [...new Set([defaultFacility.sport, ...defaultFacility.courts.flatMap((c) => c.sports)])]
-    : [];
+  const defaultFacilityId = facilities[0]?.id ?? "";
 
   return (
     <div className="flex-1 flex flex-col min-h-screen">
@@ -333,8 +320,7 @@ export default function EquipmentPage() {
       {showModal && (
         <EquipmentModal
           facilityId={editing?.facilityId ?? defaultFacilityId}
-          facilityName={defaultFacilityName}
-          facilitySports={defaultFacilitySports}
+          facilitySports={vendorSports}
           initial={editing}
           onSave={handleSave}
           onClose={() => { setShowModal(false); setEditing(undefined); }}
