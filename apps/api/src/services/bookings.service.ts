@@ -867,8 +867,9 @@ export async function confirmGroupBooking(
       where: { id: { in: slotIds } },
       data: { status: SlotStatus.BOOKED },
     }),
-    prisma.payment.create({
-      data: {
+    prisma.payment.upsert({
+      where: { gatewayPaymentId: pi.id },
+      create: {
         bookingGroupId: groupId,
         userId,
         amountCAD: pi.amount / 100,
@@ -877,6 +878,7 @@ export async function confirmGroupBooking(
         gatewayPaymentId: pi.id,
         status: PaymentStatus.SUCCEEDED,
       },
+      update: { status: PaymentStatus.SUCCEEDED },
     }),
   ];
 
