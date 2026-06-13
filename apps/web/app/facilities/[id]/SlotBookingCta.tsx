@@ -6,13 +6,24 @@ import { API_URL, apiFetch } from "../../../lib/api";
 import { getStoredUser } from "../../../lib/auth";
 
 const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-const DURATION_OPTS = [30, 60, 90, 120, 180] as const;
-type Duration = (typeof DURATION_OPTS)[number];
+const FALLBACK_DURATIONS = [30, 60, 90, 120, 180];
+
+function buildDurationOptions(minDuration: number, step: number, maxDuration: number): number[] {
+  const opts: number[] = [];
+  for (let d = minDuration; d <= maxDuration; d += step) opts.push(d);
+  return opts.length > 0 ? opts : FALLBACK_DURATIONS;
+}
 
 interface PriceBreakdown {
   basePriceCAD: number;
   appliedRule: string | null;
   finalPriceCAD: number;
+}
+
+interface BookingRules {
+  minDuration: number;
+  step: number;
+  maxDuration: number;
 }
 
 interface AvailableCourt {
@@ -34,6 +45,9 @@ interface AvailableCourt {
   notCovered: boolean;
   slots: string[];
   bookedUntil: string | null;
+  minBookingMinutes: number;
+  durationStepMinutes: number;
+  maxBookingMinutes: number;
 }
 
 interface AvailableCourtsResult {
@@ -108,7 +122,8 @@ export default function SlotBookingCta({ facilityId, facilityName, sport }: Prop
 
   const [dayIdx, setDayIdx] = useState(0);
   const [startTime, setStartTime] = useState<string | null>(null);
-  const [duration, setDuration] = useState<Duration>(60);
+  const [duration, setDuration] = useState<number>(60);
+  const [bookingRules, setBookingRules] = useState<BookingRules | null>(null);
   const [courtsResult, setCourtsResult] = useState<AvailableCourtsResult | null>(null);
   const [courtsLoading, setCourtsLoading] = useState(false);
   const [selectedCourts, setSelectedCourts] = useState<AvailableCourt[]>([]);
@@ -167,6 +182,28 @@ export default function SlotBookingCta({ facilityId, facilityName, sport }: Prop
       .finally(() => setCourtsLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [facilityId, date, startTime, duration, selectedSport]);
+
+  // Fetch booking rules from the facility's courts at mount
+  useEffect(() => {
+    fetch(`${API_URL}/facilities/${facilityId}`)
+      .then((r) => r.json())
+      .then((json: { data?: { courts?: { minBookingMinutes: number; durationStepMinutes: number; maxBookingMinutes: number }[] } }) => {
+        const courts = json.data?.courts ?? [];
+        if (!courts.length) return;
+        // Use the most permissive rules across all courts (lowest min, highest max, smallest step)
+        const minDuration = Math.min(...courts.map((c) => c.minBookingMinutes));
+        const maxDuration = Math.max(...courts.map((c) => c.maxBookingMinutes));
+        const step = Math.min(...courts.map((c) => c.durationStepMinutes));
+        const rules = { minDuration, step, maxDuration };
+        setBookingRules(rules);
+        // Reset selected duration to min if current value isn't valid under new rules
+        setDuration((prev) => {
+          const opts = buildDurationOptions(rules.minDuration, rules.step, rules.maxDuration);
+          return opts.includes(prev) ? prev : rules.minDuration;
+        });
+      })
+      .catch(() => null);
+  }, [facilityId]);
 
   // Fetch equipment once when facilityId/sport is known
   useEffect(() => {
@@ -421,9 +458,12 @@ export default function SlotBookingCta({ facilityId, facilityName, sport }: Prop
             ))}
           </select>
 
-          {/* Duration pills */}
+          {/* Duration pills — generated from venue booking rules */}
           <div className="flex gap-2 flex-wrap">
-            {DURATION_OPTS.map((d) => {
+            {(bookingRules
+              ? buildDurationOptions(bookingRules.minDuration, bookingRules.step, bookingRules.maxDuration)
+              : FALLBACK_DURATIONS
+            ).map((d) => {
               const h = Math.floor(d / 60);
               const m = d % 60;
               const label = h > 0 ? (m > 0 ? `${h}h ${m}m` : `${h}h`) : `${m}m`;
