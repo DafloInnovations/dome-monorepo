@@ -2,6 +2,9 @@
   "expo": {
     "name": "Dome",
     "slug": "dome",
+    "install": {
+      "exclude": ["@stripe/stripe-react-native"]
+    },
     "version": "1.2.0",
     "orientation": "default",
     "icon": "./assets/images/icon.png",
@@ -26,7 +29,7 @@
           "UIInterfaceOrientationLandscapeRight"
         ]
       },
-      "buildNumber": "12"
+      "buildNumber": "13"
     },
     "android": {
       "adaptiveIcon": {
