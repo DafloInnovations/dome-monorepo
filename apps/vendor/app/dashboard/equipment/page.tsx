@@ -197,6 +197,12 @@ export default function EquipmentPage() {
     await load();
   }
 
+  async function handleDelete(item: Equipment) {
+    if (!confirm(`Delete "${item.name}"? This cannot be undone.`)) return;
+    await api.equipment.delete(item.id);
+    await load();
+  }
+
   // Group by facility
   const grouped = equipment.reduce<Record<string, Equipment[]>>((acc, e) => {
     const key = e.facilityId;
@@ -298,12 +304,20 @@ export default function EquipmentPage() {
                               </button>
                             </td>
                             <td className="px-4 py-3">
-                              <button
-                                onClick={() => { setEditing(item); setShowModal(true); }}
-                                className="text-xs text-primary hover:underline"
-                              >
-                                Edit
-                              </button>
+                              <div className="flex items-center gap-3">
+                                <button
+                                  onClick={() => { setEditing(item); setShowModal(true); }}
+                                  className="text-xs text-primary hover:underline"
+                                >
+                                  Edit
+                                </button>
+                                <button
+                                  onClick={() => handleDelete(item)}
+                                  className="text-xs text-red-400 hover:underline"
+                                >
+                                  Delete
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         );
