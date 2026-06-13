@@ -25,12 +25,14 @@ const EMPTY_FORM: EquipmentFormData = {
 function EquipmentModal({
   facilityId,
   facilitySports,
+  defaultSport,
   initial,
   onSave,
   onClose,
 }: {
   facilityId: string;
   facilitySports: string[];
+  defaultSport: string;
   initial?: Equipment;
   onSave: (facilityId: string, data: EquipmentFormData, id?: string) => Promise<void>;
   onClose: () => void;
@@ -38,7 +40,7 @@ function EquipmentModal({
   const [form, setForm] = useState<EquipmentFormData>(
     initial
       ? { name: initial.name, description: initial.description ?? "", sport: initial.sport, priceCAD: String(initial.priceCAD), quantity: String(initial.quantity) }
-      : EMPTY_FORM
+      : { ...EMPTY_FORM, sport: defaultSport }
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -156,6 +158,7 @@ export default function EquipmentPage() {
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<Equipment | undefined>();
+  const [selectedSport, setSelectedSport] = useState<string>("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -165,11 +168,16 @@ export default function EquipmentPage() {
         api.vendor.facilities(),
       ]);
       setEquipment(eqRes.data ?? []);
-      setFacilities(facRes.data ?? []);
+      const facs = facRes.data ?? [];
+      setFacilities(facs);
+      // Initialise tab to first sport if not already set
+      if (!selectedSport && facs.length > 0) {
+        setSelectedSport(facs[0]!.sport.toUpperCase());
+      }
     } catch { /* handled by empty state */ } finally {
       setLoading(false);
     }
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { load(); }, [load]);
 
@@ -200,20 +208,17 @@ export default function EquipmentPage() {
     await load();
   }
 
-  // Group by facility
-  const grouped = equipment.reduce<Record<string, Equipment[]>>((acc, e) => {
-    const key = e.facilityId;
-    if (!acc[key]) acc[key] = [];
-    acc[key]!.push(e);
-    return acc;
-  }, {});
+  // Sports derived from the vendor's actual facilities — same source as the Sports page
+  const vendorSports = [...new Set(facilities.map((f) => f.sport.toUpperCase()))];
+
+  // Facility for the active sport tab (used as facilityId when creating new equipment)
+  const activeFacility = facilities.find((f) => f.sport.toUpperCase() === selectedSport);
+
+  // Equipment filtered to the active sport tab
+  const visibleEquipment = equipment.filter((e) => e.sport.toUpperCase() === selectedSport);
 
   const totalItems = equipment.length;
   const totalRentals = equipment.reduce((s, e) => s + e._count.rentals, 0);
-
-  const defaultFacilityId = facilities[0]?.id ?? "";
-  // Sports derived from the vendor's actual facilities — same source as the Sports page
-  const vendorSports = [...new Set(facilities.map((f) => f.sport.toUpperCase()))];
 
   return (
     <div className="flex-1 flex flex-col min-h-screen">
@@ -232,108 +237,109 @@ export default function EquipmentPage() {
           </div>
         </div>
 
-        {/* Add button */}
-        <div className="flex justify-end mb-4">
+        {/* Sport tabs + Add button */}
+        <div className="flex items-center justify-between mb-4 gap-4">
+          <div className="flex gap-2 flex-wrap">
+            {vendorSports.map((sport) => (
+              <button
+                key={sport}
+                onClick={() => setSelectedSport(sport)}
+                className={`px-4 py-1.5 text-sm font-semibold rounded-full border transition-colors ${
+                  selectedSport === sport
+                    ? "bg-primary border-primary text-white"
+                    : "border-border text-muted hover:text-white hover:border-white/30"
+                }`}
+              >
+                {SPORT_EMOJI[sport] ?? ""} {sport.charAt(0) + sport.slice(1).toLowerCase()}
+              </button>
+            ))}
+          </div>
           <button
             onClick={() => { setEditing(undefined); setShowModal(true); }}
-            className="px-4 py-2 text-sm font-bold text-white bg-primary rounded-dome hover:bg-primary/90 transition-colors"
+            className="px-4 py-2 text-sm font-bold text-white bg-primary rounded-dome hover:bg-primary/90 transition-colors shrink-0"
           >
             + Add Equipment
           </button>
         </div>
 
-        {/* Equipment table per facility */}
+        {/* Equipment table for active sport */}
         {loading ? (
           <p className="text-muted text-sm py-12 text-center">Loading…</p>
-        ) : equipment.length === 0 ? (
+        ) : visibleEquipment.length === 0 ? (
           <div className="text-center py-16">
             <p className="text-4xl mb-4">🎒</p>
-            <p className="text-white font-semibold mb-2">No equipment yet</p>
+            <p className="text-white font-semibold mb-2">No equipment for {selectedSport.charAt(0) + selectedSport.slice(1).toLowerCase()}</p>
             <p className="text-muted text-sm">Add equipment items that players can rent with their booking.</p>
           </div>
         ) : (
-          Object.entries(grouped).map(([facId, items]) => {
-            const facName = items[0]?.facility.name ?? facId;
-            return (
-              <div key={facId} className="mb-8">
-                <p className="text-sm font-bold text-muted uppercase tracking-wide mb-3">
-                  🏟 {facName}
-                </p>
-                <div className="overflow-x-auto rounded-xl border border-border">
-                  <table className="w-full text-left bg-[#111]">
-                    <thead>
-                      <tr className="text-xs text-muted border-b border-border">
-                        <th className="px-4 py-3 font-semibold">Item</th>
-                        <th className="px-4 py-3 font-semibold">Sport</th>
-                        <th className="px-4 py-3 font-semibold">Price</th>
-                        <th className="px-4 py-3 font-semibold">Qty</th>
-                        <th className="px-4 py-3 font-semibold">Rentals</th>
-                        <th className="px-4 py-3 font-semibold">Revenue</th>
-                        <th className="px-4 py-3 font-semibold">Status</th>
-                        <th className="px-4 py-3 font-semibold">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {items.map((item) => {
-                        const emoji = SPORT_EMOJI[item.sport.toUpperCase()] ?? "🎒";
-                        const revenue = item._count.rentals * item.priceCAD;
-                        return (
-                          <tr key={item.id} className="border-t border-border hover:bg-white/[0.02] transition-colors">
-                            <td className="px-4 py-3">
-                              <p className="text-sm text-white font-medium">{item.name}</p>
-                              {item.description && <p className="text-xs text-muted">{item.description}</p>}
-                            </td>
-                            <td className="px-4 py-3">
-                              <span className="text-sm">{emoji} {item.sport.charAt(0) + item.sport.slice(1).toLowerCase()}</span>
-                            </td>
-                            <td className="px-4 py-3 text-sm text-white font-semibold">C${item.priceCAD.toFixed(2)}</td>
-                            <td className="px-4 py-3 text-sm text-white">{item.quantity}</td>
-                            <td className="px-4 py-3 text-sm text-amber-400 font-semibold">{item._count.rentals}</td>
-                            <td className="px-4 py-3 text-sm text-green-400 font-semibold">C${revenue.toFixed(2)}</td>
-                            <td className="px-4 py-3">
-                              <button
-                                onClick={() => handleToggleActive(item)}
-                                className={`text-xs font-semibold px-2.5 py-1 rounded-full ${
-                                  item.isActive
-                                    ? "bg-green-400/10 text-green-400"
-                                    : "bg-border text-muted"
-                                }`}
-                              >
-                                {item.isActive ? "Active" : "Hidden"}
-                              </button>
-                            </td>
-                            <td className="px-4 py-3">
-                              <div className="flex items-center gap-3">
-                                <button
-                                  onClick={() => { setEditing(item); setShowModal(true); }}
-                                  className="text-xs text-primary hover:underline"
-                                >
-                                  Edit
-                                </button>
-                                <button
-                                  onClick={() => handleDelete(item)}
-                                  className="text-xs text-red-400 hover:underline"
-                                >
-                                  Delete
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            );
-          })
+          <div className="overflow-x-auto rounded-xl border border-border">
+            <table className="w-full text-left bg-[#111]">
+              <thead>
+                <tr className="text-xs text-muted border-b border-border">
+                  <th className="px-4 py-3 font-semibold">Item</th>
+                  <th className="px-4 py-3 font-semibold">Price</th>
+                  <th className="px-4 py-3 font-semibold">Qty</th>
+                  <th className="px-4 py-3 font-semibold">Rentals</th>
+                  <th className="px-4 py-3 font-semibold">Revenue</th>
+                  <th className="px-4 py-3 font-semibold">Status</th>
+                  <th className="px-4 py-3 font-semibold">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {visibleEquipment.map((item) => {
+                  const revenue = item._count.rentals * item.priceCAD;
+                  return (
+                    <tr key={item.id} className="border-t border-border hover:bg-white/[0.02] transition-colors">
+                      <td className="px-4 py-3">
+                        <p className="text-sm text-white font-medium">{item.name}</p>
+                        {item.description && <p className="text-xs text-muted">{item.description}</p>}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-white font-semibold">C${item.priceCAD.toFixed(2)}</td>
+                      <td className="px-4 py-3 text-sm text-white">{item.quantity}</td>
+                      <td className="px-4 py-3 text-sm text-amber-400 font-semibold">{item._count.rentals}</td>
+                      <td className="px-4 py-3 text-sm text-green-400 font-semibold">C${revenue.toFixed(2)}</td>
+                      <td className="px-4 py-3">
+                        <button
+                          onClick={() => handleToggleActive(item)}
+                          className={`text-xs font-semibold px-2.5 py-1 rounded-full ${
+                            item.isActive
+                              ? "bg-green-400/10 text-green-400"
+                              : "bg-border text-muted"
+                          }`}
+                        >
+                          {item.isActive ? "Active" : "Hidden"}
+                        </button>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-3">
+                          <button
+                            onClick={() => { setEditing(item); setShowModal(true); }}
+                            className="text-xs text-primary hover:underline"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => handleDelete(item)}
+                            className="text-xs text-red-400 hover:underline"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         )}
       </main>
 
       {showModal && (
         <EquipmentModal
-          facilityId={editing?.facilityId ?? defaultFacilityId}
+          facilityId={editing?.facilityId ?? activeFacility?.id ?? facilities[0]?.id ?? ""}
           facilitySports={vendorSports}
+          defaultSport={editing ? editing.sport.toUpperCase() : selectedSport}
           initial={editing}
           onSave={handleSave}
           onClose={() => { setShowModal(false); setEditing(undefined); }}
