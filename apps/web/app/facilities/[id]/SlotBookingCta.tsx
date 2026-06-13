@@ -106,15 +106,37 @@ const SPORT_EMOJI: Record<string, string> = {
   BASEBALL: "⚾", SQUASH: "🎾",
 };
 
-// ─── Inline auth modal ───────────────────────────────────────────────────────
+// ─── Inline auth + onboarding modal ─────────────────────────────────────────
+
+type AuthStep = "phone" | "otp" | "profile";
+
+function StepDots({ current, total }: { current: number; total: number }) {
+  return (
+    <div className="flex items-center gap-1.5">
+      {Array.from({ length: total }).map((_, i) => (
+        <span key={i} className={`block rounded-full transition-all ${
+          i < current ? "w-4 h-1.5 bg-primary" : i === current ? "w-4 h-1.5 bg-primary" : "w-1.5 h-1.5 bg-border"
+        }`} />
+      ))}
+      <span className="text-xs text-muted ml-1">{current + 1} of {total}</span>
+    </div>
+  );
+}
 
 function AuthModal({ onSuccess, onClose }: { onSuccess: () => void; onClose: () => void }) {
-  const [step, setStep] = useState<"phone" | "otp">("phone");
-  const [phone, setPhone] = useState("");
-  const [otp, setOtp]   = useState("");
+  const [step, setStep]       = useState<AuthStep>("phone");
+  const [phone, setPhone]     = useState("");
+  const [otp, setOtp]         = useState("");
+  const [fullName, setFullName] = useState("");
+  const [email, setEmail]     = useState("");
+  const [isNewUser, setIsNewUser] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [error, setError]   = useState("");
-  const otpRef = useRef<HTMLInputElement>(null);
+  const [error, setError]     = useState("");
+  const otpRef     = useRef<HTMLInputElement>(null);
+  const nameRef    = useRef<HTMLInputElement>(null);
+
+  const totalSteps = isNewUser ? 2 : 1;
+  const currentStep = step === "profile" ? 1 : 0;
 
   async function sendOtp(e: React.FormEvent) {
     e.preventDefault();
@@ -144,70 +166,159 @@ function AuthModal({ onSuccess, onClose }: { onSuccess: () => void; onClose: () 
         body: JSON.stringify({ phone, code: otp }),
       });
       const data = await res.json() as {
-        data?: { accessToken?: string; user?: { id?: string; phone?: string; firstName?: string; lastName?: string; role?: string; creditBalanceCAD?: number } };
+        data?: {
+          accessToken?: string;
+          isNewUser?: boolean;
+          user?: { id?: string; phone?: string; firstName?: string; lastName?: string; role?: string; creditBalanceCAD?: number };
+        };
         message?: string;
       };
       if (!res.ok) throw new Error(data.message ?? "Invalid code");
       setToken(data.data!.accessToken!);
       const u = data.data!.user!;
       setStoredUser({ id: u.id ?? "", phone: u.phone ?? "", firstName: u.firstName ?? "", lastName: u.lastName ?? "", role: u.role ?? "PLAYER", creditBalanceCAD: u.creditBalanceCAD });
-      onSuccess();
+      const newUser = data.data!.isNewUser ?? false;
+      setIsNewUser(newUser);
+      if (newUser) {
+        setStep("profile");
+        setTimeout(() => nameRef.current?.focus(), 50);
+      } else {
+        onSuccess();
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Invalid code");
     } finally { setLoading(false); }
   }
 
-  const inputCls = "w-full bg-black border border-border rounded-dome px-4 py-3 text-white placeholder:text-muted focus:outline-none focus:border-primary transition-colors text-sm";
+  async function saveProfile(e: React.FormEvent) {
+    e.preventDefault();
+    const trimmed = fullName.trim();
+    if (!trimmed) { setError("Please enter your full name."); return; }
+    const parts     = trimmed.split(/\s+/);
+    const firstName = parts[0]!;
+    const lastName  = parts.slice(1).join(" ") || firstName;
+    setError(""); setLoading(true);
+    const token = getToken();
+    try {
+      const nameRes = await fetch(`${API_URL}/users/me`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ firstName, lastName }),
+      });
+      if (!nameRes.ok) {
+        const b = await nameRes.json().catch(() => ({})) as { message?: string };
+        throw new Error(b.message ?? "Failed to save name");
+      }
+      if (email.trim()) {
+        const emailRes = await fetch(`${API_URL}/users/me/email`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ email: email.trim().toLowerCase() }),
+        });
+        if (!emailRes.ok) {
+          const b = await emailRes.json().catch(() => ({})) as { message?: string };
+          throw new Error(b.message ?? "Failed to save email");
+        }
+      }
+      const stored = getStoredUser();
+      if (stored) setStoredUser({ ...stored, firstName, lastName });
+      onSuccess();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save profile");
+    } finally { setLoading(false); }
+  }
+
+  const inputCls = "w-full bg-[#0a0a0a] border border-white/10 rounded-dome px-4 py-3 text-white placeholder:text-white/30 focus:outline-none focus:border-primary transition-colors text-sm";
+
+  const headings: Record<AuthStep, string> = {
+    phone:   "Sign in to book",
+    otp:     "Enter your code",
+    profile: "Complete your profile",
+  };
+  const subheadings: Record<AuthStep, string> = {
+    phone:   "Enter your phone number to continue",
+    otp:     `Sent to ${phone}`,
+    profile: "Just a few details and you're all set",
+  };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/70 px-4 pb-4 sm:pb-0">
-      <div className="w-full max-w-sm bg-[#111] border border-border rounded-dome p-6 sm:rounded-dome space-y-5">
-        <div className="flex items-start justify-between">
-          <div>
-            <p className="text-xs text-muted uppercase tracking-wide font-semibold mb-0.5">One quick step</p>
-            <h3 className="text-lg font-bold text-white">
-              {step === "phone" ? "Sign in to book" : "Enter your code"}
-            </h3>
-            {step === "otp" && <p className="text-sm text-muted mt-0.5">Sent to <span className="text-white">{phone}</span></p>}
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/75 px-4 pb-4 sm:pb-0">
+      <div className="w-full max-w-sm bg-[#121212] border border-white/10 rounded-2xl overflow-hidden">
+        {/* Header */}
+        <div className="px-6 pt-6 pb-4 border-b border-white/[0.06]">
+          <div className="flex items-start justify-between mb-3">
+            {isNewUser && step !== "phone" ? (
+              <StepDots current={currentStep} total={totalSteps} />
+            ) : (
+              <span className="text-xs text-white/40 font-semibold uppercase tracking-widest">DOME</span>
+            )}
+            <button onClick={onClose} className="text-white/40 hover:text-white transition-colors text-xl leading-none -mt-0.5">×</button>
           </div>
-          <button onClick={onClose} className="text-muted hover:text-white transition-colors ml-4 mt-0.5 text-xl leading-none">×</button>
+          <h3 className="text-xl font-bold text-white mt-1">{headings[step]}</h3>
+          <p className="text-sm text-white/50 mt-0.5">{subheadings[step]}</p>
         </div>
 
-        {step === "phone" ? (
-          <form onSubmit={sendOtp} className="space-y-4">
-            <div>
-              <label className="block text-xs font-semibold text-muted uppercase tracking-wide mb-2">Phone Number</label>
-              <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)}
-                placeholder="+1 416 555 0123" required autoFocus className={inputCls} />
-            </div>
-            {error && <p className="text-red-400 text-sm">{error}</p>}
-            <button type="submit" disabled={loading || !phone}
-              className="w-full bg-primary hover:bg-primary-hover disabled:opacity-50 text-white font-bold py-3 rounded-dome transition-colors text-sm">
-              {loading ? "Sending…" : "Send Code"}
-            </button>
-          </form>
-        ) : (
-          <form onSubmit={verifyOtp} className="space-y-4">
-            <div>
-              <label className="block text-xs font-semibold text-muted uppercase tracking-wide mb-2">6-Digit Code</label>
-              <input ref={otpRef} type="text" value={otp}
-                onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                placeholder="000000" maxLength={6} required
-                className={`${inputCls} text-center text-2xl tracking-widest font-mono`} />
-            </div>
-            {error && <p className="text-red-400 text-sm">{error}</p>}
-            <button type="submit" disabled={loading || otp.length < 6}
-              className="w-full bg-primary hover:bg-primary-hover disabled:opacity-50 text-white font-bold py-3 rounded-dome transition-colors text-sm">
-              {loading ? "Verifying…" : "Verify & Continue"}
-            </button>
-            <button type="button" onClick={() => { setStep("phone"); setOtp(""); setError(""); }}
-              className="w-full text-sm text-muted hover:text-white transition-colors">
-              ← Change number
-            </button>
-          </form>
-        )}
+        {/* Body */}
+        <div className="px-6 py-5">
+          {step === "phone" && (
+            <form onSubmit={sendOtp} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-white/40 uppercase tracking-widest mb-2">Phone Number</label>
+                <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)}
+                  placeholder="+1 416 555 0123" required autoFocus className={inputCls} />
+              </div>
+              {error && <p className="text-red-400 text-sm">{error}</p>}
+              <button type="submit" disabled={loading || !phone}
+                className="w-full bg-primary hover:bg-primary/90 disabled:opacity-40 text-white font-bold py-3 rounded-xl transition-colors text-sm">
+                {loading ? "Sending…" : "Send Code"}
+              </button>
+              <p className="text-xs text-white/30 text-center">Your court selection is saved — you won&apos;t lose it.</p>
+            </form>
+          )}
 
-        <p className="text-xs text-muted text-center">Your booking selection is saved — you won&apos;t lose it.</p>
+          {step === "otp" && (
+            <form onSubmit={verifyOtp} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-white/40 uppercase tracking-widest mb-2">6-Digit Code</label>
+                <input ref={otpRef} type="text" value={otp}
+                  onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                  placeholder="000000" maxLength={6} required
+                  className={`${inputCls} text-center text-2xl tracking-widest font-mono`} />
+              </div>
+              {error && <p className="text-red-400 text-sm">{error}</p>}
+              <button type="submit" disabled={loading || otp.length < 6}
+                className="w-full bg-primary hover:bg-primary/90 disabled:opacity-40 text-white font-bold py-3 rounded-xl transition-colors text-sm">
+                {loading ? "Verifying…" : "Verify & Continue"}
+              </button>
+              <button type="button" onClick={() => { setStep("phone"); setOtp(""); setError(""); }}
+                className="w-full text-sm text-white/40 hover:text-white transition-colors">
+                ← Change number
+              </button>
+            </form>
+          )}
+
+          {step === "profile" && (
+            <form onSubmit={saveProfile} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-white/40 uppercase tracking-widest mb-2">Full Name</label>
+                <input ref={nameRef} type="text" value={fullName} onChange={(e) => setFullName(e.target.value)}
+                  placeholder="Jane Smith" required className={inputCls} />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-white/40 uppercase tracking-widest mb-2">
+                  Email Address <span className="text-white/20 normal-case font-normal">(optional)</span>
+                </label>
+                <input type="email" value={email} onChange={(e) => setEmail(e.target.value)}
+                  placeholder="jane@example.com" className={inputCls} />
+              </div>
+              {error && <p className="text-red-400 text-sm">{error}</p>}
+              <button type="submit" disabled={loading || !fullName.trim()}
+                className="w-full bg-primary hover:bg-primary/90 disabled:opacity-40 text-white font-bold py-3 rounded-xl transition-colors text-sm">
+                {loading ? "Saving…" : "Continue to Checkout →"}
+              </button>
+            </form>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -358,17 +469,25 @@ export default function SlotBookingCta({ facilityId, facilityName, sport }: Prop
       .catch(() => null);
   }, []);
 
-  // Run an action — if not logged in, show auth modal first then retry
+  // Run an action — if not logged in, persist booking state and show auth modal
   function requireAuth(action: () => Promise<void>) {
     if (getStoredUser()) {
       void action();
     } else {
+      // Persist selection so it survives if the page ever refreshes
+      if (typeof window !== "undefined") {
+        localStorage.setItem("dome_pending_booking", JSON.stringify({
+          facilityId, date, startTime, duration,
+          courtIds: selectedCourts.map((c) => c.id),
+        }));
+      }
       pendingAction.current = action;
       setShowAuthModal(true);
     }
   }
 
   function onAuthSuccess() {
+    if (typeof window !== "undefined") localStorage.removeItem("dome_pending_booking");
     setShowAuthModal(false);
     const action = pendingAction.current;
     pendingAction.current = null;
