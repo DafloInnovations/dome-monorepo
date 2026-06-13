@@ -50,5 +50,10 @@
     "@dome/config": "workspace:*",
     "@types/react": "~19.1.17",
     "typescript": "^5.7.2"
+  },
+  "expo": {
+    "install": {
+      "exclude": ["@stripe/stripe-react-native"]
+    }
   }
 }
