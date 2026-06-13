@@ -14,9 +14,9 @@ import { isStripeConfigured } from "../../src/config/stripe";
 import { useRecurring } from "../../src/hooks/useRecurring";
 
 const C = {
-  bg: "#121212", primary: "#E85068", surface: "#1E1E1E",
-  text: "#FFFFFF", muted: "#9E9E9E", green: "#22c55e",
-  border: "#2C2C2C",
+  bg: "#FFFFFF", primary: "#E85068", surface: "#F8F8F8",
+  text: "#0A0A0A", muted: "#9E9E9E", green: "#22c55e",
+  border: "#F0F0F0",
 };
 
 const DAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -233,10 +233,10 @@ function Row({ label, value, last, valueStyle }: { label: string; value: string;
 }
 
 const rowStyles = StyleSheet.create({
-  row: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#2C2C2C" },
+  row: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#F0F0F0" },
   last: { borderBottomWidth: 0 },
   label: { color: "#9E9E9E", fontSize: 14 },
-  value: { color: "#FFFFFF", fontSize: 14, fontWeight: "600" },
+  value: { color: "#0A0A0A", fontSize: 14, fontWeight: "600" },
 });
 
 const styles = StyleSheet.create({
@@ -248,11 +248,11 @@ const styles = StyleSheet.create({
   card: { backgroundColor: C.surface, borderRadius: 14, padding: 16, marginBottom: 14 },
   cardTitle: { color: C.muted, fontSize: 10, fontWeight: "700", letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 12 },
   datesWrap: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  datePill: { backgroundColor: "#2C2C2C", borderRadius: 20, paddingHorizontal: 10, paddingVertical: 5 },
-  datePillText: { color: "#FFFFFF", fontSize: 12, fontWeight: "600" },
+  datePill: { backgroundColor: "#F0F0F0", borderRadius: 20, paddingHorizontal: 10, paddingVertical: 5 },
+  datePillText: { color: "#0A0A0A", fontSize: 12, fontWeight: "600" },
   saveNote: { color: C.green, fontSize: 12, marginTop: 10, textAlign: "center" },
-  errBox: { backgroundColor: "#3B0000", borderRadius: 10, padding: 12, marginBottom: 14 },
-  errText: { color: "#FF6B6B", fontSize: 13 },
+  errBox: { backgroundColor: "#FFF0F0", borderRadius: 10, padding: 12, marginBottom: 14 },
+  errText: { color: "#D32F2F", fontSize: 13 },
   cta: { backgroundColor: C.primary, borderRadius: 14, paddingVertical: 16, alignItems: "center" },
   ctaDisabled: { opacity: 0.55 },
   ctaRow: { flexDirection: "row", alignItems: "center", gap: 10 },
