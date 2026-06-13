@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { API_URL, apiFetch } from "../../../lib/api";
-import { getStoredUser } from "../../../lib/auth";
+import { getStoredUser, getToken, setToken, setStoredUser } from "../../../lib/auth";
 
 const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const FALLBACK_DURATIONS = [30, 60, 90, 120, 180];
@@ -106,6 +106,115 @@ const SPORT_EMOJI: Record<string, string> = {
   BASEBALL: "⚾", SQUASH: "🎾",
 };
 
+// ─── Inline auth modal ───────────────────────────────────────────────────────
+
+function AuthModal({ onSuccess, onClose }: { onSuccess: () => void; onClose: () => void }) {
+  const [step, setStep] = useState<"phone" | "otp">("phone");
+  const [phone, setPhone] = useState("");
+  const [otp, setOtp]   = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError]   = useState("");
+  const otpRef = useRef<HTMLInputElement>(null);
+
+  async function sendOtp(e: React.FormEvent) {
+    e.preventDefault();
+    setError(""); setLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/auth/send-otp`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone }),
+      });
+      if (!res.ok) {
+        const b = await res.json().catch(() => ({})) as { message?: string };
+        throw new Error(b.message ?? "Failed to send code");
+      }
+      setStep("otp");
+      setTimeout(() => otpRef.current?.focus(), 50);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to send code");
+    } finally { setLoading(false); }
+  }
+
+  async function verifyOtp(e: React.FormEvent) {
+    e.preventDefault();
+    setError(""); setLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/auth/verify-otp`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone, code: otp }),
+      });
+      const data = await res.json() as {
+        data?: { accessToken?: string; user?: { id?: string; phone?: string; firstName?: string; lastName?: string; role?: string; creditBalanceCAD?: number } };
+        message?: string;
+      };
+      if (!res.ok) throw new Error(data.message ?? "Invalid code");
+      setToken(data.data!.accessToken!);
+      const u = data.data!.user!;
+      setStoredUser({ id: u.id ?? "", phone: u.phone ?? "", firstName: u.firstName ?? "", lastName: u.lastName ?? "", role: u.role ?? "PLAYER", creditBalanceCAD: u.creditBalanceCAD });
+      onSuccess();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Invalid code");
+    } finally { setLoading(false); }
+  }
+
+  const inputCls = "w-full bg-black border border-border rounded-dome px-4 py-3 text-white placeholder:text-muted focus:outline-none focus:border-primary transition-colors text-sm";
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/70 px-4 pb-4 sm:pb-0">
+      <div className="w-full max-w-sm bg-[#111] border border-border rounded-dome p-6 sm:rounded-dome space-y-5">
+        <div className="flex items-start justify-between">
+          <div>
+            <p className="text-xs text-muted uppercase tracking-wide font-semibold mb-0.5">One quick step</p>
+            <h3 className="text-lg font-bold text-white">
+              {step === "phone" ? "Sign in to book" : "Enter your code"}
+            </h3>
+            {step === "otp" && <p className="text-sm text-muted mt-0.5">Sent to <span className="text-white">{phone}</span></p>}
+          </div>
+          <button onClick={onClose} className="text-muted hover:text-white transition-colors ml-4 mt-0.5 text-xl leading-none">×</button>
+        </div>
+
+        {step === "phone" ? (
+          <form onSubmit={sendOtp} className="space-y-4">
+            <div>
+              <label className="block text-xs font-semibold text-muted uppercase tracking-wide mb-2">Phone Number</label>
+              <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)}
+                placeholder="+1 416 555 0123" required autoFocus className={inputCls} />
+            </div>
+            {error && <p className="text-red-400 text-sm">{error}</p>}
+            <button type="submit" disabled={loading || !phone}
+              className="w-full bg-primary hover:bg-primary-hover disabled:opacity-50 text-white font-bold py-3 rounded-dome transition-colors text-sm">
+              {loading ? "Sending…" : "Send Code"}
+            </button>
+          </form>
+        ) : (
+          <form onSubmit={verifyOtp} className="space-y-4">
+            <div>
+              <label className="block text-xs font-semibold text-muted uppercase tracking-wide mb-2">6-Digit Code</label>
+              <input ref={otpRef} type="text" value={otp}
+                onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                placeholder="000000" maxLength={6} required
+                className={`${inputCls} text-center text-2xl tracking-widest font-mono`} />
+            </div>
+            {error && <p className="text-red-400 text-sm">{error}</p>}
+            <button type="submit" disabled={loading || otp.length < 6}
+              className="w-full bg-primary hover:bg-primary-hover disabled:opacity-50 text-white font-bold py-3 rounded-dome transition-colors text-sm">
+              {loading ? "Verifying…" : "Verify & Continue"}
+            </button>
+            <button type="button" onClick={() => { setStep("phone"); setOtp(""); setError(""); }}
+              className="w-full text-sm text-muted hover:text-white transition-colors">
+              ← Change number
+            </button>
+          </form>
+        )}
+
+        <p className="text-xs text-muted text-center">Your booking selection is saved — you won&apos;t lose it.</p>
+      </div>
+    </div>
+  );
+}
+
+// ─── Main component ───────────────────────────────────────────────────────────
+
 interface Props {
   facilityId: string;
   facilityName: string;
@@ -128,6 +237,8 @@ export default function SlotBookingCta({ facilityId, facilityName, sport }: Prop
   const [selectedSport, setSelectedSport] = useState<string | null>(null);
   const [bookingLoading, setBookingLoading] = useState(false);
   const [bookingError, setBookingError] = useState("");
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const pendingAction = useRef<(() => Promise<void>) | null>(null);
 
   // Coupon state
   const [couponInput, setCouponInput] = useState("");
@@ -237,7 +348,7 @@ export default function SlotBookingCta({ facilityId, facilityName, sport }: Prop
   useEffect(() => {
     const user = getStoredUser();
     if (!user) return;
-    const token = typeof window !== "undefined" ? localStorage.getItem("dome_token") : null;
+    const token = getToken();
     if (!token) return;
     fetch(`${API_URL}/users/me/credits`, { headers: { Authorization: `Bearer ${token}` } })
       .then((r) => r.json())
@@ -246,6 +357,23 @@ export default function SlotBookingCta({ facilityId, facilityName, sport }: Prop
       })
       .catch(() => null);
   }, []);
+
+  // Run an action — if not logged in, show auth modal first then retry
+  function requireAuth(action: () => Promise<void>) {
+    if (getStoredUser()) {
+      void action();
+    } else {
+      pendingAction.current = action;
+      setShowAuthModal(true);
+    }
+  }
+
+  function onAuthSuccess() {
+    setShowAuthModal(false);
+    const action = pendingAction.current;
+    pendingAction.current = null;
+    if (action) void action();
+  }
 
   function courtKey(court: AvailableCourt) {
     return court.isShared ? `${court.id}:${court.sport}` : court.id;
@@ -270,7 +398,7 @@ export default function SlotBookingCta({ facilityId, facilityName, sport }: Prop
   async function handleBook() {
     if (!selectedCourts.length || !startTime) return;
     const user = getStoredUser();
-    if (!user) { router.push("/profile"); return; }
+    if (!user) { requireAuth(handleBook); return; }
 
     setBookingLoading(true);
     setBookingError("");
@@ -352,7 +480,7 @@ export default function SlotBookingCta({ facilityId, facilityName, sport }: Prop
   async function handleSetAlert() {
     if (!startTime || !endTime) return;
     const user = getStoredUser();
-    if (!user) { router.push("/profile"); return; }
+    if (!user) { requireAuth(handleSetAlert); return; }
     setAlertLoading(true);
     try {
       await apiFetch("/alerts", {
@@ -378,7 +506,7 @@ export default function SlotBookingCta({ facilityId, facilityName, sport }: Prop
     const code = couponInput.trim().toUpperCase();
     if (!code) return;
     const user = getStoredUser();
-    if (!user) { router.push("/profile"); return; }
+    if (!user) { requireAuth(handleValidateCoupon); return; }
     setCouponLoading(true);
     setCouponError("");
     const courtSubtotal = selectedCourts.reduce((s, c) => s + c.totalPriceCAD, 0);
@@ -980,6 +1108,14 @@ export default function SlotBookingCta({ facilityId, facilityName, sport }: Prop
               : "Tax calculated at checkout · Courts held for 5 minutes"}
           </p>
         </div>
+      )}
+
+      {/* Auth modal — shown when unauthenticated user tries to book */}
+      {showAuthModal && (
+        <AuthModal
+          onSuccess={onAuthSuccess}
+          onClose={() => { setShowAuthModal(false); pendingAction.current = null; }}
+        />
       )}
     </div>
   );
