@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
   FlatList,
+  Modal,
   Platform,
   Pressable,
   RefreshControl,
@@ -60,6 +61,14 @@ const SKILL_COLOR: Record<string, string> = {
 };
 
 const SPORTS = ["BADMINTON", "PICKLEBALL", "TENNIS", "BASKETBALL", "SOCCER", "VOLLEYBALL", "HOCKEY", "CRICKET"];
+
+type SortKey = "soonest" | "latest" | "most_players" | "most_open";
+const SORT_OPTIONS: { key: SortKey; label: string; icon: string }[] = [
+  { key: "soonest",      label: "Soonest First",  icon: "📅" },
+  { key: "latest",       label: "Latest Date",    icon: "🗓" },
+  { key: "most_players", label: "Most Players",   icon: "👥" },
+  { key: "most_open",    label: "Most Open",      icon: "🟢" },
+];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -433,6 +442,8 @@ export default function ConnectScreen() {
   const unreadMessages  = threads.reduce((s, t) => s + (t.unreadCount ?? 0), 0);
 
   const [sportFilter, setSportFilter] = useState<string | null>(null);
+  const [sortBy, setSortBy]           = useState<SortKey>("soonest");
+  const [showSort, setShowSort]       = useState(false);
   const [joinedIds, setJoinedIds]     = useState<Set<string>>(new Set());
 
   const gamesFilter = useMemo<GamesFilter>(() => {
@@ -448,7 +459,21 @@ export default function ConnectScreen() {
     useCallback(() => { void refetch(); }, [refetch])
   );
 
-  const filtered = games;
+  const filtered = useMemo(() => {
+    const arr = [...games];
+    switch (sortBy) {
+      case "soonest":
+        return arr.sort((a, b) => (a.gameDate ?? "9999").localeCompare(b.gameDate ?? "9999"));
+      case "latest":
+        return arr.sort((a, b) => (b.gameDate ?? "").localeCompare(a.gameDate ?? ""));
+      case "most_players":
+        return arr.sort((a, b) => (b.playersConfirmed ?? 0) - (a.playersConfirmed ?? 0));
+      case "most_open":
+        return arr.sort((a, b) => (b.spotsLeft ?? 0) - (a.spotsLeft ?? 0));
+      default:
+        return arr;
+    }
+  }, [games, sortBy]);
 
   // My active games
   const myGames = useMemo(() => {
@@ -577,32 +602,43 @@ export default function ConnectScreen() {
 
       {/* ── Filter section ──────────────────────────────────────────────────── */}
       <View style={styles.filterSection}>
-        {/* Sport filters */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.filterRow}
-        >
-          <Pressable
-            style={[styles.pill, sportFilter === null && styles.pillActive]}
-            onPress={() => setSportFilter(null)}
+        {/* Sport pills + Sort button row */}
+        <View style={styles.filterBarRow}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.filterRow}
           >
-            <Text style={[styles.pillText, sportFilter === null && styles.pillTextActive]}>
-              🏟 All
-            </Text>
-          </Pressable>
-          {SPORTS.map((s) => (
             <Pressable
-              key={s}
-              style={[styles.pill, sportFilter === s && styles.pillActive]}
-              onPress={() => setSportFilter(sportFilter === s ? null : s)}
+              style={[styles.pill, sportFilter === null && styles.pillActive]}
+              onPress={() => setSportFilter(null)}
             >
-              <Text style={[styles.pillText, sportFilter === s && styles.pillTextActive]}>
-                {SPORT_EMOJI[s]} {s.charAt(0) + s.slice(1).toLowerCase()}
+              <Text style={[styles.pillText, sportFilter === null && styles.pillTextActive]}>
+                🏟 All
               </Text>
             </Pressable>
-          ))}
-        </ScrollView>
+            {SPORTS.map((s) => (
+              <Pressable
+                key={s}
+                style={[styles.pill, sportFilter === s && styles.pillActive]}
+                onPress={() => setSportFilter(sportFilter === s ? null : s)}
+              >
+                <Text style={[styles.pillText, sportFilter === s && styles.pillTextActive]}>
+                  {SPORT_EMOJI[s]} {s.charAt(0) + s.slice(1).toLowerCase()}
+                </Text>
+              </Pressable>
+            ))}
+          </ScrollView>
+
+          {/* Sort dropdown trigger */}
+          <Pressable style={styles.sortBtn} onPress={() => setShowSort(true)}>
+            <Ionicons name="funnel-outline" size={14} color={C.text} />
+            <Text style={styles.sortBtnText} numberOfLines={1}>
+              {SORT_OPTIONS.find((o) => o.key === sortBy)?.label ?? "Sort"}
+            </Text>
+            <Ionicons name="chevron-down" size={12} color={C.muted} />
+          </Pressable>
+        </View>
 
         {/* Post Game CTA */}
         <Pressable
@@ -612,6 +648,30 @@ export default function ConnectScreen() {
           <Text style={styles.postBtnText}>＋  POST A GAME</Text>
         </Pressable>
       </View>
+
+      {/* ── Sort Modal ──────────────────────────────────────────────────────── */}
+      <Modal visible={showSort} transparent animationType="fade" onRequestClose={() => setShowSort(false)}>
+        <Pressable style={styles.sortOverlay} onPress={() => setShowSort(false)}>
+          <View style={styles.sortSheet}>
+            <Text style={styles.sortSheetTitle}>Sort Games</Text>
+            {SORT_OPTIONS.map((opt) => (
+              <Pressable
+                key={opt.key}
+                style={[styles.sortOption, sortBy === opt.key && styles.sortOptionActive]}
+                onPress={() => { setSortBy(opt.key); setShowSort(false); }}
+              >
+                <Text style={styles.sortOptionIcon}>{opt.icon}</Text>
+                <Text style={[styles.sortOptionLabel, sortBy === opt.key && styles.sortOptionLabelActive]}>
+                  {opt.label}
+                </Text>
+                {sortBy === opt.key && (
+                  <Ionicons name="checkmark" size={16} color={C.primary} style={{ marginLeft: "auto" }} />
+                )}
+              </Pressable>
+            ))}
+          </View>
+        </Pressable>
+      </Modal>
 
       {/* ── Game list ───────────────────────────────────────────────────────── */}
       {error ? (
@@ -748,8 +808,9 @@ const styles = StyleSheet.create({
   statDivider: { width: 1, backgroundColor: C.border, marginVertical: 4 },
 
   // Filter section
-  filterSection: { paddingBottom: 12 },
-  filterRow:     { paddingHorizontal: 16, gap: 8, alignItems: "center" },
+  filterSection:  { paddingBottom: 12 },
+  filterBarRow:   { flexDirection: "row", alignItems: "center", marginBottom: 0 },
+  filterRow:      { paddingHorizontal: 16, gap: 8, alignItems: "center" },
   pill: {
     paddingHorizontal: 14, paddingVertical: 8,
     borderRadius: 20, backgroundColor: C.surface,
@@ -757,6 +818,39 @@ const styles = StyleSheet.create({
   pillActive:     { backgroundColor: C.primary },
   pillText:       { color: C.text, fontSize: 13, fontWeight: "500" },
   pillTextActive: { color: "#fff", fontWeight: "700" },
+
+  // Sort button
+  sortBtn: {
+    flexDirection: "row", alignItems: "center", gap: 4,
+    backgroundColor: C.surface, borderRadius: 20,
+    paddingHorizontal: 10, paddingVertical: 8,
+    marginRight: 16, flexShrink: 0,
+  },
+  sortBtnText: { color: C.text, fontSize: 12, fontWeight: "600", maxWidth: 80 },
+
+  // Sort modal
+  sortOverlay: {
+    flex: 1, backgroundColor: "rgba(0,0,0,0.35)",
+    justifyContent: "flex-end",
+  },
+  sortSheet: {
+    backgroundColor: "#fff", borderTopLeftRadius: 24, borderTopRightRadius: 24,
+    paddingHorizontal: 20, paddingTop: 20, paddingBottom: 40, gap: 4,
+  },
+  sortSheetTitle: {
+    color: C.muted, fontSize: 11, fontWeight: "800",
+    letterSpacing: 1.5, textTransform: "uppercase",
+    marginBottom: 12,
+  },
+  sortOption: {
+    flexDirection: "row", alignItems: "center", gap: 12,
+    paddingVertical: 14, paddingHorizontal: 12,
+    borderRadius: 14,
+  },
+  sortOptionActive:      { backgroundColor: "#FFF5F7" },
+  sortOptionIcon:        { fontSize: 18, width: 24, textAlign: "center" },
+  sortOptionLabel:       { color: C.text, fontSize: 15, fontWeight: "500" },
+  sortOptionLabelActive: { color: C.primary, fontWeight: "700" },
 
   // Post Game button
   postBtn: {
